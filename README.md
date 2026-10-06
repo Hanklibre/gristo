@@ -13,8 +13,11 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
 * **Humanize:** anchors stay tight while ghost notes breathe. Drift is
   correlated like a player's, weak notes lean into the swing, and the groove's
   shape is never broken.
-* **Random:** Beads-style random amounts on Flam (per hit), Shuffle (per beat)
-  and the map position (per bar).
+* **Random:** Beads-style random amounts on Flam / Rolls (per hit), Shuffle
+  (per beat), the map position and each voice's Fill (per bar).
+* **Per voice:** Fill, Fill Random, Probability, Humanize, Dynamics, MIDI note
+  and Mute, laid out as a mixer-style grid. Hover any control for a one-line
+  explanation.
 * **Output:** MIDI notes with a selectable note per voice (GM drum map by
   default) on a chosen channel, plus a built-in preview kit, so it makes sound
   straight away.

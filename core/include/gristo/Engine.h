@@ -14,7 +14,9 @@ struct DynamicsParams
     // at velLow, and ghost-level hits (just above the Fill threshold) below that.
     std::array<float, kNumVoices> velLow { 0.62f, 0.6f, 0.5f, 0.55f, 0.55f, 0.55f };
     std::array<float, kNumVoices> velHigh { 1.0f, 1.0f, 0.85f, 0.9f, 0.9f, 0.9f };
-    float dynamics = 0.6f; // 0 = flat, 1 = map level strongly shapes velocity
+    float dynamics = 0.6f; // master: 0 = flat, 1 = map level strongly shapes velocity
+    // Per-voice scale of the master Dynamics (0..2); the product is clamped to 1.
+    std::array<float, kNumVoices> voiceDynamics { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
 struct EngineParams

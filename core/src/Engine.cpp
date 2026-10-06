@@ -6,7 +6,6 @@
 namespace gristo {
 
 namespace {
-constexpr float kRollVelocity[3] = { 0.55f, 0.72f, 1.0f };
 constexpr float kMinVelocity = 1.0f / 127.0f;
 constexpr int kMaxStepsPerBlock = 4096;
 } // namespace
@@ -34,7 +33,8 @@ float Engine::velocityFor(const VoiceHit& hit, int voice) const
     // barely-there notes become ghosts, solid notes reach velLow.
     const float span = std::max(1e-3f, kAccentLevel - hit.threshold);
     const float t = std::clamp((hit.level - hit.threshold) / span, 0.0f, 1.0f);
-    return lo * (1.0f - std::clamp(d.dynamics, 0.0f, 1.0f) * 0.6f * (1.0f - t));
+    const float dynamics = std::clamp(d.dynamics * d.voiceDynamics[static_cast<size_t>(voice)], 0.0f, 1.0f);
+    return lo * (1.0f - dynamics * 0.6f * (1.0f - t));
 }
 
 HitInfo Engine::describe(std::int64_t step, int voice, double bpm, bool withHumanize) const
@@ -59,7 +59,7 @@ HitInfo Engine::describe(const StepHits& hits, std::int64_t step, int voice, dou
 
     h.velocity = velocityFor(vh, voice);
     const double nextGrid = Groove::gridPosition(g, step + 1);
-    h.rollCount = Groove::rollCount(g, voice);
+    h.rollCount = Groove::rollCount(g, voice, step);
     h.rollSpacingBeats = (nextGrid - h.gridBeats) / h.rollCount;
 
     if (withHumanize && params_.humanize.amount > 0.0f)
@@ -93,7 +93,9 @@ void Engine::schedule(const HitInfo& hit, int voice)
         if (hit.rollCount > 1)
         {
             off = on + std::min(length, 0.9 * hit.rollSpacingBeats);
-            velocity = std::max(kMinVelocity, hit.velocity * kRollVelocity[std::min(k, 2)]);
+            // Crescendo into the last hit of the roll.
+            const float ramp = 0.55f + 0.45f * static_cast<float>(k) / static_cast<float>(hit.rollCount - 1);
+            velocity = std::max(kMinVelocity, hit.velocity * ramp);
         }
 
         // A new note-on cuts the previous note of the same voice.

@@ -6,7 +6,9 @@ namespace gristo {
 
 struct HumanizeParams
 {
-    float amount = 0.0f; // 0..1
+    float amount = 0.0f; // 0..1, master
+    // Per-voice scale of the master amount (0..2); the product is clamped to 1.
+    std::array<float, kNumVoices> voiceAmount { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     bool lock = false;   // repeat the same deviations every pattern cycle (2 bars)
     std::uint32_t seed = 0x68756d61u;
 };

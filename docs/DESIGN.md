@@ -70,9 +70,24 @@ around its knob value. Each is sampled and held at a rate that suits it:
 | Flam ms (Flam / Slop) | 0 … 2 × Flam ms | per hit. Kick and snare roll independently; in Slop the hats follow the snare's roll |
 | Shuffle | ± 3 shuffle rows | per groove cell (one beat; two for Clave), so cells still start on time and order is kept |
 | Map X / Y | ± 0.5 of the map on each axis | per bar. The map pad shows the range as a box and the current bar's position as a dot |
+| Fill (per voice) | ± 0.35 | per bar, per voice: some bars busy, some sparse |
+| Rolls (Feel Random) | 2 … 5 hits per roll (default 3) | per roll; the roll crescendos into its last hit |
 
 As with everything else, the values are hashed from (seed, position). Playback
 and bounces match, and *Variation* re-rolls them.
+
+## Per-voice Humanize and Dynamics
+
+The Humanize and Dynamics knobs are masters. Each voice has its own Humanize
+and Dynamics (0–200 %, default 100 %) that scale the master; the result is
+capped at 100 %. Kick at 0 % Humanize stays exactly on the grid while the hats
+breathe. Hats at 0 % Dynamics play every non-accented note at the same
+velocity.
+
+## Help box
+
+Hovering any control shows a one-line explanation in the box at the top of the
+window.
 
 ## MIDI out notes
 

@@ -35,6 +35,7 @@ void usage()
         "  --flam-rnd F           random flam amount (0..1, per hit)\n"
         "  --shuffle-rnd F        random shuffle amount (0..1, per beat)\n"
         "  --map-rnd F            random map position amount (0..1, per bar)\n"
+        "  --fill-rnd F           random fill amount for all voices (0..1, per bar)\n"
         "  --humanize F           0..1\n"
         "  --lock                 humanize repeats every 2 bars\n"
         "  --linear               linear mode\n"
@@ -112,6 +113,7 @@ int main(int argc, char** argv)
         else if (a == "--flam-ms") params.groove.feelMs = std::strtof(next(), nullptr);
         else if (a == "--flam-rnd") params.groove.feelRandom = std::strtof(next(), nullptr);
         else if (a == "--shuffle-rnd") params.groove.shuffleRandom = std::strtof(next(), nullptr);
+        else if (a == "--fill-rnd") params.pattern.fillRandom.fill(std::strtof(next(), nullptr));
         else if (a == "--map-rnd") params.pattern.mapRandom = std::strtof(next(), nullptr);
         else if (a == "--humanize") params.humanize.amount = std::strtof(next(), nullptr);
         else if (a == "--lock") params.humanize.lock = true;

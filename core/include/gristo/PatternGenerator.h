@@ -18,6 +18,9 @@ struct PatternParams
     // X and Y each move up to +-0.5 * mapRandom around (mapX, mapY).
     float mapRandom = 0.0f;
     std::array<float, kNumVoices> fill { 0.6f, 0.55f, 0.6f, 0.35f, 0.4f, 0.35f };
+    // Beads-style random modulation of Fill, per voice, sampled and held per bar:
+    // Fill moves up to +-0.35 * fillRandom.
+    std::array<float, kNumVoices> fillRandom {};
     // Chance (0..1) that a hit which passes Fill actually plays. Rolled per absolute
     // step, so every bar differs but a re-render is identical.
     std::array<float, kNumVoices> probability { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
@@ -49,6 +52,11 @@ public:
     StepHits evaluate(const PatternParams& params, std::int64_t absoluteStep) const;
 
     static void applyLinear(StepHits& hits);
+
+    // Fill in effect for a voice in the bar containing absoluteStep (after Fill Random).
+    static float fillAt(const PatternParams& params, int voice, std::int64_t absoluteStep);
+
+    static constexpr float kFillRandomSpan = 0.35f;
 
     // Map position in effect for the bar containing absoluteStep (after Map Random).
     static std::pair<float, float> mapPositionAt(const PatternParams& params, std::int64_t absoluteStep);

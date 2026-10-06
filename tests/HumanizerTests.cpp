@@ -157,3 +157,24 @@ TEST("humanize: neighbouring notes are correlated (drift, not white noise)")
     const double corr = cov / std::sqrt((sxx / n - (sx / n) * (sx / n)) * (syy / n - (sy / n) * (sy / n)));
     CHECK_MSG(corr > 0.2, "correlation " << corr);
 }
+
+TEST("humanize: per-voice amount scales the master")
+{
+    GrooveParams g;
+    HumanizeParams master;
+    master.amount = 1.0f;
+    HumanizeParams half = master;
+    half.amount = 0.5f;
+    half.voiceAmount[Snare] = 2.0f;
+    HumanizeParams off = master;
+    off.voiceAmount[Kick] = 0.0f;
+    for (std::int64_t s = 0; s < 128; ++s)
+    {
+        const HumanizeResult a = Humanizer::apply(master, inputFor(g, Snare, s, 0.4f, false));
+        const HumanizeResult b = Humanizer::apply(half, inputFor(g, Snare, s, 0.4f, false));
+        CHECK_NEAR(a.offsetBeats, b.offsetBeats, 1e-12);
+        CHECK_NEAR(a.velocityScale, b.velocityScale, 1e-6);
+        const HumanizeResult k = Humanizer::apply(off, inputFor(g, Kick, s, 0.4f, false));
+        CHECK(k.offsetBeats == 0.0 && k.velocityScale == 1.0f);
+    }
+}

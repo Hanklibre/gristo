@@ -12,6 +12,7 @@ constexpr std::uint32_t kProbabilityStream = 0x9B0B0u;
 constexpr std::uint32_t kMapXStream = 0x3A9F0u;
 constexpr std::uint32_t kMapYStream = 0x3A9F1u;
 constexpr float kMapRandomSpan = 0.5f;
+constexpr std::uint32_t kFillRandomStream = 0xF111Au;
 constexpr float kChaosDepth = 0.45f;
 } // namespace
 
@@ -24,6 +25,19 @@ std::pair<float, float> PatternGenerator::mapPositionAt(const PatternParams& p, 
     const float x = p.mapX + r * rnd::bipolar(rnd::hash(p.seed, kMapXStream, bar));
     const float y = p.mapY + r * rnd::bipolar(rnd::hash(p.seed, kMapYStream, bar));
     return { std::clamp(x, 0.0f, 1.0f), std::clamp(y, 0.0f, 1.0f) };
+}
+
+float PatternGenerator::fillAt(const PatternParams& p, int voice, std::int64_t absoluteStep)
+{
+    const auto v = static_cast<size_t>(voice);
+    float fill = p.fill[v];
+    if (p.fillRandom[v] > 0.0f)
+    {
+        const std::int64_t bar = floorDiv(absoluteStep, kStepsPerBar);
+        const float u = rnd::bipolar(rnd::hash(p.seed, kFillRandomStream + static_cast<std::uint32_t>(voice), bar));
+        fill += std::clamp(p.fillRandom[v], 0.0f, 1.0f) * kFillRandomSpan * u;
+    }
+    return std::clamp(fill, 0.0f, 1.0f);
 }
 
 StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absoluteStep) const
@@ -43,7 +57,7 @@ StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absolut
         }
         VoiceHit& h = hits[static_cast<size_t>(v)];
         h.level = level;
-        h.threshold = 1.0f - std::clamp(p.fill[static_cast<size_t>(v)], 0.0f, 1.0f);
+        h.threshold = 1.0f - fillAt(p, v, absoluteStep);
         h.on = level > h.threshold && level > 0.0f && !p.mute[static_cast<size_t>(v)];
 
         const float probability = std::clamp(p.probability[static_cast<size_t>(v)], 0.0f, 1.0f);

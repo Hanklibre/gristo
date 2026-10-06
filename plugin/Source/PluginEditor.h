@@ -103,6 +103,12 @@ private:
     };
 
     void timerCallback() override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseEnter(const juce::MouseEvent&) override;
+    void showHelpFor(juce::Component* component);
+    static void setHelp(juce::Component& component, const juce::String& title, const juce::String& text);
+    static void setHelp(Knob& knob, const juce::String& title, const juce::String& text);
+    void setupCellKnob(Knob&, const juce::String& paramId, bool isRandom);
     void setupKnob(Knob&, const juce::String& paramId, const juce::String& text);
     void setupRandomKnob(Knob&, const juce::String& paramId, const juce::String& text);
     void setupToggle(Toggle&, const juce::String& paramId, const juce::String& text);
@@ -123,6 +129,11 @@ private:
     Toggle mutes_[gristo::kNumVoices];
     std::unique_ptr<NoteSelector> notes_[gristo::kNumVoices];
     Knob mapRandom_, shuffleRandom_, feelRandom_;
+    Knob fillRandoms_[gristo::kNumVoices];
+    Knob voiceHumanize_[gristo::kNumVoices];
+    Knob voiceDynamics_[gristo::kNumVoices];
+    Knob midiChannel_, noteLength_;
+    juce::String helpTitle_, helpText_;
     Choice timing_, feeling_;
     Knob shuffle_, feelMs_;
     Knob humanize_, dynamics_;

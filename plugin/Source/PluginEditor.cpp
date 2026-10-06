@@ -22,7 +22,14 @@ const juce::Colour kVoiceColours[gristo::kNumVoices] = {
 };
 
 constexpr int kWidth = 1000;
-constexpr int kHeight = 780;
+constexpr int kHeight = 860;
+
+// Voices matrix geometry
+constexpr int kVoiceX0 = 452;
+constexpr int kVoiceColW = 88;
+constexpr int kVoiceRowY[] = { 342, 398, 454, 510, 566 };
+constexpr int kVoiceRowH = 54;
+const char* const kVoiceRowNames[] = { "Fill", "Random", "Probability", "Humanize", "Dynamics" };
 
 void drawPanel(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title)
 {
@@ -408,8 +415,11 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
     setupRandomKnob(mapRandom_, p::mapRandom, "Map Random");
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
-        setupKnob(fills_[v], p::voiceId(p::fill, v), "Fill");
-        setupKnob(probabilities_[v], p::voiceId(p::probability, v), "Probability");
+        setupCellKnob(fills_[v], p::voiceId(p::fill, v), false);
+        setupCellKnob(fillRandoms_[v], p::voiceId(p::fillRandom, v), true);
+        setupCellKnob(probabilities_[v], p::voiceId(p::probability, v), false);
+        setupCellKnob(voiceHumanize_[v], p::voiceId(p::voiceHumanize, v), false);
+        setupCellKnob(voiceDynamics_[v], p::voiceId(p::voiceDynamics, v), false);
         setupToggle(mutes_[v], p::voiceId(p::mute, v), "Mute");
         notes_[v] = std::make_unique<NoteSelector>(*proc.state.getParameter(p::voiceId(p::note, v)));
         addAndMakeVisible(*notes_[v]);
@@ -428,11 +438,85 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
     setupKnob(kitGain_, p::kitGain, "Kit Level");
     setupToggle(freeRun_, p::freeRun, "Free Run");
     setupKnob(freeTempo_, p::freeTempo, "Tempo");
+    setupKnob(midiChannel_, p::midiChannel, "MIDI Ch");
+    setupKnob(noteLength_, p::noteLength, "Note Len");
+
+    // Concise help, shown in the header box while hovering.
+    setHelp(mapPad_, "Map", "Drag to morph between 36 grooves. Left-right: straight to syncopated. Top-bottom: four-on-the-floor to broken / halftime.");
+    setHelp(patternView_, "Pattern", "The 2 bars playing now, drawn where each note lands. Grey ticks = straight grid, outlines = notes skipped by Probability.");
+    setHelp(chaos_, "Chaos", "Randomly raises and lowers step levels every 2 bars, adding and removing notes.");
+    setHelp(mapRandom_, "Map Random", "Moves the map position randomly around the crosshair, to a new spot every bar.");
+    setHelp(variation_, "Variation", "Picks a different set of random choices for Chaos, Probability, Humanize and all Random knobs.");
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        const juce::String name = gristo::voiceName(v);
+        setHelp(fills_[v], name + " Fill", "How many notes this voice plays. Low = backbone only, high = ghost notes and fills.");
+        setHelp(fillRandoms_[v], name + " Fill Random", "Varies this voice's Fill every bar, up to +-35 %. Busy bars and sparse bars.");
+        setHelp(probabilities_[v], name + " Probability", "Chance that each note plays. Skipped notes differ every bar but repeat on re-render.");
+        setHelp(voiceHumanize_[v], name + " Humanize", "Scales the master Humanize for this voice. 0 % = on the grid, 200 % = twice as loose.");
+        setHelp(voiceDynamics_[v], name + " Dynamics", "Scales the master Dynamics for this voice: how much softer its weaker notes are.");
+        setHelp(*notes_[v], name + " Note", "MIDI note this voice sends. Click for a list with drum names, scroll to step.");
+        setHelp(mutes_[v].button, name + " Mute", "Silence this voice. In Linear mode its slots go to the next voice in line.");
+    }
+    setHelp(timing_.box, "Timing", "How the 16ths move. Trip: tuplet snaps. Shake: MPC swing. Push: leans early. Clave: swings around 3-3-2.");
+    setHelp(feeling_.box, "Feeling", "Tight: all together. Rolls: Hihat 2 plays rolls. Flam: kick and snare late. Slop: Flam, hats follow.");
+    setHelp(shuffle_, "Shuffle", "Depth of the Timing model. 0 = straight, 6 = extreme.");
+    setHelp(shuffleRandom_, "Shuffle Random", "Varies the Shuffle depth from beat to beat, up to +-3.");
+    setHelp(feelMs_, "Flam ms", "How late kick and snare land in the Flam and Slop feelings.");
+    setHelp(feelRandom_, "Feel Random", "Flam / Slop: each hit's delay varies 0 to 2x. Rolls: each roll has 2 to 5 hits.");
+    setHelp(humanize_, "Humanize", "Player-like timing and velocity variation. Downbeats stay tight, ghost notes loosen up.");
+    setHelp(dynamics_, "Dynamics", "How much softer the weaker notes of the pattern are played. 0 = all the same.");
+    setHelp(lock_.button, "Lock", "Humanize repeats every 2 bars instead of varying bar to bar.");
+    setHelp(linear_.button, "Linear", "One limb at a time: snare beats kick beats hats and percussion on the same step.");
+    setHelp(kitOn_.button, "Kit", "Built-in preview drums. Turn off when you play your own drums from the MIDI output.");
+    setHelp(kitGain_, "Kit Level", "Volume of the built-in preview drums.");
+    setHelp(freeRun_.button, "Free Run", "Play at the Tempo knob while the host transport is stopped (or in the standalone app).");
+    setHelp(freeTempo_, "Tempo", "Tempo for Free Run.");
+    setHelp(midiChannel_, "MIDI Channel", "Channel all notes are sent on. 10 = General MIDI drums.");
+    setHelp(noteLength_, "Note Length", "Length of the MIDI notes, in beats.");
+
+    helpTitle_ = "Gristo";
+    helpText_ = "Hover over any control to see what it does.";
+    addMouseListener(this, true);
 
     setSize(kWidth, kHeight);
     timerCallback();
     startTimerHz(30);
 }
+
+void GristoEditor::setHelp(juce::Component& component, const juce::String& title, const juce::String& text)
+{
+    component.getProperties().set("helpTitle", title);
+    component.getProperties().set("helpText", text.replace("+-", juce::String::fromUTF8("\xc2\xb1")));
+}
+
+void GristoEditor::setHelp(Knob& knob, const juce::String& title, const juce::String& text)
+{
+    setHelp(knob.slider, title, text);
+    setHelp(knob.label, title, text);
+}
+
+void GristoEditor::showHelpFor(juce::Component* component)
+{
+    for (auto* c = component; c != nullptr && c != this; c = c->getParentComponent())
+    {
+        if (c->getProperties().contains("helpTitle"))
+        {
+            const juce::String title = c->getProperties()["helpTitle"];
+            const juce::String text = c->getProperties()["helpText"];
+            if (title != helpTitle_ || text != helpText_)
+            {
+                helpTitle_ = title;
+                helpText_ = text;
+                repaint(372, 4, 612, 42);
+            }
+            return;
+        }
+    }
+}
+
+void GristoEditor::mouseMove(const juce::MouseEvent& e) { showHelpFor(e.originalComponent); }
+void GristoEditor::mouseEnter(const juce::MouseEvent& e) { showHelpFor(e.originalComponent); }
 
 GristoEditor::~GristoEditor()
 {
@@ -462,6 +546,15 @@ void GristoEditor::setupRandomKnob(Knob& k, const juce::String& paramId, const j
     k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 48, 14);
     k.label.setFont(juce::FontOptions(11.0f));
     k.label.setColour(juce::Label::textColourId, colours::random);
+}
+
+void GristoEditor::setupCellKnob(Knob& k, const juce::String& paramId, bool isRandom)
+{
+    setupKnob(k, paramId, {});
+    k.label.setVisible(false);
+    k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 14);
+    if (isRandom)
+        k.slider.getProperties().set("random", true);
 }
 
 void GristoEditor::setupToggle(Toggle& t, const juce::String& paramId, const juce::String& text)
@@ -510,69 +603,98 @@ void GristoEditor::timerCallback()
 void GristoEditor::paint(juce::Graphics& g)
 {
     g.fillAll(colours::background);
-    auto header = getLocalBounds().removeFromTop(44).reduced(16, 0);
+    auto header = getLocalBounds().removeFromTop(48).reduced(16, 0);
     g.setColour(colours::text);
     g.setFont(juce::FontOptions(22.0f, juce::Font::bold));
-    g.drawText("GRISTO", header, juce::Justification::centredLeft);
+    g.drawText("GRISTO", header.removeFromLeft(120), juce::Justification::centredLeft);
     g.setColour(colours::dim);
-    g.setFont(juce::FontOptions(12.0f));
-    g.drawText("topographic drums, tripping over themselves", header.withTrimmedLeft(110), juce::Justification::centredLeft);
+    g.setFont(juce::FontOptions(11.0f));
+    g.drawFittedText("topographic drums,\ntripping over themselves", header.removeFromLeft(220), juce::Justification::centredLeft, 2);
 
-    drawPanel(g, { 16, 52, 344, 568 }, "Map");
-    drawPanel(g, { 372, 52, 612, 268 }, "Pattern");
-    drawPanel(g, { 372, 328, 612, 292 }, "Voices");
-    drawPanel(g, { 16, 628, 424, 136 }, "Groove");
-    drawPanel(g, { 452, 628, 260, 136 }, "Humanize / Dynamics");
-    drawPanel(g, { 724, 628, 260, 136 }, "Output");
+    // Help box
+    const juce::Rectangle<int> help { 372, 6, 612, 38 };
+    g.setColour(colours::panel);
+    g.fillRoundedRectangle(help.toFloat(), 6.0f);
+    g.setColour(colours::outline);
+    g.drawRoundedRectangle(help.toFloat().reduced(0.5f), 6.0f, 1.0f);
+    auto helpArea = help.reduced(10, 3);
+    g.setColour(colours::accent);
+    g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    g.drawText(helpTitle_, helpArea.removeFromTop(15), juce::Justification::centredLeft);
+    g.setColour(colours::text);
+    g.setFont(juce::FontOptions(11.5f));
+    g.drawFittedText(helpText_, helpArea, juce::Justification::topLeft, 1, 0.85f);
 
-    const int colW = 600 / gristo::kNumVoices;
+    drawPanel(g, { 16, 52, 344, 508 }, "Map");
+    drawPanel(g, { 16, 568, 344, 132 }, "Humanize / Dynamics");
+    drawPanel(g, { 372, 52, 612, 248 }, "Pattern");
+    drawPanel(g, { 372, 308, 612, 392 }, "Voices");
+    drawPanel(g, { 16, 708, 544, 136 }, "Groove");
+    drawPanel(g, { 572, 708, 412, 136 }, "Output");
+
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         g.setColour(kVoiceColours[v]);
-        g.drawText(gristo::voiceName(v), 378 + v * colW, 344, colW, 16, juce::Justification::centred);
+        g.drawText(gristo::voiceName(v), kVoiceX0 + v * kVoiceColW, 324, kVoiceColW, 16, juce::Justification::centred);
     }
+    g.setFont(juce::FontOptions(11.5f));
+    for (int r = 0; r < 5; ++r)
+    {
+        g.setColour(r == 1 ? colours::random : colours::dim);
+        g.drawText(kVoiceRowNames[r], 382, kVoiceRowY[r] + 12, 68, 16, juce::Justification::centredLeft);
+        if (r > 0)
+        {
+            g.setColour(colours::outline.withAlpha(0.35f));
+            g.drawHorizontalLine(kVoiceRowY[r] - 1, 382.0f, 974.0f);
+        }
+    }
+    g.setColour(colours::dim);
+    g.drawText("Note", 382, 630, 68, 16, juce::Justification::centredLeft);
 }
 
 void GristoEditor::resized()
 {
+    // Left column: map, then the humanize / dynamics masters
     mapPad_.setBounds(28, 78, 320, 320);
     nodeLabel_.setBounds(28, 404, 320, 20);
-    placeKnob(chaos_, { 28, 440, 104, 112 });
-    placeKnob(mapRandom_, { 136, 452, 104, 96 });
-    placeKnob(variation_, { 244, 440, 104, 112 });
+    placeKnob(chaos_, { 28, 436, 104, 112 });
+    placeKnob(mapRandom_, { 136, 448, 104, 96 });
+    placeKnob(variation_, { 244, 436, 104, 112 });
 
-    patternView_.setBounds(384, 74, 588, 236);
+    placeKnob(humanize_, { 28, 588, 96, 104 });
+    placeKnob(dynamics_, { 128, 588, 96, 104 });
+    lock_.button.setBounds(236, 604, 104, 26);
+    linear_.button.setBounds(236, 646, 104, 26);
 
-    const int colW = 600 / gristo::kNumVoices;
+    patternView_.setBounds(384, 74, 588, 216);
+
+    // Voices matrix: one column per voice, one row per parameter
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
-        const int x = 378 + v * colW;
-        placeKnob(fills_[v], { x, 362, colW, 88 });
-        placeKnob(probabilities_[v], { x, 452, colW, 88 });
-        notes_[v]->setBounds(x + 8, 548, colW - 16, 24);
-        mutes_[v].button.setBounds(x + colW / 2 - 28, 582, 56, 26);
+        const int x = kVoiceX0 + v * kVoiceColW;
+        Knob* rows[] = { &fills_[v], &fillRandoms_[v], &probabilities_[v], &voiceHumanize_[v], &voiceDynamics_[v] };
+        for (int r = 0; r < 5; ++r)
+            rows[r]->slider.setBounds(x + 4, kVoiceRowY[r], kVoiceColW - 8, kVoiceRowH);
+        notes_[v]->setBounds(x + 6, 626, kVoiceColW - 12, 24);
+        mutes_[v].button.setBounds(x + 16, 658, kVoiceColW - 32, 26);
     }
 
     // Groove
-    timing_.label.setBounds(28, 648, 80, 16);
-    timing_.box.setBounds(28, 666, 92, 26);
-    feeling_.label.setBounds(28, 700, 80, 16);
-    feeling_.box.setBounds(28, 718, 92, 26);
-    placeKnob(shuffle_, { 128, 648, 84, 104 });
-    placeKnob(shuffleRandom_, { 210, 668, 60, 84 });
-    placeKnob(feelMs_, { 276, 648, 84, 104 });
-    placeKnob(feelRandom_, { 358, 668, 60, 84 });
-
-    // Humanize
-    placeKnob(humanize_, { 460, 648, 84, 104 });
-    placeKnob(dynamics_, { 544, 648, 84, 104 });
-    lock_.button.setBounds(634, 668, 70, 26);
-    linear_.button.setBounds(634, 710, 70, 26);
+    timing_.label.setBounds(28, 728, 80, 16);
+    timing_.box.setBounds(28, 746, 100, 26);
+    feeling_.label.setBounds(28, 780, 80, 16);
+    feeling_.box.setBounds(28, 798, 100, 26);
+    placeKnob(shuffle_, { 150, 728, 90, 104 });
+    placeKnob(shuffleRandom_, { 238, 748, 64, 84 });
+    placeKnob(feelMs_, { 320, 728, 90, 104 });
+    placeKnob(feelRandom_, { 408, 748, 64, 84 });
 
     // Output
-    kitOn_.button.setBounds(734, 668, 70, 26);
-    freeRun_.button.setBounds(734, 710, 70, 26);
-    placeKnob(kitGain_, { 806, 648, 84, 104 });
-    placeKnob(freeTempo_, { 890, 648, 84, 104 });
+    kitOn_.button.setBounds(584, 748, 72, 26);
+    freeRun_.button.setBounds(584, 790, 72, 26);
+    placeKnob(kitGain_, { 664, 728, 78, 104 });
+    placeKnob(freeTempo_, { 742, 728, 78, 104 });
+    placeKnob(midiChannel_, { 820, 728, 78, 104 });
+    placeKnob(noteLength_, { 898, 728, 78, 104 });
 }

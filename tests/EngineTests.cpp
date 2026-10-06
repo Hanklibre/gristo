@@ -268,3 +268,38 @@ TEST("engine: random flam renders identically at any block size")
     for (size_t i = 0; i < std::min(ref.size(), got.size()); ++i)
         CHECK(ref[i].voice == got[i].voice && std::abs(ref[i].sample - got[i].sample) <= 1);
 }
+
+TEST("engine: per-voice dynamics 0 makes non-accented hits flat")
+{
+    EngineParams p;
+    p.pattern.fill.fill(1.0f);
+    p.dynamics.dynamics = 1.0f;
+    p.dynamics.voiceDynamics[HiHat1] = 0.0f;
+    Engine e;
+    e.setParams(p);
+    bool sawShapedSnare = false;
+    for (std::int64_t s = 0; s < kPatternSteps; ++s)
+    {
+        const HitInfo h = e.describe(s, HiHat1, 120.0, false);
+        if (h.on && !h.accent)
+            CHECK_NEAR(h.velocity, p.dynamics.velLow[HiHat1], 1e-6);
+        const HitInfo sn = e.describe(s, Snare, 120.0, false);
+        if (sn.on && !sn.accent && sn.velocity < p.dynamics.velLow[Snare] - 0.01f)
+            sawShapedSnare = true;
+    }
+    CHECK(sawShapedSnare);
+}
+
+TEST("engine: random roll counts render consistently")
+{
+    EngineParams p;
+    p.pattern.mapX = 0.0f;
+    p.pattern.mapY = 0.0f;
+    p.pattern.fill = { 0.0f, 0.0f, 0.0f, 0.6f, 0.0f, 0.0f };
+    p.groove.feeling = Feeling::Rolls;
+    p.groove.feelRandom = 1.0f;
+    const auto a = noteOns(render(p, 128, 48000 * 4));
+    const auto b = noteOns(render(p, 2048, 48000 * 4));
+    CHECK(a.size() == b.size());
+    CHECK(!a.empty());
+}

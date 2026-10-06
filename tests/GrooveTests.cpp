@@ -105,8 +105,8 @@ TEST("groove: feelings delay the right voices")
     CHECK(Groove::feelOffset(g, HiHat1, 0, bpm) > 0.0);
     CHECK_NEAR(Groove::feelOffset(g, Perc1, 0, bpm), 0.0, 1e-12);
     g.feeling = Feeling::Rolls;
-    CHECK(Groove::rollCount(g, HiHat2) == 3);
-    CHECK(Groove::rollCount(g, HiHat1) == 1);
+    CHECK(Groove::rollCount(g, HiHat2, 0) == 3);
+    CHECK(Groove::rollCount(g, HiHat1, 0) == 1);
 }
 
 TEST("random: shuffle random keeps downbeats fixed and positions monotonic")
@@ -182,4 +182,23 @@ TEST("random: flam random varies each hit within (1 +- r) x flam ms")
     g.feeling = Feeling::Tight;
     for (std::int64_t s = 0; s < 64; ++s)
         CHECK(Groove::feelOffset(g, Kick, s, bpm) == 0.0);
+}
+
+TEST("random: roll random gives 2..5 hits per roll")
+{
+    GrooveParams g;
+    g.feeling = Feeling::Rolls;
+    g.feelRandom = 1.0f;
+    int seen[6] = {};
+    for (std::int64_t s = 0; s < 2000; ++s)
+    {
+        const int n = Groove::rollCount(g, HiHat2, s);
+        CHECK(n >= 2 && n <= 5);
+        ++seen[n];
+        CHECK(Groove::rollCount(g, HiHat1, s) == 1);
+    }
+    for (int n = 2; n <= 5; ++n)
+        CHECK_MSG(seen[n] > 100, "count " << n << " seen " << seen[n]);
+    g.feelRandom = 0.0f;
+    CHECK(Groove::rollCount(g, HiHat2, 17) == 3);
 }

@@ -41,6 +41,7 @@ constexpr int kClaveAnchors[4] = { 0, 3, 6, 8 };
 
 constexpr std::uint32_t kShuffleRandomStream = 0x5A0FFu;
 constexpr std::uint32_t kFeelRandomStream = 0xF1A70u;
+constexpr std::uint32_t kRollRandomStream = 0x2011Fu;
 
 } // namespace
 
@@ -138,9 +139,14 @@ double Groove::feelOffset(const GrooveParams& p, int voice, std::int64_t absolut
     return 0.0;
 }
 
-int Groove::rollCount(const GrooveParams& p, int voice)
+int Groove::rollCount(const GrooveParams& p, int voice, std::int64_t absoluteStep)
 {
-    return (p.feeling == Feeling::Rolls && voice == HiHat2) ? 3 : 1;
+    if (p.feeling != Feeling::Rolls || voice != HiHat2)
+        return 1;
+    if (p.feelRandom <= 0.0f)
+        return 3;
+    const float u = rnd::bipolar(rnd::hash(p.seed, kRollRandomStream, absoluteStep));
+    return std::clamp(3 + static_cast<int>(std::lround(std::clamp(p.feelRandom, 0.0f, 1.0f) * 2.49f * u)), 2, 5);
 }
 
 } // namespace gristo

@@ -248,3 +248,36 @@ TEST("random: map random is held per bar, bounded, and changes the pattern")
     }
     CHECK(differences > 0);
 }
+
+TEST("random: fill random is held per bar per voice and stays in range")
+{
+    DrumMap map;
+    PatternGenerator gen(map);
+    PatternParams p;
+    p.fill.fill(0.5f);
+    CHECK(PatternGenerator::fillAt(p, Kick, 5) == 0.5f);
+    p.fillRandom[HiHat1] = 1.0f;
+    int barsDiffer = 0;
+    for (std::int64_t bar = 0; bar < 64; ++bar)
+    {
+        const float f = PatternGenerator::fillAt(p, HiHat1, bar * kStepsPerBar);
+        CHECK(std::abs(f - 0.5f) <= PatternGenerator::kFillRandomSpan + 1e-6f);
+        for (int s = 1; s < kStepsPerBar; ++s)
+            CHECK(PatternGenerator::fillAt(p, HiHat1, bar * kStepsPerBar + s) == f);
+        CHECK(PatternGenerator::fillAt(p, Kick, bar * kStepsPerBar) == 0.5f); // other voices untouched
+        barsDiffer += std::abs(f - PatternGenerator::fillAt(p, HiHat1, (bar + 1) * kStepsPerBar)) > 0.05f ? 1 : 0;
+    }
+    CHECK(barsDiffer > 40);
+
+    // Density of the hats changes between bars.
+    int minHits = 99, maxHits = 0;
+    for (std::int64_t bar = 0; bar < 32; ++bar)
+    {
+        int hits = 0;
+        for (int s = 0; s < kStepsPerBar; ++s)
+            hits += gen.evaluate(p, bar * kStepsPerBar + s)[HiHat1].on ? 1 : 0;
+        minHits = std::min(minHits, hits);
+        maxHits = std::max(maxHits, hits);
+    }
+    CHECK(maxHits > minHits);
+}

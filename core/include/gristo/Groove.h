@@ -36,7 +36,7 @@ struct GrooveParams
     // Beads-style random modulation amounts (0..1), sampled and held per beat for
     // Shuffle and per hit for the Flam / Slop delay.
     float shuffleRandom = 0.0f; // up to +-3 shuffle rows
-    float feelRandom = 0.0f;    // delay varies between (1 - r) and (1 + r) x feelMs
+    float feelRandom = 0.0f;    // Flam/Slop: delay varies (1 +- r) x feelMs; Rolls: 2..5 hits
     std::uint32_t seed = 0x67726f76u;
 };
 
@@ -56,8 +56,9 @@ public:
 
     static constexpr float kShuffleRandomRows = 3.0f;
 
-    // Number of hits a single step expands into (Rolls feeling on Hihat 2).
-    static int rollCount(const GrooveParams& p, int voice);
+    // Number of hits a single step expands into (Rolls feeling on Hihat 2): 3, or
+    // 2..5 per roll when feelRandom is up.
+    static int rollCount(const GrooveParams& p, int voice, std::int64_t absoluteStep);
 
     // Position of a step inside its cell, in steps (cell = 4 steps, or 8 for Clave),
     // for a single shuffle row. Exposed for tests and the UI.

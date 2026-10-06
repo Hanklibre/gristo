@@ -48,7 +48,8 @@ float Humanizer::structuralWeight(int voice, int stepInBar, float level, bool ac
 HumanizeResult Humanizer::apply(const HumanizeParams& p, const HumanizeInput& in)
 {
     HumanizeResult r;
-    const float amount = std::clamp(p.amount, 0.0f, 1.0f);
+    const float voiceScale = (in.voice >= 0 && in.voice < kNumVoices) ? p.voiceAmount[static_cast<size_t>(in.voice)] : 1.0f;
+    const float amount = std::clamp(p.amount * voiceScale, 0.0f, 1.0f);
     if (amount <= 0.0f)
         return r;
 
