@@ -1,0 +1,58 @@
+# Hip hop family: boom bap, lazy/lo-fi, trap halftime, new jack.
+# Original patterns written for Gristo.
+
+== boombap_a ==
+kick   X-----x---x-----|X-----x-x-----o-
+snare  ----X-------X---|----X-------X---
+hh1    x-x-x-x-x-x-x-x-|x-x-x-x-x-x-x-x-
+hh2    ----------------|--------------x-
+
+== boombap_b ==
+kick   X-------x-x---x-|X--x------x-----
+snare  ----X--o----X---|----X--o----X--o
+hh1    x-x-x-x-x-x-x-x-
+perc1  ----------------|------------x---
+
+== boombap_c ==
+kick   X--x---x--X-----|X--x-----xX-----
+snare  ----X-------X---|----X-----o-X---
+hh1    x-o-x-o-x-o-x-o-
+hh2    ------x---------|------x-------x-
+
+== boombap_sparse ==
+kick   X---------X-----|X---------x-----
+snare  ----X-------X---
+hh1    x---x---x---x---
+
+== lofi_lazy ==
+kick   X------x-x----x-|X-----x--x------
+snare  ----X-------X---|----X-------Xo--
+hh1    xoxoxoxoxoxoxoxo
+hh2    ----------------|-------------x--
+perc1  --o-----o-----o-|--o-----o---o---
+
+== lofi_rim ==
+kick   X-----x----x----|X--x--x---------
+snare  ----------------|---------------o
+hh1    x-xox-xox-xox-xo
+perc1  ----X-------X---|----X-------X--o
+perc2  ----------o-----|----------------
+
+== trap_a ==
+kick   X------x--x-----|X---------x---x-
+snare  --------X-------
+hh1    x-x-x-x-x-x-xxxx|x-x-x-xxx-x-x-x-
+perc1  --------X-------
+perc2  ----------------|------------x---
+
+== trap_b ==
+kick   X--x------x--x--|X-----x-x-------
+snare  --------X-------|--------X-----o-
+hh1    x-x-xxx-x-x-x-x-|x-xxx-x-x-x-xxxx
+perc2  ---x------------|-----------x----
+
+== newjack ==
+kick   X--x--x---X-----|X--x--x---X--x--
+snare  ----X-------X---|----X-------X-X-
+hh1    x-xxx-xxx-xxx-xx
+hh2    --------------x-

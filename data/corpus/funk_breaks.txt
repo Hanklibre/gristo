@@ -1,0 +1,52 @@
+# Funk, breakbeat and jungle-flavoured patterns.
+# Original patterns written for Gristo.
+
+== funk_a ==
+kick   X-x-------x--x--|X-x-----x-x-----
+snare  ----X--o-o--X--o|----X--o-o--X-o-
+hh1    xxxxxxxxxxxxxxxx
+hh2    --------------x-
+perc2  ----------------|----------x-x---
+
+== funk_b ==
+kick   X--x--x---x-----|X--x--x-x-----x-
+snare  ----X-------X--o|-o--X-------X---
+hh1    x-xxx-xxx-xxx-xx
+hh2    ----------x-----|--x-------------
+
+== funk_c ==
+kick   X-----x-X-----x-|X---x---x-x---x-
+snare  -o--X-oo-o--X-oo|-o--X-oo-o--Xo--
+hh1    x-x-x-x-x-x-x-x-
+perc2  ------------x---|----------------
+
+== break_a ==
+kick   X-x-------xx----|--x-------x--x--
+snare  ----X--o-o--X--o|-o--X--o-o--X---
+hh1    x-x-x-x-x-x-x-x-
+hh2    ----------------|--------------x-
+
+== break_b ==
+kick   X-----X---x-----|X-x---x---------
+snare  ----X-------X-oo|----X-----o-X---
+hh1    x-xxx-x-x-xxx-x-
+perc2  ----------------|--------------xx
+
+== break_c ==
+kick   X-x-------x-----|--x---x---x-----
+snare  ----X--o-o-xX--o|-o-xX--o-oX-X--o
+hh1    x-x-x-x-x-x-x-x-
+hh2    ----------------|---------x------
+
+== jungle ==
+kick   X---------x-----|X-x-------x-----
+snare  ----X--o---oX---|-o--X--o-o--X--o
+hh1    x-x-x-x-x-x-x-x-
+hh2    ----------x-----|--------------x-
+perc1  --o---o---o---o-
+
+== rock_half ==
+kick   X-------X-x-----|X-x-----X-----x-
+snare  ----X-------X---|----X-------X-oo
+hh1    x-x-x-x-x-x-x-x-
+hh2    ----------------|X---------------

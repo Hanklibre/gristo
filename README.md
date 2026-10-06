@@ -1,0 +1,73 @@
+# Gristo
+
+Gristo is a topographic drum generator that trips over itself. It's a VST3 / AU /
+standalone plugin that combines a Grids-style morphable 6-voice drum map with a
+Stolperbeats-style groove engine and adds a groove-aware humanizer.
+
+* **Map:** drag X/Y through 36 grooves (boom bap, breaks, house, afrobeat,
+  trap and more). Morph between them, sculpt each voice with Fill, and add
+  Chaos.
+* **Groove:** Trip / Shake / Push / Clave timing with a continuous Shuffle
+  control and Tight / Rolls / Flam / Slop feelings. Linear mode gives
+  one-limb-at-a-time drumming.
+* **Humanize:** anchors stay tight while ghost notes breathe. Drift is
+  correlated like a player's, weak notes lean into the swing, and the groove's
+  shape is never broken.
+* **Output:** MIDI notes (GM drum map by default, per-voice note and channel)
+  plus a built-in preview kit, so it makes sound straight away.
+
+See [docs/DESIGN.md](docs/DESIGN.md) for how it works and
+[docs/map.md](docs/map.md) for the current map.
+
+## Build
+
+Requirements: CMake ≥ 3.22, a C++17 compiler. JUCE 8 is fetched automatically,
+or you can pass `-DGRISTO_JUCE_DIR=/path/to/JUCE`. On Linux you also need the
+usual JUCE dependencies (`libasound2-dev libx11-dev libxrandr-dev
+libxinerama-dev libxcursor-dev libfreetype-dev libfontconfig1-dev`).
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build          # core unit tests
+```
+
+Artefacts end up in `build/plugin/Gristo_artefacts/Release/` (VST3, AU on
+macOS, Standalone).
+
+Core only (no JUCE, fast):
+
+```sh
+cmake -S . -B build -DGRISTO_BUILD_PLUGIN=OFF && cmake --build build && ./build/tests/gristo_tests
+```
+
+## Using it in a DAW
+
+* **Bitwig, Reaper, Cubase, Studio One:** load it as an instrument and route its
+  MIDI out to your drum instrument, or just use the preview kit.
+* **Ableton Live:** load it on a MIDI track. On the drum rack's track, set
+  *MIDI From* to the Gristo track and choose "Gristo" as the source.
+* **Logic:** use the AU instrument for now. An AU MIDI-FX build is on the
+  roadmap.
+* **No transport running?** Enable *Free Run* to audition at the internal
+  tempo.
+
+## Tools
+
+```sh
+# Render a groove to MIDI to audition settings in a DAW
+./build/gristo_render --x 0.7 --y 0.6 --timing trip --shuffle 4 --humanize 0.4 --bars 8 --out groove.mid
+
+# Retrain the map after adding patterns or .mid loops to data/corpus (needs numpy)
+python3 tools/mapbuilder/build_map.py
+```
+
+## Credits and licensing notes
+
+Gristo is inspired by Mutable Instruments **Grids** and Making Sound Machines
+**Stolperbeats**, and is not affiliated with either. It contains none of their
+code, map data, patterns or timing tables. The drum map is trained from the
+original corpus in `data/corpus`.
+
+JUCE is licensed under AGPLv3 or a commercial licence. Pick the one that fits
+how you distribute Gristo before releasing binaries.

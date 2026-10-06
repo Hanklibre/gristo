@@ -1,0 +1,52 @@
+# Afro, Latin and Caribbean-flavoured grooves, dub, and sparse/minimal patterns.
+# Original patterns written for Gristo.
+
+== afrobeat_a ==
+kick   X-----x---X--x--|X-----x---x-----
+snare  ----X-----o-X---|----X--o---oX---
+hh1    x-xox-xox-xox-xo
+hh2    --------------x-
+perc1  x--x--x---x--x--
+perc2  --x---x-x---x---|--x---x-x-x-x---
+
+== afrobeat_b ==
+kick   X-------X--x----|X-------X-----x-
+snare  ------x-------x-|------x-----o-x-
+hh1    x-x-x-x-x-x-x-x-
+perc1  --x---x---x---x-
+perc2  x-x-xx-x-x-xx-x-
+
+== dembow ==
+kick   X---X---X---X---
+snare  ---x--x----x--x-
+hh1    x-x-x-x-x-x-x-x-
+perc1  --o---o---o---o-
+
+== bossa ==
+kick   X--x----X--x----
+hh1    x-x-x-x-x-x-x-x-
+perc1  x--x--x---x--x--|--x--x---x--x---
+
+== samba ==
+kick   X-----x-X-----x-
+snare  o-xoo-xoo-xoo-xo
+hh1    xxxxxxxxxxxxxxxx
+perc2  ---x-x-x----x-x-|--x-x---x-x-x---
+
+== one_drop ==
+kick   --------X-------
+snare  --------X-------
+hh1    x-x-x-x-x-x-x-x-
+perc1  --------X-------
+perc2  ----------------|------------x-x-
+
+== minimal_a ==
+kick   X---------------|X-------x-------
+snare  ----------------|------------x---
+hh1    --x---x---x---x-
+perc1  -------o--------|---o------------
+
+== minimal_b ==
+kick   X-------X-------
+hh1    ----x-------x---
+perc2  --o------o----o-|------o-----o---

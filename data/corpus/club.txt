@@ -1,0 +1,73 @@
+# House, garage, techno, electro, disco, footwork.
+# Original patterns written for Gristo.
+
+== house_a ==
+kick   X---X---X---X---
+hh1    x-x-x-x-x-x-x-x-
+hh2    --X---X---X---X-
+perc1  ----X-------X---
+perc2  --------------o-|----------o---o-
+
+== house_b ==
+kick   X---X---X---X---|X---X---X---X-x-
+hh1    -x-x-x-x-x-x-x-x
+hh2    --X---X---X---X-
+perc1  ----X-------X---
+perc2  ---o-----o-----o|---o--o--o------
+
+== disco ==
+kick   X---X---X---X---
+snare  ----X-------X---
+hh1    x---x---x---x---
+hh2    --X---X---X---X-
+perc1  o-o-o-o-o-o-o-o-
+
+== garage_2step_a ==
+kick   X------x--X-----|X---------x--x--
+snare  ----X-------X---
+hh1    --x---x---x--xx-|--x---x-x-x---x-
+perc1  ----------o-----|--o-------------
+
+== garage_2step_b ==
+kick   X-----x-------x-|----x-----X-----
+snare  ----X-------X---|----X-------X--o
+hh1    -xx--xx--xx--xx-
+perc2  -------o--------|-------o---o----
+
+== techno_a ==
+kick   X---X---X---X---
+hh1    --x---x---x---x-
+hh2    ----------------|--------------X-
+perc1  ----x-------x---
+perc2  x--x--x--x--x--x|--x--x--x--x--x-
+
+== techno_b ==
+kick   X---X---X---X---
+hh1    o-xoo-xoo-xoo-xo
+hh2    --X---X---X---X-
+perc1  ----------------|----X-------X---
+perc2  ------x-------x-|------x---x---x-
+
+== electro_a ==
+kick   X------x--X-----|X------x--x---x-
+snare  ----X-------X---
+hh1    x-xxx-xxx-xxx-xx
+perc1  ----------------|--------------xx
+perc2  ---x-------x----|---x---x---x----
+
+== electro_b ==
+kick   X--x--X---x-----|X--x--X-----x-x-
+snare  ----X-------X---|----X-------X---
+hh1    xxxxxxxxxxxxxxxx
+hh2    ------x---------|------x-------x-
+
+== footwork ==
+kick   X--x--x-X--x--x-|X--x--x-X--x----
+hh1    --x---x---x---x-
+perc1  --------X-------
+perc2  ----------------|-----------x--x-
+
+== motorik ==
+kick   X-----X-X-------|X-----X-X-----x-
+snare  ----X-------X---
+hh1    x-x-x-x-x-x-x-x-
