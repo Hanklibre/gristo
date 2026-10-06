@@ -50,6 +50,7 @@ HitInfo Engine::describe(const StepHits& hits, std::int64_t step, int voice, dou
     HitInfo h;
     h.on = vh.on;
     h.accent = vh.accent;
+    h.dropped = vh.dropped;
     h.level = vh.level;
     h.gridBeats = Groove::gridPosition(g, step);
     h.timeBeats = h.gridBeats + Groove::feelOffset(g, voice, bpm);

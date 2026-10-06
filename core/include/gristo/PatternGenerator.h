@@ -13,6 +13,9 @@ struct PatternParams
     float mapY = 0.5f;
     float chaos = 0.0f; // 0..1, perturbs levels, re-rolled every pattern cycle
     std::array<float, kNumVoices> fill { 0.6f, 0.55f, 0.6f, 0.35f, 0.4f, 0.35f };
+    // Chance (0..1) that a hit which passes Fill actually plays. Rolled per absolute
+    // step, so every bar differs but a re-render is identical.
+    std::array<float, kNumVoices> probability { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     std::array<bool, kNumVoices> mute {};
     bool linear = false;
     std::uint32_t seed = 0x67726973u;
@@ -24,11 +27,14 @@ struct VoiceHit
     bool accent = false;
     float level = 0.0f;     // perturbed level, 0..1
     float threshold = 1.0f; // 1 - fill
+    bool dropped = false;   // passed Fill but was removed by Probability
 };
 
 using StepHits = std::array<VoiceHit, kNumVoices>;
 
-// "What plays": reads the map at (X, Y), applies Chaos, Fill, mutes and Linear mode.
+// "What plays": reads the map at (X, Y), then applies Chaos, Fill, mutes, Probability
+// and Linear mode, in that order. Probability runs before Linear so a dropped hit
+// frees its slot for the next voice in the priority chain.
 class PatternGenerator
 {
 public:

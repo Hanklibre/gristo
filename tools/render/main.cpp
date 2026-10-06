@@ -24,6 +24,8 @@ void usage()
         "  --x F --y F            map position (0..1)\n"
         "  --fill F               fill for all voices (0..1)\n"
         "  --fill-voice N F       fill for voice N (0=kick .. 5=perc2)\n"
+        "  --prob F               probability for all voices (0..1)\n"
+        "  --prob-voice N F       probability for voice N\n"
         "  --chaos F              (0..1)\n"
         "  --timing NAME          trip | shake | push | clave\n"
         "  --shuffle F            0..6\n"
@@ -90,6 +92,13 @@ int main(int argc, char** argv)
             const int v = std::atoi(next());
             const float f = std::strtof(next(), nullptr);
             if (v >= 0 && v < kNumVoices) params.pattern.fill[static_cast<size_t>(v)] = f;
+        }
+        else if (a == "--prob") params.pattern.probability.fill(std::strtof(next(), nullptr));
+        else if (a == "--prob-voice")
+        {
+            const int v = std::atoi(next());
+            const float f = std::strtof(next(), nullptr);
+            if (v >= 0 && v < kNumVoices) params.pattern.probability[static_cast<size_t>(v)] = f;
         }
         else if (a == "--chaos") params.pattern.chaos = std::strtof(next(), nullptr);
         else if (a == "--timing") params.groove.timing = static_cast<Timing>(indexOf(next(), { "trip", "shake", "push", "clave" }));

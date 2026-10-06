@@ -6,7 +6,7 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
 
 * **Map:** drag X/Y through 36 grooves (boom bap, breaks, house, afrobeat,
   trap and more). Morph between them, sculpt each voice with Fill, and add
-  Chaos.
+  Chaos. A per-voice Probability makes hits play only some of the time.
 * **Groove:** Trip / Shake / Push / Clave timing with a continuous Shuffle
   control and Tight / Rolls / Flam / Slop feelings. Linear mode gives
   one-limb-at-a-time drumming.

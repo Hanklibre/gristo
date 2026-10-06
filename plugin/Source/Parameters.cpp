@@ -23,6 +23,16 @@ std::unique_ptr<juce::AudioParameterFloat> floatParam(const juce::String& id, co
     return std::make_unique<juce::AudioParameterFloat>(juce::ParameterID { id, kVersion }, name, range, def, attributes);
 }
 
+std::unique_ptr<juce::AudioParameterFloat> percentParam(const juce::String& id, const juce::String& name, float def)
+{
+    auto attributes = juce::AudioParameterFloatAttributes()
+                          .withLabel("%")
+                          .withStringFromValueFunction([](float v, int) { return juce::String(juce::roundToInt(v * 100.0f)) + "%"; })
+                          .withValueFromStringFunction([](const juce::String& t) { return t.getFloatValue() / 100.0f; });
+    return std::make_unique<juce::AudioParameterFloat>(juce::ParameterID { id, kVersion }, name,
+                                                       juce::NormalisableRange<float> { 0.0f, 1.0f }, def, attributes);
+}
+
 std::unique_ptr<juce::AudioParameterBool> boolParam(const juce::String& id, const juce::String& name, bool def)
 {
     return std::make_unique<juce::AudioParameterBool>(juce::ParameterID { id, kVersion }, name, def);
@@ -47,6 +57,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     {
         const juce::String name = voiceName(v);
         layout.add(floatParam(voiceId(fill, v), name + " Fill", { 0.0f, 1.0f }, pattern.fill[static_cast<size_t>(v)]));
+        layout.add(percentParam(voiceId(probability, v), name + " Probability", 1.0f));
         layout.add(boolParam(voiceId(mute, v), name + " Mute", false));
         layout.add(floatParam(voiceId(velLow, v), name + " Velocity Low", { 0.0f, 1.0f }, dyn.velLow[static_cast<size_t>(v)]));
         layout.add(floatParam(voiceId(velHigh, v), name + " Velocity High", { 0.0f, 1.0f }, dyn.velHigh[static_cast<size_t>(v)]));
@@ -95,6 +106,7 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s)
     {
         const auto i = static_cast<size_t>(v);
         p.pattern.fill[i] = load(s, voiceId(fill, v));
+        p.pattern.probability[i] = load(s, voiceId(probability, v));
         p.pattern.mute[i] = load(s, voiceId(mute, v)) > 0.5f;
         p.dynamics.velLow[i] = load(s, voiceId(velLow, v));
         p.dynamics.velHigh[i] = std::max(p.dynamics.velLow[i], load(s, voiceId(velHigh, v)));

@@ -21,7 +21,7 @@ const juce::Colour kVoiceColours[gristo::kNumVoices] = {
 };
 
 constexpr int kWidth = 1000;
-constexpr int kHeight = 660;
+constexpr int kHeight = 748;
 
 void drawPanel(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title)
 {
@@ -261,6 +261,15 @@ void PatternView::paint(juce::Graphics& g)
         {
             const std::int64_t step = cycle * kPatternSteps + s;
             const HitInfo h = engine_.describe(step, v, bpm_, true);
+            if (h.dropped)
+            {
+                // Removed by Probability this time round: hollow outline at the groove slot.
+                const float x = xOfBeats(h.timeBeats);
+                const float barH = (laneH - 8.0f) * (0.3f + 0.7f * h.level);
+                g.setColour(kVoiceColours[v].withAlpha(0.45f));
+                g.drawRoundedRectangle(x, lane.getBottom() - 5.0f - barH, std::max(3.0f, stepW * 0.55f), barH, 2.0f, 1.0f);
+                continue;
+            }
             if (!h.on)
                 continue;
 
@@ -307,7 +316,8 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
     setupKnob(variation_, p::variation, "Variation");
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
-        setupKnob(fills_[v], p::voiceId(p::fill, v), gristo::voiceName(v));
+        setupKnob(fills_[v], p::voiceId(p::fill, v), "Fill");
+        setupKnob(probabilities_[v], p::voiceId(p::probability, v), "Probability");
         setupToggle(mutes_[v], p::voiceId(p::mute, v), "Mute");
     }
     setupChoice(timing_, p::timing, "Timing");
@@ -395,20 +405,28 @@ void GristoEditor::paint(juce::Graphics& g)
     g.setFont(juce::FontOptions(12.0f));
     g.drawText("topographic drums, tripping over themselves", header.withTrimmedLeft(110), juce::Justification::centredLeft);
 
-    drawPanel(g, { 16, 52, 344, 448 }, "Map");
+    drawPanel(g, { 16, 52, 344, 536 }, "Map");
     drawPanel(g, { 372, 52, 612, 268 }, "Pattern");
-    drawPanel(g, { 372, 328, 612, 172 }, "Fill");
-    drawPanel(g, { 16, 508, 344, 136 }, "Groove");
-    drawPanel(g, { 372, 508, 300, 136 }, "Humanize / Dynamics");
-    drawPanel(g, { 684, 508, 300, 136 }, "Output");
+    drawPanel(g, { 372, 328, 612, 260 }, "Voices");
+    drawPanel(g, { 16, 596, 344, 136 }, "Groove");
+    drawPanel(g, { 372, 596, 300, 136 }, "Humanize / Dynamics");
+    drawPanel(g, { 684, 596, 300, 136 }, "Output");
+
+    const int colW = 600 / gristo::kNumVoices;
+    g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        g.setColour(kVoiceColours[v]);
+        g.drawText(gristo::voiceName(v), 378 + v * colW, 344, colW, 16, juce::Justification::centred);
+    }
 }
 
 void GristoEditor::resized()
 {
-    mapPad_.setBounds(48, 74, 280, 280);
-    nodeLabel_.setBounds(48, 358, 280, 20);
-    placeKnob(chaos_, { 48, 386, 120, 104 });
-    placeKnob(variation_, { 208, 386, 120, 104 });
+    mapPad_.setBounds(28, 78, 320, 320);
+    nodeLabel_.setBounds(28, 404, 320, 20);
+    placeKnob(chaos_, { 48, 440, 120, 112 });
+    placeKnob(variation_, { 208, 440, 120, 112 });
 
     patternView_.setBounds(384, 74, 588, 236);
 
@@ -416,27 +434,28 @@ void GristoEditor::resized()
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         const int x = 378 + v * colW;
-        placeKnob(fills_[v], { x, 348, colW, 104 });
-        mutes_[v].button.setBounds(x + colW / 2 - 28, 462, 56, 26);
+        placeKnob(fills_[v], { x, 364, colW, 92 });
+        placeKnob(probabilities_[v], { x, 458, colW, 92 });
+        mutes_[v].button.setBounds(x + colW / 2 - 28, 554, 56, 26);
     }
 
     // Groove
-    timing_.label.setBounds(28, 528, 80, 16);
-    timing_.box.setBounds(28, 546, 92, 26);
-    feeling_.label.setBounds(28, 580, 80, 16);
-    feeling_.box.setBounds(28, 598, 92, 26);
-    placeKnob(shuffle_, { 132, 528, 100, 104 });
-    placeKnob(feelMs_, { 240, 528, 100, 104 });
+    timing_.label.setBounds(28, 616, 80, 16);
+    timing_.box.setBounds(28, 634, 92, 26);
+    feeling_.label.setBounds(28, 668, 80, 16);
+    feeling_.box.setBounds(28, 686, 92, 26);
+    placeKnob(shuffle_, { 132, 616, 100, 104 });
+    placeKnob(feelMs_, { 240, 616, 100, 104 });
 
     // Humanize
-    placeKnob(humanize_, { 382, 528, 100, 104 });
-    placeKnob(dynamics_, { 480, 528, 100, 104 });
-    lock_.button.setBounds(590, 548, 70, 26);
-    linear_.button.setBounds(590, 590, 70, 26);
+    placeKnob(humanize_, { 382, 616, 100, 104 });
+    placeKnob(dynamics_, { 480, 616, 100, 104 });
+    lock_.button.setBounds(590, 636, 70, 26);
+    linear_.button.setBounds(590, 678, 70, 26);
 
     // Output
-    kitOn_.button.setBounds(696, 548, 70, 26);
-    freeRun_.button.setBounds(696, 590, 70, 26);
-    placeKnob(kitGain_, { 776, 528, 100, 104 });
-    placeKnob(freeTempo_, { 876, 528, 100, 104 });
+    kitOn_.button.setBounds(696, 636, 70, 26);
+    freeRun_.button.setBounds(696, 678, 70, 26);
+    placeKnob(kitGain_, { 776, 616, 100, 104 });
+    placeKnob(freeTempo_, { 876, 616, 100, 104 });
 }

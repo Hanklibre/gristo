@@ -134,3 +134,82 @@ TEST("pattern: linear mode enforces the priority chains")
             }
         }
 }
+
+TEST("probability: 1 changes nothing, 0 silences the voice")
+{
+    DrumMap map;
+    PatternGenerator gen(map);
+    PatternParams base;
+    base.fill.fill(0.8f);
+    PatternParams zero = base;
+    zero.probability[HiHat1] = 0.0f;
+    for (std::int64_t s = 0; s < kPatternSteps * 4; ++s)
+    {
+        const StepHits a = gen.evaluate(base, s);
+        const StepHits b = gen.evaluate(zero, s);
+        for (int v = 0; v < kNumVoices; ++v)
+        {
+            CHECK(!a[static_cast<size_t>(v)].dropped);
+            if (v == HiHat1)
+            {
+                CHECK(!b[HiHat1].on);
+                CHECK(b[HiHat1].dropped == a[HiHat1].on);
+            }
+            else
+            {
+                CHECK(a[static_cast<size_t>(v)].on == b[static_cast<size_t>(v)].on);
+            }
+        }
+    }
+}
+
+TEST("probability: plays roughly the requested share, deterministically, varying per bar")
+{
+    DrumMap map;
+    PatternGenerator gen(map);
+    PatternParams p;
+    p.fill.fill(0.9f);
+    p.probability.fill(0.5f);
+    int eligible = 0, played = 0, differsAcrossCycles = 0;
+    for (std::int64_t s = 0; s < kPatternSteps * 200; ++s)
+    {
+        const StepHits h = gen.evaluate(p, s);
+        const StepHits again = gen.evaluate(p, s);
+        const StepHits nextCycle = gen.evaluate(p, s + kPatternSteps);
+        for (int v = 0; v < kNumVoices; ++v)
+        {
+            const auto& hit = h[static_cast<size_t>(v)];
+            CHECK(hit.on == again[static_cast<size_t>(v)].on);
+            CHECK(!(hit.on && hit.dropped));
+            if (hit.on || hit.dropped)
+            {
+                ++eligible;
+                played += hit.on ? 1 : 0;
+                differsAcrossCycles += hit.on != nextCycle[static_cast<size_t>(v)].on ? 1 : 0;
+            }
+        }
+    }
+    const double share = played / double(eligible);
+    CHECK_MSG(share > 0.45 && share < 0.55, "share " << share);
+    CHECK(differsAcrossCycles > eligible / 4);
+}
+
+TEST("probability: a dropped hit frees its slot in linear mode")
+{
+    DrumMap map;
+    PatternGenerator gen(map);
+    PatternParams dropped;
+    dropped.linear = true;
+    dropped.fill.fill(0.9f);
+    dropped.probability[Snare] = 0.0f;
+    PatternParams muted = dropped;
+    muted.probability[Snare] = 1.0f;
+    muted.mute[Snare] = true;
+    for (std::int64_t s = 0; s < kPatternSteps; ++s)
+    {
+        const StepHits a = gen.evaluate(dropped, s);
+        const StepHits b = gen.evaluate(muted, s);
+        for (int v = 0; v < kNumVoices; ++v)
+            CHECK(a[static_cast<size_t>(v)].on == b[static_cast<size_t>(v)].on);
+    }
+}

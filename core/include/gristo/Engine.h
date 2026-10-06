@@ -31,6 +31,7 @@ struct HitInfo
 {
     bool on = false;
     bool accent = false;
+    bool dropped = false;    // removed by Probability this time round
     float level = 0.0f;
     float velocity = 0.0f;   // 0..1
     double gridBeats = 0.0;  // groove position (no feel / humanize)

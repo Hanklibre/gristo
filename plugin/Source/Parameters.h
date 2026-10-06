@@ -10,6 +10,7 @@ inline const juce::String mapX = "mapX";
 inline const juce::String mapY = "mapY";
 inline const juce::String chaos = "chaos";
 inline const juce::String fill = "fill";
+inline const juce::String probability = "prob";
 inline const juce::String mute = "mute";
 inline const juce::String velLow = "velLow";
 inline const juce::String velHigh = "velHigh";

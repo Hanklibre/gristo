@@ -14,7 +14,7 @@ from either product. The map is trained from Gristo's own corpus
 (`data/corpus`), and the groove tables are original.
 
 ```
-DrumMap (X, Y) ─► PatternGenerator (Chaos, Fill, Mutes, Linear)
+DrumMap (X, Y) ─► PatternGenerator (Chaos, Fill, Mutes, Probability, Linear)
                ─► Groove (Timing × Shuffle, Feeling)
                ─► Humanizer (structural weight, drift, groove-follow, gap cap)
                ─► Engine scheduler (sample-accurate, lookahead for early notes)
@@ -58,6 +58,23 @@ DrumMap (X, Y) ─► PatternGenerator (Chaos, Fill, Mutes, Linear)
   `python3 tools/mapbuilder/build_map.py`. Loops longer than 2 bars are folded,
   and each step's level becomes the average over the windows. This is how
   "sometimes" notes become fills.
+
+## Probability
+
+Each voice has a Probability (0–100 %). A hit that passes Fill plays with that
+chance. The roll is hashed from (seed, voice, absolute step), so:
+
+* every bar is different, but a re-render or bounce is identical;
+* the *Variation* control re-rolls it, along with Chaos and the humanizer.
+
+Probability is applied **before** Linear mode. A dropped snare frees its slot
+for the kick or hats, the way a drummer who skips a note plays something else
+there. Probability 0 % in Linear mode behaves exactly like Mute. The pattern
+view draws dropped hits as hollow outlines for the cycle that is playing.
+
+Fill and Probability do different jobs. Fill decides *which* notes belong to
+the groove, in order of importance. Probability decides *how often* those notes
+actually play.
 
 ## Groove
 

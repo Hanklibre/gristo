@@ -96,6 +96,7 @@ private:
 
     Knob chaos_, variation_;
     Knob fills_[gristo::kNumVoices];
+    Knob probabilities_[gristo::kNumVoices];
     Toggle mutes_[gristo::kNumVoices];
     Choice timing_, feeling_;
     Knob shuffle_, feelMs_;

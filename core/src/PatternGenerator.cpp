@@ -8,6 +8,7 @@ namespace gristo {
 
 namespace {
 constexpr std::uint32_t kChaosStream = 0xC4A05u;
+constexpr std::uint32_t kProbabilityStream = 0x9B0B0u;
 constexpr float kChaosDepth = 0.45f;
 } // namespace
 
@@ -29,6 +30,17 @@ StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absolut
         h.level = level;
         h.threshold = 1.0f - std::clamp(p.fill[static_cast<size_t>(v)], 0.0f, 1.0f);
         h.on = level > h.threshold && level > 0.0f && !p.mute[static_cast<size_t>(v)];
+
+        const float probability = std::clamp(p.probability[static_cast<size_t>(v)], 0.0f, 1.0f);
+        if (h.on && probability < 1.0f)
+        {
+            const float roll = rnd::unit(rnd::hash(p.seed, kProbabilityStream + static_cast<std::uint32_t>(v), absoluteStep));
+            if (roll >= probability)
+            {
+                h.on = false;
+                h.dropped = true;
+            }
+        }
         h.accent = h.on && level >= kAccentLevel;
     }
 
