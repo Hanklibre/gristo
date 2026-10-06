@@ -51,6 +51,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add(floatParam(mapY, "Map Y", { 0.0f, 1.0f }, 0.5f));
     layout.add(floatParam(chaos, "Chaos", { 0.0f, 1.0f }, 0.0f));
     layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { variation, kVersion }, "Variation", 0, 99, 0));
+    layout.add(percentParam(mapRandom, "Map Random", 0.0f));
 
     // Voices
     for (int v = 0; v < kNumVoices; ++v)
@@ -61,8 +62,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(boolParam(voiceId(mute, v), name + " Mute", false));
         layout.add(floatParam(voiceId(velLow, v), name + " Velocity Low", { 0.0f, 1.0f }, dyn.velLow[static_cast<size_t>(v)]));
         layout.add(floatParam(voiceId(velHigh, v), name + " Velocity High", { 0.0f, 1.0f }, dyn.velHigh[static_cast<size_t>(v)]));
+        auto noteAttributes = juce::AudioParameterIntAttributes()
+                                  .withStringFromValueFunction([](int n, int) { return noteDisplayName(n); })
+                                  .withValueFromStringFunction([](const juce::String& t) {
+                                      // Accept "36", "C1" or "C1 · 36": a trailing number wins.
+                                      const auto digits = t.fromLastOccurrenceOf(" ", false, false).trim();
+                                      if (digits.containsOnly("0123456789") && digits.isNotEmpty())
+                                          return digits.getIntValue();
+                                      for (int n = 0; n < 128; ++n)
+                                          if (juce::MidiMessage::getMidiNoteName(n, true, true, 3).equalsIgnoreCase(t.trim()))
+                                              return n;
+                                      return t.getIntValue();
+                                  });
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(note, v), kVersion },
-                                                             name + " Note", 0, 127, kDefaultNotes[v]));
+                                                             name + " Note", 0, 127, kDefaultNotes[v], noteAttributes));
     }
     layout.add(boolParam(linear, "Linear", false));
 
@@ -73,6 +86,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { feeling, kVersion }, "Feeling",
                                                             juce::StringArray { "Tight", "Rolls", "Flam", "Slop" }, 0));
     layout.add(floatParam(feelMs, "Flam / Slop", { 0.0f, 30.0f }, 9.0f, "ms", 1));
+    layout.add(percentParam(shuffleRandom, "Shuffle Random", 0.0f));
+    layout.add(percentParam(feelRandom, "Flam Random", 0.0f));
 
     // Humanize + dynamics
     layout.add(floatParam(humanize, "Humanize", { 0.0f, 1.0f }, 0.3f));
@@ -100,6 +115,7 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s)
     p.pattern.linear = load(s, linear) > 0.5f;
     const auto seedOffset = static_cast<std::uint32_t>(load(s, variation));
     p.pattern.seed += seedOffset * 7919u;
+    p.groove.seed += seedOffset * 6151u;
     p.humanize.seed += seedOffset * 104729u;
 
     for (int v = 0; v < kNumVoices; ++v)
@@ -116,6 +132,9 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s)
     p.groove.shuffle = load(s, shuffle);
     p.groove.feeling = static_cast<Feeling>(juce::jlimit(0, kNumFeelings - 1, static_cast<int>(load(s, feeling))));
     p.groove.feelMs = load(s, feelMs);
+    p.groove.shuffleRandom = load(s, shuffleRandom);
+    p.groove.feelRandom = load(s, feelRandom);
+    p.pattern.mapRandom = load(s, mapRandom);
 
     p.humanize.amount = load(s, humanize);
     p.humanize.lock = load(s, humanizeLock) > 0.5f;

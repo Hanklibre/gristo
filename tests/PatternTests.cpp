@@ -213,3 +213,38 @@ TEST("probability: a dropped hit frees its slot in linear mode")
             CHECK(a[static_cast<size_t>(v)].on == b[static_cast<size_t>(v)].on);
     }
 }
+
+TEST("random: map random is held per bar, bounded, and changes the pattern")
+{
+    DrumMap map;
+    PatternGenerator gen(map);
+    PatternParams p;
+    p.mapX = 0.5f;
+    p.mapY = 0.5f;
+    p.fill.fill(0.7f);
+    CHECK(PatternGenerator::mapPositionAt(p, 123).first == 0.5f);
+
+    p.mapRandom = 1.0f;
+    int moved = 0;
+    for (std::int64_t bar = 0; bar < 64; ++bar)
+    {
+        const auto pos = PatternGenerator::mapPositionAt(p, bar * kStepsPerBar);
+        CHECK(pos.first >= 0.0f && pos.first <= 1.0f && pos.second >= 0.0f && pos.second <= 1.0f);
+        for (int s = 1; s < kStepsPerBar; ++s)
+            CHECK(PatternGenerator::mapPositionAt(p, bar * kStepsPerBar + s) == pos);
+        moved += std::abs(pos.first - 0.5f) > 0.05f ? 1 : 0;
+    }
+    CHECK(moved > 40);
+
+    PatternParams still = p;
+    still.mapRandom = 0.0f;
+    int differences = 0;
+    for (std::int64_t s = 0; s < kPatternSteps * 8; ++s)
+    {
+        const StepHits a = gen.evaluate(p, s);
+        const StepHits b = gen.evaluate(still, s);
+        for (int v = 0; v < kNumVoices; ++v)
+            differences += a[static_cast<size_t>(v)].on != b[static_cast<size_t>(v)].on ? 1 : 0;
+    }
+    CHECK(differences > 0);
+}

@@ -32,6 +32,12 @@ struct GrooveParams
     float shuffle = 0.0f; // continuous 0..6; fractional values morph between rows
     Feeling feeling = Feeling::Tight;
     float feelMs = 9.0f;  // Flam / Slop delay
+
+    // Beads-style random modulation amounts (0..1), sampled and held per beat for
+    // Shuffle and per hit for the Flam / Slop delay.
+    float shuffleRandom = 0.0f; // up to +-3 shuffle rows
+    float feelRandom = 0.0f;    // delay varies between (1 - r) and (1 + r) x feelMs
+    std::uint32_t seed = 0x67726f76u;
 };
 
 class Groove
@@ -41,8 +47,14 @@ public:
     // humanization). Monotonic in absoluteStep for every timing and shuffle value.
     static double gridPosition(const GrooveParams& p, std::int64_t absoluteStep);
 
-    // Per-voice Feeling offset in beats.
-    static double feelOffset(const GrooveParams& p, int voice, double bpm);
+    // Shuffle value in effect for the cell containing absoluteStep (Shuffle plus its
+    // random modulation), clamped to 0..6.
+    static float shuffleAt(const GrooveParams& p, std::int64_t absoluteStep);
+
+    // Per-voice Feeling offset in beats for the hit at absoluteStep.
+    static double feelOffset(const GrooveParams& p, int voice, std::int64_t absoluteStep, double bpm);
+
+    static constexpr float kShuffleRandomRows = 3.0f;
 
     // Number of hits a single step expands into (Rolls feeling on Hihat 2).
     static int rollCount(const GrooveParams& p, int voice);

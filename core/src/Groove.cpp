@@ -1,5 +1,7 @@
 #include "gristo/Groove.h"
 
+#include "gristo/Random.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -36,6 +38,9 @@ constexpr double kPushGamma[kNumShuffleRows] = { 1.0, 1.06, 1.12, 1.18, 1.25, 1.
 // Clave: steps between the 3:3:2 anchors are warped towards the next anchor.
 constexpr double kClaveGamma[kNumShuffleRows] = { 1.0, 1.12, 1.25, 1.4, 1.55, 1.72, 1.9 };
 constexpr int kClaveAnchors[4] = { 0, 3, 6, 8 };
+
+constexpr std::uint32_t kShuffleRandomStream = 0x5A0FFu;
+constexpr std::uint32_t kFeelRandomStream = 0xF1A70u;
 
 } // namespace
 
@@ -83,7 +88,9 @@ double Groove::gridPosition(const GrooveParams& p, std::int64_t absoluteStep)
     const std::int64_t cellIndex = floorDiv(absoluteStep, cell);
     const int k = floorMod(absoluteStep, cell);
 
-    const float shuffle = std::clamp(p.shuffle, 0.0f, static_cast<float>(kNumShuffleRows - 1));
+    // Shuffle is sampled once per cell, so every cell still starts on its straight
+    // position and positions stay monotonic however much the shuffle jumps.
+    const float shuffle = shuffleAt(p, absoluteStep);
     const int r0 = static_cast<int>(std::floor(shuffle));
     const int r1 = std::min(r0 + 1, kNumShuffleRows - 1);
     const double f = shuffle - static_cast<float>(r0);
@@ -92,16 +99,37 @@ double Groove::gridPosition(const GrooveParams& p, std::int64_t absoluteStep)
     return (static_cast<double>(cellIndex) * cell + pos) / kStepsPerBeat;
 }
 
-double Groove::feelOffset(const GrooveParams& p, int voice, double bpm)
+float Groove::shuffleAt(const GrooveParams& p, std::int64_t absoluteStep)
 {
-    const double msToBeats = bpm / 60000.0;
+    float shuffle = p.shuffle;
+    if (p.shuffleRandom > 0.0f)
+    {
+        const std::int64_t cellIndex = floorDiv(absoluteStep, cellSteps(p.timing));
+        shuffle += p.shuffleRandom * kShuffleRandomRows * rnd::bipolar(rnd::hash(p.seed, kShuffleRandomStream, cellIndex));
+    }
+    return std::clamp(shuffle, 0.0f, static_cast<float>(kNumShuffleRows - 1));
+}
+
+double Groove::feelOffset(const GrooveParams& p, int voice, std::int64_t absoluteStep, double bpm)
+{
+    // Random flam: each hit gets its own delay. Kick (feet) and snare (hands) roll
+    // independently; in Slop the hats follow the snare's hand.
+    auto delayMs = [&](int roller) {
+        double ms = p.feelMs;
+        if (p.feelRandom > 0.0f)
+        {
+            const float u = rnd::bipolar(rnd::hash(p.seed, kFeelRandomStream + static_cast<std::uint32_t>(roller), absoluteStep));
+            ms *= 1.0 + std::clamp(p.feelRandom, 0.0f, 1.0f) * u;
+        }
+        return ms * bpm / 60000.0;
+    };
     switch (p.feeling)
     {
         case Feeling::Flam:
-            return (voice == Kick || voice == Snare) ? p.feelMs * msToBeats : 0.0;
+            return (voice == Kick || voice == Snare) ? delayMs(voice) : 0.0;
         case Feeling::Slop:
-            if (voice == Kick || voice == Snare) return p.feelMs * msToBeats;
-            if (voice == HiHat1 || voice == HiHat2) return 0.75 * p.feelMs * msToBeats;
+            if (voice == Kick || voice == Snare) return delayMs(voice);
+            if (voice == HiHat1 || voice == HiHat2) return 0.75 * delayMs(Snare);
             return 0.0;
         case Feeling::Tight:
         case Feeling::Rolls:

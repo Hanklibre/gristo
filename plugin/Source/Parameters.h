@@ -30,8 +30,18 @@ inline const juce::String kitOn = "kitOn";
 inline const juce::String kitGain = "kitGain";
 inline const juce::String freeRun = "freeRun";
 inline const juce::String freeTempo = "freeTempo";
+// Beads-style random modulation amounts
+inline const juce::String mapRandom = "mapRnd";
+inline const juce::String shuffleRandom = "shuffleRnd";
+inline const juce::String feelRandom = "feelRnd";
 
 inline juce::String voiceId(const juce::String& base, int voice) { return base + juce::String(voice); }
+
+// "C1 · 36" (middle C = C3, the Ableton / Cubase convention; the number is unambiguous).
+inline juce::String noteDisplayName(int noteNumber)
+{
+    return juce::MidiMessage::getMidiNoteName(noteNumber, true, true, 3) + juce::String::fromUTF8(" \xc2\xb7 ") + juce::String(noteNumber);
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 

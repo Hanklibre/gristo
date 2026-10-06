@@ -2,6 +2,8 @@
 
 #include "gristo/DrumMap.h"
 
+#include <utility>
+
 namespace gristo {
 
 // Level at or above which a hit counts as accented (Grids uses 192/255).
@@ -12,6 +14,9 @@ struct PatternParams
     float mapX = 0.5f;
     float mapY = 0.5f;
     float chaos = 0.0f; // 0..1, perturbs levels, re-rolled every pattern cycle
+    // Beads-style random modulation of the map position, sampled and held per bar:
+    // X and Y each move up to +-0.5 * mapRandom around (mapX, mapY).
+    float mapRandom = 0.0f;
     std::array<float, kNumVoices> fill { 0.6f, 0.55f, 0.6f, 0.35f, 0.4f, 0.35f };
     // Chance (0..1) that a hit which passes Fill actually plays. Rolled per absolute
     // step, so every bar differs but a re-render is identical.
@@ -44,6 +49,9 @@ public:
     StepHits evaluate(const PatternParams& params, std::int64_t absoluteStep) const;
 
     static void applyLinear(StepHits& hits);
+
+    // Map position in effect for the bar containing absoluteStep (after Map Random).
+    static std::pair<float, float> mapPositionAt(const PatternParams& params, std::int64_t absoluteStep);
 
 private:
     const DrumMap& map_;

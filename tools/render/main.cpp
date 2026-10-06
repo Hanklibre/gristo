@@ -31,6 +31,10 @@ void usage()
         "  --timing NAME          trip | shake | push | clave\n"
         "  --shuffle F            0..6\n"
         "  --feeling NAME         tight | rolls | flam | slop\n"
+        "  --flam-ms F            flam / slop delay in ms\n"
+        "  --flam-rnd F           random flam amount (0..1, per hit)\n"
+        "  --shuffle-rnd F        random shuffle amount (0..1, per beat)\n"
+        "  --map-rnd F            random map position amount (0..1, per bar)\n"
         "  --humanize F           0..1\n"
         "  --lock                 humanize repeats every 2 bars\n"
         "  --linear               linear mode\n"
@@ -105,6 +109,10 @@ int main(int argc, char** argv)
         else if (a == "--timing") params.groove.timing = static_cast<Timing>(indexOf(next(), { "trip", "shake", "push", "clave" }));
         else if (a == "--shuffle") params.groove.shuffle = std::strtof(next(), nullptr);
         else if (a == "--feeling") params.groove.feeling = static_cast<Feeling>(indexOf(next(), { "tight", "rolls", "flam", "slop" }));
+        else if (a == "--flam-ms") params.groove.feelMs = std::strtof(next(), nullptr);
+        else if (a == "--flam-rnd") params.groove.feelRandom = std::strtof(next(), nullptr);
+        else if (a == "--shuffle-rnd") params.groove.shuffleRandom = std::strtof(next(), nullptr);
+        else if (a == "--map-rnd") params.pattern.mapRandom = std::strtof(next(), nullptr);
         else if (a == "--humanize") params.humanize.amount = std::strtof(next(), nullptr);
         else if (a == "--lock") params.humanize.lock = true;
         else if (a == "--linear") params.pattern.linear = true;
@@ -115,6 +123,7 @@ int main(int argc, char** argv)
             const auto s = static_cast<std::uint32_t>(std::atoi(next()));
             params.pattern.seed += s * 7919u;
             params.humanize.seed += s * 104729u;
+            params.groove.seed += s * 6151u;
         }
         else if (a == "--out") outPath = next();
         else { usage(); return a == "--help" || a == "-h" ? 0 : 2; }

@@ -3,6 +3,7 @@
 #include "PluginProcessor.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <optional>
 
 class GristoLookAndFeel : public juce::LookAndFeel_V4
 {
@@ -15,10 +16,29 @@ public:
 
 // XY pad over the drum map. Brightness shows how busy the pattern is at the
 // current Fill settings; dots mark the corpus nodes.
+// Per-voice MIDI note: click for a menu (octaves, GM drum names), scroll to step.
+class NoteSelector : public juce::Component
+{
+public:
+    explicit NoteSelector(juce::RangedAudioParameter& parameter);
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+private:
+    void setNote(int note);
+
+    juce::RangedAudioParameter& parameter_;
+    juce::ParameterAttachment attachment_;
+    int note_ = 36;
+};
+
 class MapPad : public juce::Component
 {
 public:
     MapPad(juce::AudioProcessorValueTreeState& state, const gristo::DrumMap& map);
+    // Map Random range (radius in map units) and the position used by the current bar.
+    void setRandomDisplay(float radius, std::optional<juce::Point<float>> livePosition);
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
@@ -34,6 +54,8 @@ private:
     const gristo::DrumMap& map_;
     juce::Image heat_;
     juce::String heatKey_;
+    float randomRadius_ = 0.0f;
+    std::optional<juce::Point<float>> livePosition_;
 };
 
 // Six lanes x 32 steps. Each hit is drawn where it will actually sound (groove,
@@ -82,6 +104,7 @@ private:
 
     void timerCallback() override;
     void setupKnob(Knob&, const juce::String& paramId, const juce::String& text);
+    void setupRandomKnob(Knob&, const juce::String& paramId, const juce::String& text);
     void setupToggle(Toggle&, const juce::String& paramId, const juce::String& text);
     void setupChoice(Choice&, const juce::String& paramId, const juce::String& text);
     static void placeKnob(Knob&, juce::Rectangle<int> area);
@@ -98,6 +121,8 @@ private:
     Knob fills_[gristo::kNumVoices];
     Knob probabilities_[gristo::kNumVoices];
     Toggle mutes_[gristo::kNumVoices];
+    std::unique_ptr<NoteSelector> notes_[gristo::kNumVoices];
+    Knob mapRandom_, shuffleRandom_, feelRandom_;
     Choice timing_, feeling_;
     Knob shuffle_, feelMs_;
     Knob humanize_, dynamics_;

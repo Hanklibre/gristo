@@ -29,6 +29,9 @@ EngineParams busyParams()
     p.groove.shuffle = 4.5f;
     p.groove.feeling = Feeling::Rolls;
     p.humanize.amount = 0.8f;
+    p.groove.shuffleRandom = 0.4f;
+    p.pattern.mapRandom = 0.3f;
+    p.pattern.probability = { 1.0f, 0.9f, 0.8f, 0.7f, 0.9f, 0.8f };
     return p;
 }
 
@@ -251,4 +254,17 @@ TEST("engine: velocities follow accents and level")
             else
                 CHECK(h.velocity <= p.dynamics.velLow[static_cast<size_t>(v)] + 1e-6);
         }
+}
+
+TEST("engine: random flam renders identically at any block size")
+{
+    EngineParams p = busyParams();
+    p.groove.feeling = Feeling::Slop;
+    p.groove.feelMs = 14.0f;
+    p.groove.feelRandom = 1.0f;
+    const auto ref = noteOns(render(p, 64, 48000 * 6));
+    const auto got = noteOns(render(p, 1024, 48000 * 6));
+    CHECK(ref.size() == got.size());
+    for (size_t i = 0; i < std::min(ref.size(), got.size()); ++i)
+        CHECK(ref[i].voice == got[i].voice && std::abs(ref[i].sample - got[i].sample) <= 1);
 }

@@ -59,6 +59,28 @@ DrumMap (X, Y) ─► PatternGenerator (Chaos, Fill, Mutes, Probability, Linear)
   and each step's level becomes the average over the windows. This is how
   "sometimes" notes become fills.
 
+## Random modulation (Beads-style)
+
+Three parameters have a small teal **Random** knob, like the attenurandomizers
+on Mutable Instruments Beads. It sets how far that parameter is randomly moved
+around its knob value. Each is sampled and held at a rate that suits it:
+
+| Parameter | Random range at 100 % | Sampled |
+| --- | --- | --- |
+| Flam ms (Flam / Slop) | 0 … 2 × Flam ms | per hit. Kick and snare roll independently; in Slop the hats follow the snare's roll |
+| Shuffle | ± 3 shuffle rows | per groove cell (one beat; two for Clave), so cells still start on time and order is kept |
+| Map X / Y | ± 0.5 of the map on each axis | per bar. The map pad shows the range as a box and the current bar's position as a dot |
+
+As with everything else, the values are hashed from (seed, position). Playback
+and bounces match, and *Variation* re-rolls them.
+
+## MIDI out notes
+
+Each voice has its own output note (defaults: GM 36 / 38 / 42 / 46 / 39 / 45 on
+channel 10). The Voices panel shows each note as `C1 · 36`, using middle C = C3
+(Ableton / Cubase). Click a note to pick from a menu organised by octave, with
+General MIDI drum names, or scroll to step one note at a time.
+
 ## Probability
 
 Each voice has a Probability (0–100 %). A hit that passes Fill plays with that

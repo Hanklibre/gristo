@@ -9,18 +9,33 @@ namespace gristo {
 namespace {
 constexpr std::uint32_t kChaosStream = 0xC4A05u;
 constexpr std::uint32_t kProbabilityStream = 0x9B0B0u;
+constexpr std::uint32_t kMapXStream = 0x3A9F0u;
+constexpr std::uint32_t kMapYStream = 0x3A9F1u;
+constexpr float kMapRandomSpan = 0.5f;
 constexpr float kChaosDepth = 0.45f;
 } // namespace
+
+std::pair<float, float> PatternGenerator::mapPositionAt(const PatternParams& p, std::int64_t absoluteStep)
+{
+    if (p.mapRandom <= 0.0f)
+        return { p.mapX, p.mapY };
+    const std::int64_t bar = floorDiv(absoluteStep, kStepsPerBar);
+    const float r = std::clamp(p.mapRandom, 0.0f, 1.0f) * kMapRandomSpan;
+    const float x = p.mapX + r * rnd::bipolar(rnd::hash(p.seed, kMapXStream, bar));
+    const float y = p.mapY + r * rnd::bipolar(rnd::hash(p.seed, kMapYStream, bar));
+    return { std::clamp(x, 0.0f, 1.0f), std::clamp(y, 0.0f, 1.0f) };
+}
 
 StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absoluteStep) const
 {
     const int patternStep = floorMod(absoluteStep, kPatternSteps);
     const std::int64_t cycle = floorDiv(absoluteStep, kPatternSteps);
+    const auto [mapX, mapY] = mapPositionAt(p, absoluteStep);
 
     StepHits hits {};
     for (int v = 0; v < kNumVoices; ++v)
     {
-        float level = map_.level(v, patternStep, p.mapX, p.mapY);
+        float level = map_.level(v, patternStep, mapX, mapY);
         if (p.chaos > 0.0f)
         {
             const float n = rnd::bipolar(rnd::hash(p.seed, kChaosStream + static_cast<std::uint32_t>(v), cycle, patternStep));
