@@ -19,6 +19,31 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
 See [docs/DESIGN.md](docs/DESIGN.md) for how it works and
 [docs/map.md](docs/map.md) for the current map.
 
+## Download
+
+Every push builds the plugin on Windows, macOS (universal: Apple Silicon and
+Intel) and Linux with GitHub Actions. Open the repository's **Actions** tab,
+pick the latest *Build plugin* run, and download the artifact for your system.
+
+Install the VST3 by copying `Gristo.vst3` to:
+
+| OS | Folder |
+| --- | --- |
+| Windows | `C:\Program Files\Common Files\VST3\` |
+| macOS | `~/Library/Audio/Plug-Ins/VST3/` (AU: `~/Library/Audio/Plug-Ins/Components/`) |
+| Linux | `~/.vst3/` |
+
+**macOS:** the build is not notarized, so remove the download quarantine once
+after copying:
+
+```sh
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Gristo.vst3
+xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Gristo.component
+```
+
+**Windows:** SmartScreen may warn about the unsigned standalone `.exe`. The
+VST3 loads in your DAW without a prompt.
+
 ## Build
 
 Requirements: CMake ≥ 3.22, a C++17 compiler. JUCE 8 is fetched automatically,

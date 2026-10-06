@@ -3,6 +3,7 @@
 #include "gristo/Engine.h"
 
 #include <algorithm>
+#include <iterator>
 #include <map>
 
 using namespace gristo;

@@ -1,0 +1,95 @@
+name: Build plugin
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            artifact: Gristo-Windows-x64
+            configure: ""
+          - name: macOS
+            os: macos-14
+            artifact: Gristo-macOS-universal
+            configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+          - name: Linux
+            os: ubuntu-24.04
+            artifact: Gristo-Linux-x86_64
+            configure: -G Ninja
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxcomposite-dev libxext-dev libfreetype-dev libfontconfig1-dev xvfb
+
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.configure }}
+
+      - name: Build
+        shell: bash
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Unit tests
+        shell: bash
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ART=build/plugin/Gristo_artefacts/Release
+          codesign --force --deep --sign - "$ART/VST3/Gristo.vst3"
+          codesign --force --deep --sign - "$ART/AU/Gristo.component"
+          codesign --force --deep --sign - "$ART/Standalone/Gristo.app"
+
+      - name: Validate with pluginval
+        shell: bash
+        run: |
+          VST3="build/plugin/Gristo_artefacts/Release/VST3/Gristo.vst3"
+          case "${{ runner.os }}" in
+            Linux)
+              curl -sSL -o pv.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Linux.zip
+              unzip -q pv.zip
+              xvfb-run -a ./pluginval --strictness-level 10 --validate-in-process "$VST3" ;;
+            macOS)
+              curl -sSL -o pv.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip
+              unzip -q pv.zip
+              ./pluginval.app/Contents/MacOS/pluginval --strictness-level 10 --validate-in-process "$VST3" ;;
+            Windows)
+              curl -sSL -o pv.zip https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_Windows.zip
+              unzip -q pv.zip
+              ./pluginval.exe --strictness-level 10 --validate-in-process "$VST3" ;;
+          esac
+
+      - name: Package
+        shell: bash
+        run: |
+          ART=build/plugin/Gristo_artefacts/Release
+          mkdir -p dist
+          cp -R "$ART/VST3/Gristo.vst3" dist/
+          if [ -d "$ART/AU/Gristo.component" ]; then cp -R "$ART/AU/Gristo.component" dist/; fi
+          if [ -d "$ART/Standalone/Gristo.app" ]; then cp -R "$ART/Standalone/Gristo.app" dist/; fi
+          if [ -f "$ART/Standalone/Gristo.exe" ]; then cp "$ART/Standalone/Gristo.exe" dist/; fi
+          if [ -f "$ART/Standalone/Gristo" ]; then cp "$ART/Standalone/Gristo" dist/; fi
+          cp README.md dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+          retention-days: 30
