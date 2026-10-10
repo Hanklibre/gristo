@@ -2,6 +2,7 @@
 
 #include "gristo/Groove.h"
 #include "gristo/Humanizer.h"
+#include "gristo/Modulation.h"
 #include "gristo/PatternGenerator.h"
 
 #include <vector>
@@ -10,14 +11,19 @@ namespace gristo {
 
 struct DynamicsParams
 {
-    // Stolperbeats-style velocity boundaries: accents play at velHigh, regular hits
-    // at velLow, and ghost-level hits (just above the Fill threshold) below that.
-    std::array<float, kNumVoices> velLow { 0.62f, 0.6f, 0.5f, 0.55f, 0.55f, 0.55f };
-    std::array<float, kNumVoices> velHigh { 1.0f, 1.0f, 0.85f, 0.9f, 0.9f, 0.9f };
+    // Per-voice output velocity range (0..1 = MIDI 0..127). Every note of the voice is
+    // mapped into [velMin, velMax]: accents at velMax, ghosts towards velMin.
+    std::array<float, kNumVoices> velMin { 1.0f / 127, 1.0f / 127, 1.0f / 127, 1.0f / 127, 1.0f / 127, 1.0f / 127 };
+    std::array<float, kNumVoices> velMax { 1.0f, 1.0f, 108.0f / 127, 115.0f / 127, 115.0f / 127, 115.0f / 127 };
     float dynamics = 0.6f; // master: 0 = flat, 1 = map level strongly shapes velocity
     // Per-voice scale of the master Dynamics (0..2); the product is clamped to 1.
     std::array<float, kNumVoices> voiceDynamics { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+    // Added to the normalized velocity before range mapping (set by modulation).
+    std::array<float, kNumVoices> velocityOffset {};
 };
+
+// Position inside the velocity range of a non-accented note at full strength.
+constexpr float kNormalVelocity = 0.65f;
 
 struct EngineParams
 {
@@ -25,6 +31,7 @@ struct EngineParams
     GrooveParams groove;
     HumanizeParams humanize;
     DynamicsParams dynamics;
+    ModulationParams modulation;
     float noteLengthBeats = 0.125f;
 };
 
@@ -35,7 +42,8 @@ struct HitInfo
     bool accent = false;
     bool dropped = false;    // removed by Probability this time round
     float level = 0.0f;
-    float velocity = 0.0f;   // 0..1
+    float velocity = 0.0f;   // 0..1, final (inside the voice's velocity range)
+    float velocityNorm = 0.0f; // 0..1 position inside the velocity range
     double gridBeats = 0.0;  // groove position (no feel / humanize)
     double timeBeats = 0.0;  // final onset
     int rollCount = 1;
@@ -71,12 +79,23 @@ class Engine
 public:
     explicit Engine(const DrumMapData& data = defaultMapData());
 
-    void setParams(const EngineParams& p) { params_ = p; }
+    void setParams(const EngineParams& p);
     const EngineParams& params() const { return params_; }
     const DrumMap& map() const { return map_; }
 
     HitInfo describe(std::int64_t step, int voice, double bpm, bool withHumanize = true) const;
-    StepHits evaluateStep(std::int64_t step) const { return generator_.evaluate(params_.pattern, step); }
+    StepHits evaluateStep(std::int64_t step) const { return generator_.evaluate(effectiveParams(step).pattern, step); }
+
+    // Parameters in effect at a step: the base parameters plus all modulation lanes.
+    // Shuffle modulation is sampled at the start of the groove cell so positions stay
+    // monotonic.
+    EngineParams effectiveParams(std::int64_t step) const;
+
+    // Sum of (amount x lane value) routed to a target at a step (unscaled, -4..4).
+    float modulationAt(int target, std::int64_t step) const;
+
+    // Maps a normalized velocity into a voice's velocity range.
+    float mapVelocity(int voice, float normalized) const;
 
     // Appends this block's events to `out`, sorted by sample offset.
     void process(const BlockInfo& block, std::vector<OutputEvent>& out);
@@ -98,8 +117,8 @@ private:
         bool noteOn;
     };
 
-    HitInfo describe(const StepHits& hits, std::int64_t step, int voice, double bpm, bool withHumanize) const;
-    float velocityFor(const VoiceHit& hit, int voice) const;
+    static float normalizedVelocity(const EngineParams& ep, const VoiceHit& hit, int voice);
+    double gridAt(std::int64_t step) const;
     void schedule(const HitInfo& hit, int voice);
     void flushNoteOffs(std::vector<OutputEvent>& out);
     void resync(double ppqStart);
@@ -107,6 +126,8 @@ private:
     DrumMap map_;
     PatternGenerator generator_;
     EngineParams params_;
+    bool hasModulation_ = false;
+    bool shuffleModulated_ = false;
 
     std::vector<Pending> pending_;
     std::array<std::int64_t, kNumVoices> nextStep_ {};

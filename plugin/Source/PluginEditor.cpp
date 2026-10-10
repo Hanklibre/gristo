@@ -1,406 +1,35 @@
 #include "PluginEditor.h"
 
 namespace p = gristo::params;
+namespace mod = gristo::mod;
+using namespace theme;
 
 namespace {
-
-namespace colours {
-const juce::Colour background { 0xff15161a };
-const juce::Colour panel { 0xff1f2127 };
-const juce::Colour outline { 0xff33363f };
-const juce::Colour text { 0xffd9d4c7 };
-const juce::Colour dim { 0xff7d7a72 };
-const juce::Colour accent { 0xfff2b544 };  // warm amber, like backlit encoder rings
-const juce::Colour hot { 0xffe8553b };
-const juce::Colour cool { 0xff2b3a5c };
-const juce::Colour random { 0xff5fb8aa };   // Beads-style random amounts
-} // namespace colours
-
-const juce::Colour kVoiceColours[gristo::kNumVoices] = {
-    juce::Colour(0xffe8553b), juce::Colour(0xfff08a3a), juce::Colour(0xffefe6d2),
-    juce::Colour(0xffc9b458), juce::Colour(0xfff08a3a), juce::Colour(0xffe8553b),
-};
-
-constexpr int kWidth = 1000;
-constexpr int kHeight = 860;
 
 // Voices matrix geometry
 constexpr int kVoiceX0 = 452;
 constexpr int kVoiceColW = 88;
-constexpr int kVoiceRowY[] = { 342, 398, 454, 510, 566 };
-constexpr int kVoiceRowH = 54;
-const char* const kVoiceRowNames[] = { "Fill", "Random", "Probability", "Humanize", "Dynamics" };
+constexpr int kVoiceRowY[] = { 340, 384, 428, 472, 516, 560 };
+constexpr int kVoiceRowH = 44;
+constexpr int kVelocityRowY = 608;
+constexpr int kNoteRowY = 636;
+constexpr int kMuteRowY = 664;
+const char* const kVoiceRowNames[] = { "Fill", "Random", "Probability", "Random", "Humanize", "Dynamics" };
 
-void drawPanel(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title)
-{
-    g.setColour(colours::panel);
-    g.fillRoundedRectangle(area.toFloat(), 8.0f);
-    g.setColour(colours::outline);
-    g.drawRoundedRectangle(area.toFloat().reduced(0.5f), 8.0f, 1.0f);
-    if (title.isNotEmpty())
-    {
-        g.setColour(colours::dim);
-        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-        g.drawText(title.toUpperCase(), area.reduced(12, 6).removeFromTop(14), juce::Justification::topLeft);
-    }
-}
+// Modulation panel geometry
+constexpr int kModY = 868;
+constexpr int kSlotX = 664;
+constexpr int kSlotRowY[] = { 912, 952, 992, 1032 };
+
+const float kScales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.25f };
 
 } // namespace
 
 // ---------------------------------------------------------------------------------
-// Look and feel
+// View
 
-GristoLookAndFeel::GristoLookAndFeel()
-{
-    setColour(juce::Slider::textBoxTextColourId, colours::text);
-    setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    setColour(juce::Label::textColourId, colours::text);
-    setColour(juce::ComboBox::backgroundColourId, colours::background);
-    setColour(juce::ComboBox::outlineColourId, colours::outline);
-    setColour(juce::ComboBox::textColourId, colours::text);
-    setColour(juce::ComboBox::arrowColourId, colours::accent);
-    setColour(juce::PopupMenu::backgroundColourId, colours::panel);
-    setColour(juce::PopupMenu::textColourId, colours::text);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId, colours::accent.withAlpha(0.3f));
-    setColour(juce::ToggleButton::textColourId, colours::text);
-}
-
-void GristoLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float pos,
-                                         float startAngle, float endAngle, juce::Slider& slider)
-{
-    const bool isRandom = slider.getProperties()["random"];
-    const auto bounds = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(4.0f);
-    const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
-    const auto centre = bounds.getCentre();
-    const float angle = startAngle + pos * (endAngle - startAngle);
-
-    g.setColour(colours::background);
-    g.fillEllipse(juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre));
-
-    juce::Path track, value;
-    track.addCentredArc(centre.x, centre.y, radius - 2.0f, radius - 2.0f, 0.0f, startAngle, endAngle, true);
-    value.addCentredArc(centre.x, centre.y, radius - 2.0f, radius - 2.0f, 0.0f, startAngle, angle, true);
-    const juce::PathStrokeType stroke(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
-    g.setColour(colours::outline);
-    g.strokePath(track, stroke);
-    g.setColour(isRandom ? colours::random : colours::accent);
-    g.strokePath(value, stroke);
-
-    const auto tip = centre.getPointOnCircumference(radius * 0.62f, angle);
-    g.setColour(colours::text);
-    g.drawLine({ centre.getPointOnCircumference(radius * 0.2f, angle), tip }, 2.0f);
-}
-
-void GristoLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& b, bool highlighted, bool)
-{
-    auto area = b.getLocalBounds().toFloat().reduced(2.0f);
-    const bool on = b.getToggleState();
-    g.setColour(on ? colours::accent : colours::background);
-    g.fillRoundedRectangle(area, 5.0f);
-    g.setColour(highlighted ? colours::text : colours::outline);
-    g.drawRoundedRectangle(area, 5.0f, 1.0f);
-    g.setColour(on ? colours::background : colours::text);
-    g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    g.drawText(b.getButtonText(), area, juce::Justification::centred);
-}
-
-// ---------------------------------------------------------------------------------
-// Note selector
-
-NoteSelector::NoteSelector(juce::RangedAudioParameter& parameter)
-    : parameter_(parameter),
-      attachment_(parameter, [this](float value) {
-          note_ = juce::roundToInt(value);
-          repaint();
-      })
-{
-    attachment_.sendInitialUpdate();
-    setMouseCursor(juce::MouseCursor::PointingHandCursor);
-}
-
-void NoteSelector::setNote(int note)
-{
-    attachment_.setValueAsCompleteGesture(static_cast<float>(juce::jlimit(0, 127, note)));
-}
-
-void NoteSelector::paint(juce::Graphics& g)
-{
-    const auto area = getLocalBounds().toFloat().reduced(1.0f);
-    g.setColour(colours::background);
-    g.fillRoundedRectangle(area, 4.0f);
-    g.setColour(isMouseOver() ? colours::text : colours::outline);
-    g.drawRoundedRectangle(area, 4.0f, 1.0f);
-    g.setColour(colours::text);
-    g.setFont(juce::FontOptions(12.0f));
-    g.drawText(gristo::params::noteDisplayName(note_), area, juce::Justification::centred);
-}
-
-void NoteSelector::mouseDown(const juce::MouseEvent&)
-{
-    juce::PopupMenu menu;
-    for (int octave = -2; octave <= 8; ++octave)
-    {
-        juce::PopupMenu sub;
-        bool containsCurrent = false;
-        for (int pc = 0; pc < 12; ++pc)
-        {
-            const int n = (octave + 2) * 12 + pc;
-            if (n > 127)
-                break;
-            juce::String text = gristo::params::noteDisplayName(n);
-            if (const char* gm = juce::MidiMessage::getRhythmInstrumentName(n))
-                text << "   " << gm;
-            sub.addItem(n + 1, text, true, n == note_);
-            containsCurrent |= n == note_;
-        }
-        menu.addSubMenu("Octave " + juce::String(octave), sub, true, nullptr, containsCurrent);
-    }
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [safe = juce::Component::SafePointer<NoteSelector>(this)](int result) {
-        if (safe != nullptr && result > 0)
-            safe->setNote(result - 1);
-    });
-}
-
-void NoteSelector::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
-{
-    const float delta = std::abs(wheel.deltaY) > std::abs(wheel.deltaX) ? wheel.deltaY : -wheel.deltaX;
-    if (delta > 0.0f)
-        setNote(note_ + 1);
-    else if (delta < 0.0f)
-        setNote(note_ - 1);
-}
-
-// ---------------------------------------------------------------------------------
-// Map pad
-
-MapPad::MapPad(juce::AudioProcessorValueTreeState& state, const gristo::DrumMap& map) : state_(state), map_(map) {}
-
-void MapPad::setRandomDisplay(float radius, std::optional<juce::Point<float>> livePosition)
-{
-    randomRadius_ = radius;
-    livePosition_ = livePosition;
-}
-
-void MapPad::refreshHeat(const gristo::EngineParams& params)
-{
-    // Only recompute when something that changes density changed.
-    juce::String key;
-    for (int v = 0; v < gristo::kNumVoices; ++v)
-        key << juce::String(params.pattern.fill[static_cast<size_t>(v)], 3) << (params.pattern.mute[static_cast<size_t>(v)] ? "m" : "") << ",";
-    key << (params.pattern.linear ? "L" : "");
-    if (key == heatKey_ && heat_.isValid())
-        return;
-    heatKey_ = key;
-
-    constexpr int res = 64;
-    gristo::PatternGenerator gen(map_);
-    gristo::PatternParams pp = params.pattern;
-    pp.chaos = 0.0f;
-
-    std::vector<float> density(res * res);
-    float maxDensity = 1e-3f;
-    for (int iy = 0; iy < res; ++iy)
-        for (int ix = 0; ix < res; ++ix)
-        {
-            pp.mapX = ix / float(res - 1);
-            pp.mapY = iy / float(res - 1);
-            int count = 0;
-            for (int s = 0; s < gristo::kPatternSteps; ++s)
-                for (const auto& h : gen.evaluate(pp, s))
-                    count += h.on ? 1 : 0;
-            const float d = count / float(gristo::kPatternSteps * gristo::kNumVoices);
-            density[static_cast<size_t>(iy * res + ix)] = d;
-            maxDensity = std::max(maxDensity, d);
-        }
-
-    heat_ = juce::Image(juce::Image::RGB, res, res, false);
-    for (int iy = 0; iy < res; ++iy)
-        for (int ix = 0; ix < res; ++ix)
-        {
-            const float t = std::sqrt(density[static_cast<size_t>(iy * res + ix)] / maxDensity);
-            const auto c = t < 0.5f ? colours::background.interpolatedWith(colours::cool, t * 2.0f)
-                                    : colours::cool.interpolatedWith(colours::hot.withMultipliedBrightness(0.8f), (t - 0.5f) * 2.0f);
-            heat_.setPixelAt(ix, iy, c);
-        }
-    repaint();
-}
-
-juce::String MapPad::nearestNodeName() const
-{
-    const float x = state_.getRawParameterValue(p::mapX)->load();
-    const float y = state_.getRawParameterValue(p::mapY)->load();
-    const int nx = juce::roundToInt(x * float(map_.width() - 1));
-    const int ny = juce::roundToInt(y * float(map_.height() - 1));
-    return juce::String(map_.nodeName(nx, ny)).replace("_", " ");
-}
-
-void MapPad::paint(juce::Graphics& g)
-{
-    const auto area = getLocalBounds().toFloat();
-    if (heat_.isValid())
-    {
-        g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-        g.drawImage(heat_, area);
-    }
-
-    g.setColour(colours::text.withAlpha(0.25f));
-    for (int ny = 0; ny < map_.height(); ++ny)
-        for (int nx = 0; nx < map_.width(); ++nx)
-        {
-            const float px = area.getX() + area.getWidth() * nx / float(map_.width() - 1);
-            const float py = area.getY() + area.getHeight() * ny / float(map_.height() - 1);
-            g.fillEllipse(px - 2.0f, py - 2.0f, 4.0f, 4.0f);
-        }
-
-    const float x = state_.getRawParameterValue(p::mapX)->load();
-    const float y = state_.getRawParameterValue(p::mapY)->load();
-    const juce::Point<float> c { area.getX() + x * area.getWidth(), area.getY() + y * area.getHeight() };
-    g.setColour(colours::accent.withAlpha(0.5f));
-    g.drawHorizontalLine(juce::roundToInt(c.y), area.getX(), area.getRight());
-    g.drawVerticalLine(juce::roundToInt(c.x), area.getY(), area.getBottom());
-    if (randomRadius_ > 0.0f)
-    {
-        // Map Random range: X and Y each move up to +-radius around the crosshair.
-        const auto range = juce::Rectangle<float>(randomRadius_ * 2.0f * area.getWidth(), randomRadius_ * 2.0f * area.getHeight())
-                               .withCentre(c)
-                               .getIntersection(area);
-        g.setColour(colours::random.withAlpha(0.12f));
-        g.fillRoundedRectangle(range, 6.0f);
-        g.setColour(colours::random.withAlpha(0.6f));
-        g.drawRoundedRectangle(range, 6.0f, 1.0f);
-    }
-    if (livePosition_.has_value())
-    {
-        const juce::Point<float> lp { area.getX() + livePosition_->x * area.getWidth(), area.getY() + livePosition_->y * area.getHeight() };
-        g.setColour(colours::random);
-        g.fillEllipse(lp.x - 4.0f, lp.y - 4.0f, 8.0f, 8.0f);
-    }
-    g.setColour(colours::accent);
-    g.drawEllipse(c.x - 7.0f, c.y - 7.0f, 14.0f, 14.0f, 2.0f);
-
-    g.setColour(colours::outline);
-    g.drawRect(area, 1.0f);
-    g.setColour(colours::dim);
-    g.setFont(juce::FontOptions(10.0f));
-    g.drawText("straight", area.reduced(6).removeFromBottom(12), juce::Justification::bottomLeft);
-    g.drawText("syncopated", area.reduced(6).removeFromBottom(12), juce::Justification::bottomRight);
-    g.drawText("four on the floor", area.reduced(6).removeFromTop(12), juce::Justification::topRight);
-}
-
-void MapPad::setFromMouse(juce::Point<float> pos)
-{
-    const float x = juce::jlimit(0.0f, 1.0f, pos.x / float(getWidth()));
-    const float y = juce::jlimit(0.0f, 1.0f, pos.y / float(getHeight()));
-    state_.getParameter(p::mapX)->setValueNotifyingHost(x);
-    state_.getParameter(p::mapY)->setValueNotifyingHost(y);
-    repaint();
-}
-
-void MapPad::mouseDown(const juce::MouseEvent& e)
-{
-    state_.getParameter(p::mapX)->beginChangeGesture();
-    state_.getParameter(p::mapY)->beginChangeGesture();
-    setFromMouse(e.position);
-}
-
-void MapPad::mouseDrag(const juce::MouseEvent& e) { setFromMouse(e.position); }
-
-void MapPad::mouseUp(const juce::MouseEvent&)
-{
-    state_.getParameter(p::mapX)->endChangeGesture();
-    state_.getParameter(p::mapY)->endChangeGesture();
-}
-
-// ---------------------------------------------------------------------------------
-// Pattern view
-
-void PatternView::setPlayhead(double ppq, double bpm, bool playing)
-{
-    ppq_ = ppq;
-    bpm_ = bpm;
-    playing_ = playing;
-    repaint();
-}
-
-void PatternView::paint(juce::Graphics& g)
-{
-    using namespace gristo;
-    auto area = getLocalBounds().toFloat();
-    const float labelW = 64.0f;
-    auto grid = area.withTrimmedLeft(labelW);
-    const float laneH = grid.getHeight() / kNumVoices;
-    const float stepW = grid.getWidth() / kPatternSteps;
-
-    // Show the pattern cycle that is currently playing (cycle 0 when stopped).
-    const std::int64_t cycle = playing_ ? floorDiv(static_cast<std::int64_t>(std::floor(ppq_ * kStepsPerBeat)), kPatternSteps) : 0;
-    const double cycleStartBeats = static_cast<double>(cycle * kPatternSteps) / kStepsPerBeat;
-    auto xOfBeats = [&](double beats) { return grid.getX() + float((beats - cycleStartBeats) * kStepsPerBeat) * stepW; };
-
-    for (int s = 0; s <= kPatternSteps; ++s)
-    {
-        const bool bar = s % kStepsPerBar == 0;
-        const bool beat = s % kStepsPerBeat == 0;
-        g.setColour(colours::outline.withAlpha(bar ? 1.0f : beat ? 0.6f : 0.2f));
-        const float x = grid.getX() + s * stepW;
-        g.drawVerticalLine(juce::roundToInt(x), grid.getY(), grid.getBottom());
-    }
-
-    for (int v = 0; v < kNumVoices; ++v)
-    {
-        auto lane = grid.withY(grid.getY() + v * laneH).withHeight(laneH);
-        g.setColour(colours::dim);
-        g.setFont(juce::FontOptions(11.0f));
-        g.drawText(voiceName(v), juce::Rectangle<float>(area.getX(), lane.getY(), labelW - 6.0f, laneH),
-                   juce::Justification::centredRight);
-        g.setColour(colours::outline.withAlpha(0.35f));
-        g.drawHorizontalLine(juce::roundToInt(lane.getBottom()), grid.getX(), grid.getRight());
-
-        for (int s = 0; s < kPatternSteps; ++s)
-        {
-            const std::int64_t step = cycle * kPatternSteps + s;
-            const HitInfo h = engine_.describe(step, v, bpm_, true);
-            if (h.dropped)
-            {
-                // Removed by Probability this time round: hollow outline at the groove slot.
-                const float x = xOfBeats(h.timeBeats);
-                const float barH = (laneH - 8.0f) * (0.3f + 0.7f * h.level);
-                g.setColour(kVoiceColours[v].withAlpha(0.45f));
-                g.drawRoundedRectangle(x, lane.getBottom() - 5.0f - barH, std::max(3.0f, stepW * 0.55f), barH, 2.0f, 1.0f);
-                continue;
-            }
-            if (!h.on)
-                continue;
-
-            // Straight position tick.
-            const float straightX = grid.getX() + s * stepW;
-            g.setColour(colours::dim.withAlpha(0.5f));
-            g.fillRect(straightX + 1.0f, lane.getBottom() - 3.0f, stepW - 2.0f, 2.0f);
-
-            const auto colour = kVoiceColours[v].withAlpha(h.accent ? 1.0f : 0.45f + 0.4f * h.velocity);
-            for (int k = 0; k < h.rollCount; ++k)
-            {
-                const float x = xOfBeats(h.timeBeats + k * h.rollSpacingBeats);
-                const float barW = h.rollCount > 1 ? std::max(2.0f, stepW * 0.25f) : std::max(3.0f, stepW * 0.55f);
-                const float barH = (laneH - 8.0f) * (0.3f + 0.7f * h.velocity);
-                g.setColour(colour);
-                g.fillRoundedRectangle(x, lane.getBottom() - 5.0f - barH, barW, barH, 2.0f);
-            }
-        }
-    }
-
-    if (playing_)
-    {
-        const float x = xOfBeats(ppq_);
-        g.setColour(colours::accent);
-        g.drawVerticalLine(juce::roundToInt(x), grid.getY(), grid.getBottom());
-    }
-}
-
-// ---------------------------------------------------------------------------------
-// Editor
-
-GristoEditor::GristoEditor(GristoProcessor& proc)
-    : AudioProcessorEditor(proc), processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_)
+GristoView::GristoView(GristoProcessor& proc)
+    : processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_), laneEditor_(proc)
 {
     setLookAndFeel(&lookAndFeel_);
 
@@ -409,6 +38,8 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
     nodeLabel_.setJustificationType(juce::Justification::centredLeft);
     nodeLabel_.setFont(juce::FontOptions(13.0f));
     addAndMakeVisible(nodeLabel_);
+    sizeButton_.onClick = [this] { showSizeMenu(); };
+    addAndMakeVisible(sizeButton_);
 
     setupKnob(chaos_, p::chaos, "Chaos");
     setupKnob(variation_, p::variation, "Variation");
@@ -418,11 +49,15 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
         setupCellKnob(fills_[v], p::voiceId(p::fill, v), false);
         setupCellKnob(fillRandoms_[v], p::voiceId(p::fillRandom, v), true);
         setupCellKnob(probabilities_[v], p::voiceId(p::probability, v), false);
+        setupCellKnob(probabilityRandoms_[v], p::voiceId(p::probabilityRandom, v), true);
         setupCellKnob(voiceHumanize_[v], p::voiceId(p::voiceHumanize, v), false);
         setupCellKnob(voiceDynamics_[v], p::voiceId(p::voiceDynamics, v), false);
-        setupToggle(mutes_[v], p::voiceId(p::mute, v), "Mute");
+        velocityRanges_[v] = std::make_unique<VelocityRange>(*proc.state.getParameter(p::voiceId(p::velMin, v)),
+                                                             *proc.state.getParameter(p::voiceId(p::velMax, v)), voiceColours[v]);
+        addAndMakeVisible(*velocityRanges_[v]);
         notes_[v] = std::make_unique<NoteSelector>(*proc.state.getParameter(p::voiceId(p::note, v)));
         addAndMakeVisible(*notes_[v]);
+        setupToggle(mutes_[v], p::voiceId(p::mute, v), "Mute");
     }
     setupChoice(timing_, p::timing, "Timing");
     setupKnob(shuffle_, p::shuffle, "Shuffle");
@@ -441,8 +76,73 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
     setupKnob(midiChannel_, p::midiChannel, "MIDI Ch");
     setupKnob(noteLength_, p::noteLength, "Note Len");
 
-    // Concise help, shown in the header box while hovering.
-    setHelp(mapPad_, "Map", "Drag to morph between 36 grooves. Left-right: straight to syncopated. Top-bottom: four-on-the-floor to broken / halftime.");
+    // ---- Modulation panel
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+    {
+        auto& tab = laneTabs_[lane];
+        tab.setButtonText("Lane " + juce::String(lane + 1));
+        tab.setClickingTogglesState(true);
+        tab.setRadioGroupId(4711);
+        tab.setColour(juce::TextButton::buttonOnColourId, laneColours[lane].withAlpha(0.85f));
+        tab.setColour(juce::TextButton::textColourOnId, colours::background);
+        tab.onClick = [this, lane] { selectLane(lane); };
+        addAndMakeVisible(tab);
+        setHelp(tab, "Lane " + juce::String(lane + 1), "Show this modulation lane. Each lane is a drawn curve that loops over 1, 2 or 4 bars.");
+    }
+    addAndMakeVisible(laneHandle_);
+    addAndMakeVisible(laneEditor_);
+    for (const auto& name : { "1 bar", "2 bars", "4 bars" })
+        laneLength_.addItem(name, laneLength_.getNumItems() + 1);
+    addAndMakeVisible(laneLength_);
+    shapesButton_.setButtonText("Shapes");
+    shapesButton_.onClick = [this] {
+        juce::PopupMenu menu;
+        for (int s = 0; s < static_cast<int>(gristo::ModShape::Count); ++s)
+            menu.addItem(s + 1, gristo::modShapeName(static_cast<gristo::ModShape>(s)));
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&shapesButton_),
+                           [safe = juce::Component::SafePointer<GristoView>(this)](int result) {
+                               if (safe != nullptr && result > 0)
+                                   safe->laneEditor_.applyShape(static_cast<gristo::ModShape>(result - 1));
+                           });
+    };
+    addAndMakeVisible(shapesButton_);
+    juce::StringArray targetNames;
+    for (int t = 0; t < mod::kNumTargets; ++t)
+        targetNames.add(mod::targetName(t));
+    for (auto& slot : slots_)
+    {
+        slot.target.addItemList(targetNames, 1);
+        addAndMakeVisible(slot.target);
+        slot.amount.setSliderStyle(juce::Slider::LinearBar);
+        slot.amount.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
+        slot.amount.setColour(juce::Slider::textBoxTextColourId, colours::text);
+        slot.amount.setDoubleClickReturnValue(true, 0.0);
+        addAndMakeVisible(slot.amount);
+        setHelp(slot.target, "Routing target", "Parameter this lane modulates. Choose None to remove the routing.");
+        setHelp(slot.amount, "Routing amount", "How far the lane moves the target at full curve height. Negative = the curve pushes the value down. Double-click = 0.");
+    }
+
+    // ---- Drop targets (Massive-style: drag a lane handle onto a knob)
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        makeTarget(fills_[v].slider, fills_[v].slider, mod::kFill + v);
+        makeTarget(probabilities_[v].slider, probabilities_[v].slider, mod::kProbability + v);
+        makeTarget(*velocityRanges_[v], *velocityRanges_[v], mod::kVelocity + v);
+        targetSliders_[static_cast<size_t>(mod::kFill + v)] = &fills_[v].slider;
+        targetSliders_[static_cast<size_t>(mod::kProbability + v)] = &probabilities_[v].slider;
+    }
+    makeTarget(chaos_.slider, chaos_.slider, mod::kChaos);
+    makeTarget(shuffle_.slider, shuffle_.slider, mod::kShuffle);
+    makeTarget(feelMs_.slider, feelMs_.slider, mod::kFlamMs);
+    makeTarget(humanize_.slider, humanize_.slider, mod::kHumanize);
+    targetSliders_[mod::kChaos] = &chaos_.slider;
+    targetSliders_[mod::kShuffle] = &shuffle_.slider;
+    targetSliders_[mod::kFlamMs] = &feelMs_.slider;
+    targetSliders_[mod::kHumanize] = &humanize_.slider;
+    mapPad_.onLaneAxisChosen = [this](int lane, int target) { assignLane(lane, target); };
+
+    // ---- Help texts, shown in the header box while hovering
+    setHelp(mapPad_, "Map", "Drag to morph between 36 grooves. Left-right: straight to syncopated. Top-bottom: four-on-the-floor to broken. Drop a lane here to modulate X or Y.");
     setHelp(patternView_, "Pattern", "The 2 bars playing now, drawn where each note lands. Grey ticks = straight grid, outlines = notes skipped by Probability.");
     setHelp(chaos_, "Chaos", "Randomly raises and lowers step levels every 2 bars, adding and removing notes.");
     setHelp(mapRandom_, "Map Random", "Moves the map position randomly around the crosshair, to a new spot every bar.");
@@ -453,8 +153,10 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
         setHelp(fills_[v], name + " Fill", "How many notes this voice plays. Low = backbone only, high = ghost notes and fills.");
         setHelp(fillRandoms_[v], name + " Fill Random", "Varies this voice's Fill every bar, up to +-35 %. Busy bars and sparse bars.");
         setHelp(probabilities_[v], name + " Probability", "Chance that each note plays. Skipped notes differ every bar but repeat on re-render.");
+        setHelp(probabilityRandoms_[v], name + " Probability Random", "Varies this voice's Probability every bar, up to +-50 %.");
         setHelp(voiceHumanize_[v], name + " Humanize", "Scales the master Humanize for this voice. 0 % = on the grid, 200 % = twice as loose.");
         setHelp(voiceDynamics_[v], name + " Dynamics", "Scales the master Dynamics for this voice: how much softer its weaker notes are.");
+        setHelp(*velocityRanges_[v], name + " Velocity", "MIDI velocity range. Accents play at the top, ghost notes near the bottom. Drag the ends; double-click = 1-127.");
         setHelp(*notes_[v], name + " Note", "MIDI note this voice sends. Click for a list with drum names, scroll to step.");
         setHelp(mutes_[v].button, name + " Mute", "Silence this voice. In Linear mode its slots go to the next voice in line.");
     }
@@ -474,29 +176,43 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
     setHelp(freeTempo_, "Tempo", "Tempo for Free Run.");
     setHelp(midiChannel_, "MIDI Channel", "Channel all notes are sent on. 10 = General MIDI drums.");
     setHelp(noteLength_, "Note Length", "Length of the MIDI notes, in beats.");
+    setHelp(laneHandle_, "Assign lane", "Drag onto a knob (Fill, Probability, Chaos, Shuffle, Flam ms, Humanize), a Velocity range or the map to route this lane there.");
+    setHelp(laneEditor_, "Lane curve", "Draw the modulation curve, one value per 16th. Right-click for shapes. The bright column is the current step.");
+    setHelp(laneLength_, "Lane length", "How many bars the lane's curve spans before it loops.");
+    setHelp(shapesButton_, "Shapes", "Fill the lane with a ready-made curve: ramps, triangle, sine, square, per-beat saw, offbeats or random steps.");
+    setHelp(sizeButton_, "UI size", "Scale the whole window.");
 
     helpTitle_ = "Gristo";
     helpText_ = "Hover over any control to see what it does.";
     addMouseListener(this, true);
+
+    laneTabs_[0].setToggleState(true, juce::dontSendNotification);
+    selectLane(0);
 
     setSize(kWidth, kHeight);
     timerCallback();
     startTimerHz(30);
 }
 
-void GristoEditor::setHelp(juce::Component& component, const juce::String& title, const juce::String& text)
+GristoView::~GristoView()
+{
+    stopTimer();
+    setLookAndFeel(nullptr);
+}
+
+void GristoView::setHelp(juce::Component& component, const juce::String& title, const juce::String& text)
 {
     component.getProperties().set("helpTitle", title);
     component.getProperties().set("helpText", text.replace("+-", juce::String::fromUTF8("\xc2\xb1")));
 }
 
-void GristoEditor::setHelp(Knob& knob, const juce::String& title, const juce::String& text)
+void GristoView::setHelp(Knob& knob, const juce::String& title, const juce::String& text)
 {
     setHelp(knob.slider, title, text);
     setHelp(knob.label, title, text);
 }
 
-void GristoEditor::showHelpFor(juce::Component* component)
+void GristoView::showHelpFor(juce::Component* component)
 {
     for (auto* c = component; c != nullptr && c != this; c = c->getParentComponent())
     {
@@ -508,24 +224,19 @@ void GristoEditor::showHelpFor(juce::Component* component)
             {
                 helpTitle_ = title;
                 helpText_ = text;
-                repaint(372, 4, 612, 42);
+                repaint(372, 4, 520, 42);
             }
             return;
         }
     }
 }
 
-void GristoEditor::mouseMove(const juce::MouseEvent& e) { showHelpFor(e.originalComponent); }
-void GristoEditor::mouseEnter(const juce::MouseEvent& e) { showHelpFor(e.originalComponent); }
+void GristoView::mouseMove(const juce::MouseEvent& e) { showHelpFor(e.originalComponent); }
+void GristoView::mouseEnter(const juce::MouseEvent& e) { showHelpFor(e.originalComponent); }
 
-GristoEditor::~GristoEditor()
+void GristoView::setupKnob(Knob& k, const juce::String& paramId, const juce::String& text)
 {
-    stopTimer();
-    setLookAndFeel(nullptr);
-}
-
-void GristoEditor::setupKnob(Knob& k, const juce::String& paramId, const juce::String& text)
-{
+    k.slider.setSliderStyle(juce::Slider::RotaryHorizontalVerticalDrag);
     k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 16);
     k.slider.setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
     k.slider.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
@@ -539,7 +250,7 @@ void GristoEditor::setupKnob(Knob& k, const juce::String& paramId, const juce::S
     k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor_.state, paramId, k.slider);
 }
 
-void GristoEditor::setupRandomKnob(Knob& k, const juce::String& paramId, const juce::String& text)
+void GristoView::setupRandomKnob(Knob& k, const juce::String& paramId, const juce::String& text)
 {
     setupKnob(k, paramId, text);
     k.slider.getProperties().set("random", true);
@@ -548,23 +259,23 @@ void GristoEditor::setupRandomKnob(Knob& k, const juce::String& paramId, const j
     k.label.setColour(juce::Label::textColourId, colours::random);
 }
 
-void GristoEditor::setupCellKnob(Knob& k, const juce::String& paramId, bool isRandom)
+void GristoView::setupCellKnob(Knob& k, const juce::String& paramId, bool isRandom)
 {
     setupKnob(k, paramId, {});
     k.label.setVisible(false);
-    k.slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 14);
+    k.slider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 14);
     if (isRandom)
         k.slider.getProperties().set("random", true);
 }
 
-void GristoEditor::setupToggle(Toggle& t, const juce::String& paramId, const juce::String& text)
+void GristoView::setupToggle(Toggle& t, const juce::String& paramId, const juce::String& text)
 {
     t.button.setButtonText(text);
     addAndMakeVisible(t.button);
     t.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(processor_.state, paramId, t.button);
 }
 
-void GristoEditor::setupChoice(Choice& c, const juce::String& paramId, const juce::String& text)
+void GristoView::setupChoice(Choice& c, const juce::String& paramId, const juce::String& text)
 {
     if (auto* choice = dynamic_cast<juce::AudioParameterChoice*>(processor_.state.getParameter(paramId)))
         c.box.addItemList(choice->choices, 1);
@@ -576,31 +287,192 @@ void GristoEditor::setupChoice(Choice& c, const juce::String& paramId, const juc
     c.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(processor_.state, paramId, c.box);
 }
 
-void GristoEditor::placeKnob(Knob& k, juce::Rectangle<int> area)
+void GristoView::placeKnob(Knob& k, juce::Rectangle<int> area)
 {
     k.label.setBounds(area.removeFromTop(16));
     k.slider.setBounds(area);
 }
 
-void GristoEditor::timerCallback()
+// ---------------------------------------------------------------------------------
+// Modulation
+
+void GristoView::makeTarget(juce::Component&, ModDropTarget& dropTarget, int target)
 {
-    const gristo::EngineParams params = p::readEngineParams(processor_.state);
-    previewEngine_.setParams(params);
-    mapPad_.refreshHeat(params);
-    std::optional<juce::Point<float>> live;
-    if (params.pattern.mapRandom > 0.0f && processor_.displayPlaying.load())
+    dropTarget.onLaneDropped = [this, target](int lane) { assignLane(lane, target); };
+}
+
+void GristoView::setParameter(const juce::String& id, float value)
+{
+    if (auto* param = processor_.state.getParameter(id))
     {
-        const auto step = static_cast<std::int64_t>(std::floor(processor_.displayPpq.load() * gristo::kStepsPerBeat));
-        const auto [lx, ly] = gristo::PatternGenerator::mapPositionAt(params.pattern, step);
+        param->beginChangeGesture();
+        param->setValueNotifyingHost(param->convertTo0to1(value));
+        param->endChangeGesture();
+    }
+}
+
+void GristoView::assignLane(int lane, int target)
+{
+    auto targetOf = [&](int slot) {
+        return static_cast<int>(processor_.state.getRawParameterValue(p::slotId(p::modTarget, lane, slot))->load());
+    };
+    int slot = -1;
+    for (int s = 0; s < gristo::kModSlotsPerLane && slot < 0; ++s)
+        if (targetOf(s) == target)
+            slot = s;
+    for (int s = 0; s < gristo::kModSlotsPerLane && slot < 0; ++s)
+        if (targetOf(s) == mod::kNone)
+            slot = s;
+    if (slot < 0)
+        slot = gristo::kModSlotsPerLane - 1; // all slots taken: reuse the last one
+
+    const bool alreadyRouted = targetOf(slot) == target;
+    const float amount = processor_.state.getRawParameterValue(p::slotId(p::modAmount, lane, slot))->load();
+    setParameter(p::slotId(p::modTarget, lane, slot), static_cast<float>(target));
+    if (!alreadyRouted || std::abs(amount) < 1.0e-6f)
+    {
+        // Start with an audible amount that points into the knob's free travel: a knob
+        // above halfway gets -50 %, below halfway +50 %. Velocity starts with dips.
+        float start = 0.5f;
+        if (auto* s = targetSliders_[static_cast<size_t>(target)])
+            start = s->valueToProportionOfLength(s->getValue()) > 0.5 ? -0.5f : 0.5f;
+        else if (target == mod::kMapX || target == mod::kMapY)
+            start = processor_.state.getRawParameterValue(target == mod::kMapX ? p::mapX : p::mapY)->load() > 0.5f ? -0.5f : 0.5f;
+        else if (target >= mod::kVelocity && target < mod::kVelocity + gristo::kNumVoices)
+            start = -0.5f;
+        setParameter(p::slotId(p::modAmount, lane, slot), start);
+    }
+    laneTabs_[lane].setToggleState(true, juce::dontSendNotification);
+    selectLane(lane);
+}
+
+void GristoView::selectLane(int lane)
+{
+    selectedLane_ = lane;
+    laneEditor_.setLane(lane);
+    laneHandle_.setLane(lane);
+    laneLengthAttachment_.reset();
+    laneLengthAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        processor_.state, p::laneId(p::modBars, lane), laneLength_);
+    for (int s = 0; s < gristo::kModSlotsPerLane; ++s)
+    {
+        auto& slot = slots_[s];
+        slot.targetAttachment.reset();
+        slot.amountAttachment.reset();
+        slot.targetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+            processor_.state, p::slotId(p::modTarget, lane, s), slot.target);
+        slot.amountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+            processor_.state, p::slotId(p::modAmount, lane, s), slot.amount);
+        slot.amount.setColour(juce::Slider::trackColourId, laneColours[lane]);
+    }
+    repaint();
+}
+
+void GristoView::updateModulationDisplay(const gristo::EngineParams& params)
+{
+    for (auto* s : targetSliders_)
+        if (s != nullptr)
+        {
+            s->rings.clear();
+            s->live = -1.0f;
+        }
+    for (auto& vr : velocityRanges_)
+        vr->rings.clear();
+
+    bool mapModulated = false;
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+        for (const auto& slot : params.modulation.lanes[static_cast<size_t>(lane)].slots)
+        {
+            if (slot.target <= mod::kNone || slot.target >= mod::kNumTargets || std::abs(slot.amount) < 1.0e-6f)
+                continue;
+            const auto colour = laneColours[lane];
+            if (auto* s = targetSliders_[static_cast<size_t>(slot.target)])
+            {
+                // Every target's full modulation range equals its knob range, so the
+                // amount maps directly onto the knob's travel.
+                const float base = static_cast<float>(s->valueToProportionOfLength(s->getValue()));
+                s->rings.push_back({ colour, base, juce::jlimit(0.0f, 1.0f, base + slot.amount) });
+            }
+            else if (slot.target >= mod::kVelocity && slot.target < mod::kVelocity + gristo::kNumVoices)
+                velocityRanges_[static_cast<size_t>(slot.target - mod::kVelocity)]->rings.push_back({ colour, 0.0f, slot.amount });
+            else if (slot.target == mod::kMapX || slot.target == mod::kMapY)
+                mapModulated = true;
+        }
+
+    // Live values while playing.
+    const bool playing = processor_.displayPlaying.load();
+    const auto step = static_cast<std::int64_t>(std::floor(processor_.displayPpq.load() * gristo::kStepsPerBeat));
+    const gristo::EngineParams ep = previewEngine_.effectiveParams(step);
+    if (playing)
+    {
+        auto show = [&](int target, double value) {
+            if (auto* s = targetSliders_[static_cast<size_t>(target)]; s != nullptr && !s->rings.empty())
+                s->live = static_cast<float>(s->valueToProportionOfLength(value));
+        };
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+        {
+            show(mod::kFill + v, ep.pattern.fill[static_cast<size_t>(v)]);
+            show(mod::kProbability + v, ep.pattern.probability[static_cast<size_t>(v)]);
+        }
+        show(mod::kChaos, ep.pattern.chaos);
+        show(mod::kShuffle, ep.groove.shuffle);
+        show(mod::kFlamMs, ep.groove.feelMs);
+        show(mod::kHumanize, ep.humanize.amount);
+    }
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        auto& vr = *velocityRanges_[v];
+        vr.showLive = playing;
+        vr.liveOffset = ep.dynamics.velocityOffset[static_cast<size_t>(v)];
+        vr.repaint();
+    }
+    for (auto* s : targetSliders_)
+        if (s != nullptr)
+            s->repaint();
+
+    // Map: live position = modulated + random position of the current bar.
+    std::optional<juce::Point<float>> live;
+    if (playing && (params.pattern.mapRandom > 0.0f || mapModulated))
+    {
+        const auto [lx, ly] = gristo::PatternGenerator::mapPositionAt(ep.pattern, step);
         live = juce::Point<float>(lx, ly);
     }
     mapPad_.setRandomDisplay(params.pattern.mapRandom * 0.5f, live);
+}
+
+void GristoView::setScaleLabel(float scale)
+{
+    sizeButton_.setButtonText("Size " + juce::String(juce::roundToInt(scale * 100.0f)) + "%");
+}
+
+void GristoView::showSizeMenu()
+{
+    juce::PopupMenu menu;
+    for (int i = 0; i < static_cast<int>(std::size(kScales)); ++i)
+        menu.addItem(i + 1, juce::String(juce::roundToInt(kScales[i] * 100.0f)) + "%");
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&sizeButton_),
+                       [safe = juce::Component::SafePointer<GristoView>(this)](int result) {
+                           if (safe != nullptr && result > 0 && safe->onScaleChosen)
+                               safe->onScaleChosen(kScales[result - 1]);
+                       });
+}
+
+// ---------------------------------------------------------------------------------
+// Timer, paint, layout
+
+void GristoView::timerCallback()
+{
+    const gristo::EngineParams params = p::readEngineParams(processor_.state, processor_.modPoints);
+    previewEngine_.setParams(params);
+    mapPad_.refreshHeat(params);
+    updateModulationDisplay(params);
     mapPad_.repaint();
     nodeLabel_.setText("Near: " + mapPad_.nearestNodeName(), juce::dontSendNotification);
     patternView_.setPlayhead(processor_.displayPpq.load(), processor_.displayBpm.load(), processor_.displayPlaying.load());
+    laneEditor_.repaint();
 }
 
-void GristoEditor::paint(juce::Graphics& g)
+void GristoView::paint(juce::Graphics& g)
 {
     g.fillAll(colours::background);
     auto header = getLocalBounds().removeFromTop(48).reduced(16, 0);
@@ -612,7 +484,7 @@ void GristoEditor::paint(juce::Graphics& g)
     g.drawFittedText("topographic drums,\ntripping over themselves", header.removeFromLeft(220), juce::Justification::centredLeft, 2);
 
     // Help box
-    const juce::Rectangle<int> help { 372, 6, 612, 38 };
+    const juce::Rectangle<int> help { 372, 6, 520, 38 };
     g.setColour(colours::panel);
     g.fillRoundedRectangle(help.toFloat(), 6.0f);
     g.setColour(colours::outline);
@@ -623,26 +495,27 @@ void GristoEditor::paint(juce::Graphics& g)
     g.drawText(helpTitle_, helpArea.removeFromTop(15), juce::Justification::centredLeft);
     g.setColour(colours::text);
     g.setFont(juce::FontOptions(11.5f));
-    g.drawFittedText(helpText_, helpArea, juce::Justification::topLeft, 1, 0.85f);
+    g.drawFittedText(helpText_, helpArea, juce::Justification::topLeft, 1, 0.8f);
 
     drawPanel(g, { 16, 52, 344, 508 }, "Map");
-    drawPanel(g, { 16, 568, 344, 132 }, "Humanize / Dynamics");
+    drawPanel(g, { 16, 568, 344, 148 }, "Humanize / Dynamics");
     drawPanel(g, { 372, 52, 612, 248 }, "Pattern");
-    drawPanel(g, { 372, 308, 612, 392 }, "Voices");
-    drawPanel(g, { 16, 708, 544, 136 }, "Groove");
-    drawPanel(g, { 572, 708, 412, 136 }, "Output");
+    drawPanel(g, { 372, 308, 612, 408 }, "Voices");
+    drawPanel(g, { 16, 724, 544, 136 }, "Groove");
+    drawPanel(g, { 572, 724, 412, 136 }, "Output");
+    drawPanel(g, { 16, kModY, 968, 216 }, "Modulation");
 
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
-        g.setColour(kVoiceColours[v]);
-        g.drawText(gristo::voiceName(v), kVoiceX0 + v * kVoiceColW, 324, kVoiceColW, 16, juce::Justification::centred);
+        g.setColour(voiceColours[v]);
+        g.drawText(gristo::voiceName(v), kVoiceX0 + v * kVoiceColW, 322, kVoiceColW, 16, juce::Justification::centred);
     }
     g.setFont(juce::FontOptions(11.5f));
-    for (int r = 0; r < 5; ++r)
+    for (int r = 0; r < 6; ++r)
     {
-        g.setColour(r == 1 ? colours::random : colours::dim);
-        g.drawText(kVoiceRowNames[r], 382, kVoiceRowY[r] + 12, 68, 16, juce::Justification::centredLeft);
+        g.setColour((r == 1 || r == 3) ? colours::random : colours::dim);
+        g.drawText(kVoiceRowNames[r], 382, kVoiceRowY[r] + 14, 68, 16, juce::Justification::centredLeft);
         if (r > 0)
         {
             g.setColour(colours::outline.withAlpha(0.35f));
@@ -650,11 +523,21 @@ void GristoEditor::paint(juce::Graphics& g)
         }
     }
     g.setColour(colours::dim);
-    g.drawText("Note", 382, 630, 68, 16, juce::Justification::centredLeft);
+    g.drawText("Velocity", 382, kVelocityRowY + 3, 68, 16, juce::Justification::centredLeft);
+    g.drawText("Note", 382, kNoteRowY + 3, 68, 16, juce::Justification::centredLeft);
+
+    // Modulation panel labels
+    g.setColour(colours::dim);
+    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.drawText("ROUTING  (LANE " + juce::String(selectedLane_ + 1) + ")", kSlotX, kModY + 22, 300, 14, juce::Justification::centredLeft);
+    g.setColour(laneColours[selectedLane_]);
+    g.fillRoundedRectangle(juce::Rectangle<float>(static_cast<float>(kSlotX) - 8.0f, static_cast<float>(kSlotRowY[0]), 3.0f, 152.0f), 1.5f);
 }
 
-void GristoEditor::resized()
+void GristoView::resized()
 {
+    sizeButton_.setBounds(904, 12, 80, 26);
+
     // Left column: map, then the humanize / dynamics masters
     mapPad_.setBounds(28, 78, 320, 320);
     nodeLabel_.setBounds(28, 404, 320, 20);
@@ -662,10 +545,10 @@ void GristoEditor::resized()
     placeKnob(mapRandom_, { 136, 448, 104, 96 });
     placeKnob(variation_, { 244, 436, 104, 112 });
 
-    placeKnob(humanize_, { 28, 588, 96, 104 });
-    placeKnob(dynamics_, { 128, 588, 96, 104 });
-    lock_.button.setBounds(236, 604, 104, 26);
-    linear_.button.setBounds(236, 646, 104, 26);
+    placeKnob(humanize_, { 28, 592, 96, 104 });
+    placeKnob(dynamics_, { 128, 592, 96, 104 });
+    lock_.button.setBounds(236, 610, 104, 26);
+    linear_.button.setBounds(236, 652, 104, 26);
 
     patternView_.setBounds(384, 74, 588, 216);
 
@@ -673,28 +556,77 @@ void GristoEditor::resized()
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         const int x = kVoiceX0 + v * kVoiceColW;
-        Knob* rows[] = { &fills_[v], &fillRandoms_[v], &probabilities_[v], &voiceHumanize_[v], &voiceDynamics_[v] };
-        for (int r = 0; r < 5; ++r)
-            rows[r]->slider.setBounds(x + 4, kVoiceRowY[r], kVoiceColW - 8, kVoiceRowH);
-        notes_[v]->setBounds(x + 6, 626, kVoiceColW - 12, 24);
-        mutes_[v].button.setBounds(x + 16, 658, kVoiceColW - 32, 26);
+        Knob* rows[] = { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceHumanize_[v], &voiceDynamics_[v] };
+        for (int r = 0; r < 6; ++r)
+            rows[r]->slider.setBounds(x + 2, kVoiceRowY[r], kVoiceColW - 4, kVoiceRowH);
+        velocityRanges_[v]->setBounds(x + 4, kVelocityRowY, kVoiceColW - 8, 24);
+        notes_[v]->setBounds(x + 6, kNoteRowY, kVoiceColW - 12, 22);
+        mutes_[v].button.setBounds(x + 16, kMuteRowY, kVoiceColW - 32, 26);
     }
 
     // Groove
-    timing_.label.setBounds(28, 728, 80, 16);
-    timing_.box.setBounds(28, 746, 100, 26);
-    feeling_.label.setBounds(28, 780, 80, 16);
-    feeling_.box.setBounds(28, 798, 100, 26);
-    placeKnob(shuffle_, { 150, 728, 90, 104 });
-    placeKnob(shuffleRandom_, { 238, 748, 64, 84 });
-    placeKnob(feelMs_, { 320, 728, 90, 104 });
-    placeKnob(feelRandom_, { 408, 748, 64, 84 });
+    timing_.label.setBounds(28, 744, 80, 16);
+    timing_.box.setBounds(28, 762, 100, 26);
+    feeling_.label.setBounds(28, 796, 80, 16);
+    feeling_.box.setBounds(28, 814, 100, 26);
+    placeKnob(shuffle_, { 150, 744, 90, 104 });
+    placeKnob(shuffleRandom_, { 238, 764, 64, 84 });
+    placeKnob(feelMs_, { 320, 744, 90, 104 });
+    placeKnob(feelRandom_, { 408, 764, 64, 84 });
 
     // Output
-    kitOn_.button.setBounds(584, 748, 72, 26);
-    freeRun_.button.setBounds(584, 790, 72, 26);
-    placeKnob(kitGain_, { 664, 728, 78, 104 });
-    placeKnob(freeTempo_, { 742, 728, 78, 104 });
-    placeKnob(midiChannel_, { 820, 728, 78, 104 });
-    placeKnob(noteLength_, { 898, 728, 78, 104 });
+    kitOn_.button.setBounds(584, 764, 72, 26);
+    freeRun_.button.setBounds(584, 806, 72, 26);
+    placeKnob(kitGain_, { 664, 744, 78, 104 });
+    placeKnob(freeTempo_, { 742, 744, 78, 104 });
+    placeKnob(midiChannel_, { 820, 744, 78, 104 });
+    placeKnob(noteLength_, { 898, 744, 78, 104 });
+
+    // Modulation
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+        laneTabs_[lane].setBounds(28 + lane * 68, kModY + 22, 64, 24);
+    laneHandle_.setBounds(304, kModY + 22, 170, 24);
+    laneLength_.setBounds(482, kModY + 22, 84, 24);
+    shapesButton_.setBounds(572, kModY + 22, 76, 24);
+    laneEditor_.setBounds(28, kModY + 54, 620, 150);
+    for (int s = 0; s < gristo::kModSlotsPerLane; ++s)
+    {
+        slots_[s].target.setBounds(kSlotX, kSlotRowY[s], 196, 28);
+        slots_[s].amount.setBounds(kSlotX + 204, kSlotRowY[s], 104, 28);
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Editor: hosts the view and scales it
+
+GristoEditor::GristoEditor(GristoProcessor& proc) : AudioProcessorEditor(proc), processor_(proc), view_(proc)
+{
+    addAndMakeVisible(view_);
+    view_.onScaleChosen = [this](float s) {
+        processor_.uiScale.store(s);
+        applyScale(s);
+    };
+
+    float scale = processor_.uiScale.load();
+    if (scale <= 0.0f)
+    {
+        // First open: the largest size that fits the screen (but not above 100 %).
+        scale = 1.0f;
+        if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        {
+            const float fit = (static_cast<float>(display->userArea.getHeight()) - 90.0f) / static_cast<float>(GristoView::kHeight);
+            scale = kScales[0];
+            for (float s : kScales)
+                if (s <= std::min(1.0f, fit))
+                    scale = s;
+        }
+    }
+    applyScale(scale);
+}
+
+void GristoEditor::applyScale(float scale)
+{
+    view_.setTransform(juce::AffineTransform::scale(scale));
+    view_.setScaleLabel(scale);
+    setSize(juce::roundToInt(GristoView::kWidth * scale), juce::roundToInt(GristoView::kHeight * scale));
 }

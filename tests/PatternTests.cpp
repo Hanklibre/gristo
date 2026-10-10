@@ -281,3 +281,22 @@ TEST("random: fill random is held per bar per voice and stays in range")
     }
     CHECK(maxHits > minHits);
 }
+
+TEST("random: probability random is held per bar per voice")
+{
+    DrumMap map;
+    PatternGenerator gen(map);
+    PatternParams p;
+    p.probability.fill(0.5f);
+    p.probabilityRandom[Snare] = 1.0f;
+    int differ = 0;
+    for (std::int64_t bar = 0; bar < 64; ++bar)
+    {
+        const float pr = PatternGenerator::probabilityAt(p, Snare, bar * kStepsPerBar);
+        CHECK(std::abs(pr - 0.5f) <= PatternGenerator::kProbabilityRandomSpan + 1e-6f);
+        CHECK(PatternGenerator::probabilityAt(p, Snare, bar * kStepsPerBar + 9) == pr);
+        CHECK(PatternGenerator::probabilityAt(p, Kick, bar * kStepsPerBar) == 0.5f);
+        differ += std::abs(pr - PatternGenerator::probabilityAt(p, Snare, (bar + 1) * kStepsPerBar)) > 0.05f ? 1 : 0;
+    }
+    CHECK(differ > 40);
+}

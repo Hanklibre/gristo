@@ -1,0 +1,80 @@
+#pragma once
+
+#include "gristo/Types.h"
+
+#include <algorithm>
+#include <string>
+
+namespace gristo {
+
+// Massive-style "performer" modulation: drawn step curves (one value per 16th) that
+// loop over 1, 2 or 4 bars and are routed to parameters with bipolar amounts.
+
+constexpr int kNumModLanes = 4;
+constexpr int kModSlotsPerLane = 4;
+constexpr int kModPointsPerBar = kStepsPerBar;
+constexpr int kMaxModBars = 4;
+constexpr int kMaxModPoints = kModPointsPerBar * kMaxModBars;
+
+// Modulation targets. Per-voice targets are base + voice index.
+namespace mod {
+constexpr int kNone = 0;
+constexpr int kFill = 1;         // + voice, 6 targets
+constexpr int kProbability = 7;  // + voice
+constexpr int kVelocity = 13;    // + voice
+constexpr int kMapX = 19;
+constexpr int kMapY = 20;
+constexpr int kChaos = 21;
+constexpr int kShuffle = 22;
+constexpr int kFlamMs = 23;
+constexpr int kHumanize = 24;
+constexpr int kNumTargets = 25;
+
+std::string targetName(int target);
+
+// Full-scale modulation range of a target in its own units (amount 100 % with a
+// lane at 1 moves the parameter by this much). Equals the parameter's knob range.
+float targetRange(int target);
+} // namespace mod
+
+struct ModSlot
+{
+    int target = mod::kNone;
+    float amount = 0.0f; // -1..1
+};
+
+struct ModLane
+{
+    std::array<float, kMaxModPoints> points {}; // 0..1, one per 16th
+    int bars = 1;                               // 1, 2 or 4
+    std::array<ModSlot, kModSlotsPerLane> slots {};
+
+    int numPoints() const { return std::clamp(bars, 1, kMaxModBars) * kModPointsPerBar; }
+    float valueAt(std::int64_t absoluteStep) const { return points[static_cast<size_t>(floorMod(absoluteStep, numPoints()))]; }
+};
+
+struct ModulationParams
+{
+    std::array<ModLane, kNumModLanes> lanes {};
+};
+
+// Quick shapes for the lane editor (and the render tool).
+enum class ModShape : int
+{
+    Off = 0,
+    Full,
+    RampUp,
+    RampDown,
+    Triangle,
+    Sine,
+    Square,
+    BeatSaw,
+    Offbeats,
+    Random,
+    Count
+};
+
+const char* modShapeName(ModShape shape);
+void fillModShape(float* points, int numPoints, ModShape shape, std::uint32_t seed = 0x5eedu);
+
+} // namespace gristo

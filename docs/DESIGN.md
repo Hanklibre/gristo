@@ -71,10 +71,50 @@ around its knob value. Each is sampled and held at a rate that suits it:
 | Shuffle | ± 3 shuffle rows | per groove cell (one beat; two for Clave), so cells still start on time and order is kept |
 | Map X / Y | ± 0.5 of the map on each axis | per bar. The map pad shows the range as a box and the current bar's position as a dot |
 | Fill (per voice) | ± 0.35 | per bar, per voice: some bars busy, some sparse |
+| Probability (per voice) | ± 0.5 | per bar, per voice |
 | Rolls (Feel Random) | 2 … 5 hits per roll (default 3) | per roll; the roll crescendos into its last hit |
 
 As with everything else, the values are hashed from (seed, position). Playback
 and bounces match, and *Variation* re-rolls them.
+
+## Modulation lanes (Massive-style performers)
+
+Four lanes, each a drawn curve with one value (0–1) per 16th, looping over 1, 2
+or 4 bars. Each lane has four routing slots: a target and a bipolar amount
+(−100 … +100 %). At 100 % and a lane value of 1, the target moves by its full
+knob range.
+
+* **Drawing:** paint the curve with the mouse; fast strokes are interpolated so
+  there are no gaps. Right-click (or *Shapes*) for ready-made curves: ramps,
+  triangle, sine, square, saw per beat, offbeat 8ths, random steps.
+* **Routing, Massive-style:** drag the lane handle onto a knob. Fill,
+  Probability, Chaos, Shuffle, Flam ms and Humanize knobs, the Velocity ranges
+  and the map (pick X or Y) all accept a lane. The first free slot gets the
+  target, with ±50 % pointing into the knob's free travel. Knobs show a ring in
+  the lane colour for the modulation range, and a white dot for the live value
+  while playing.
+* **Targets:** per voice Fill, Probability and Velocity; Map X, Map Y, Chaos,
+  Shuffle, Flam ms, Humanize.
+* **Engine:** `Engine::effectiveParams(step)` applies all lanes to the base
+  parameters for that step before anything else is evaluated. Pattern, groove,
+  humanizer and velocity all see the modulated values. Shuffle is sampled at
+  the start of its groove cell, so timing stays monotonic. Lanes are tied to
+  song position, like everything else, so renders are reproducible.
+* **Example:** to make Hihat 1 thin out towards the end of every bar, leave its
+  Probability at 100 %, draw a rising ramp and route it to *Hihat 1
+  Probability* at −100 %.
+
+Lane curves are saved with the project (not as automatable parameters). The
+routing targets, amounts and lane lengths are automatable parameters.
+
+## Velocity range
+
+Each voice has a Min–Max MIDI velocity range (1–127). Gristo works out a
+normalized velocity first: accents = 1, full-strength notes = 0.65, ghost notes
+lower, then Humanize and Velocity modulation. That value is mapped into the
+range, so every note of the voice, including roll hits, stays inside it.
+Accents play at Max unless Humanize shaves a little off. Defaults: 1–127 for
+kick and snare, 1–108 for Hihat 1, 1–115 for the rest.
 
 ## Per-voice Humanize and Dynamics
 

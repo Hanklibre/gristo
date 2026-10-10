@@ -6,6 +6,7 @@ add_library(gristo_core STATIC
     src/Groove.cpp
     src/Humanizer.cpp
     src/MapData.cpp
+    src/Modulation.cpp
     src/PatternGenerator.cpp
 )
 

@@ -8,6 +8,16 @@ GristoProcessor::GristoProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
+    // Starting curves (one bar, repeated), so a lane does something as soon as it is routed.
+    const gristo::ModShape defaults[gristo::kNumModLanes] = { gristo::ModShape::RampDown, gristo::ModShape::Sine,
+                                                              gristo::ModShape::Square, gristo::ModShape::BeatSaw };
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+    {
+        float bar[gristo::kModPointsPerBar] {};
+        gristo::fillModShape(bar, gristo::kModPointsPerBar, defaults[lane]);
+        for (int k = 0; k < gristo::kMaxModPoints; ++k)
+            p::lanePoint(modPoints, lane, k).store(bar[k % gristo::kModPointsPerBar]);
+    }
 }
 
 bool GristoProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -73,7 +83,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     buffer.clear();
     midi.clear(); // incoming MIDI is not used yet (pattern switching is on the roadmap)
 
-    engine_.setParams(p::readEngineParams(state));
+    engine_.setParams(p::readEngineParams(state, modPoints));
     const gristo::BlockInfo block = transportFor(numSamples);
 
     events_.clear();
@@ -138,7 +148,18 @@ juce::AudioProcessorEditor* GristoProcessor::createEditor()
 
 void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    if (auto xml = state.copyState().createXml())
+    auto tree = state.copyState();
+    // Drawn lanes and UI size are not parameters: store them in a child tree.
+    auto lanes = tree.getOrCreateChildWithName("MODLANES", nullptr);
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+    {
+        juce::StringArray values;
+        for (int k = 0; k < gristo::kMaxModPoints; ++k)
+            values.add(juce::String(p::lanePoint(modPoints, lane, k).load(), 3));
+        lanes.setProperty("lane" + juce::String(lane), values.joinIntoString(","), nullptr);
+    }
+    tree.setProperty("uiScale", uiScale.load(), nullptr);
+    if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
 }
 
@@ -146,7 +167,20 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
         if (xml->hasTagName(state.state.getType()))
-            state.replaceState(juce::ValueTree::fromXml(*xml));
+        {
+            const auto tree = juce::ValueTree::fromXml(*xml);
+            const auto lanes = tree.getChildWithName("MODLANES");
+            for (int lane = 0; lane < gristo::kNumModLanes && lanes.isValid(); ++lane)
+            {
+                juce::StringArray values;
+                values.addTokens(lanes.getProperty("lane" + juce::String(lane)).toString(), ",", {});
+                for (int k = 0; k < gristo::kMaxModPoints && k < values.size(); ++k)
+                    p::lanePoint(modPoints, lane, k).store(juce::jlimit(0.0f, 1.0f, values[k].getFloatValue()));
+            }
+            if (tree.hasProperty("uiScale"))
+                uiScale.store(static_cast<float>(tree.getProperty("uiScale")));
+            state.replaceState(tree);
+        }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

@@ -18,7 +18,8 @@ target_sources(Gristo PRIVATE
     Source/Parameters.cpp
     Source/PluginEditor.cpp
     Source/PluginProcessor.cpp
-    Source/PreviewKit.cpp)
+    Source/PreviewKit.cpp
+    Source/Widgets.cpp)
 
 target_compile_definitions(Gristo PUBLIC
     JUCE_WEB_BROWSER=0

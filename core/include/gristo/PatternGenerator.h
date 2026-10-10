@@ -24,6 +24,8 @@ struct PatternParams
     // Chance (0..1) that a hit which passes Fill actually plays. Rolled per absolute
     // step, so every bar differs but a re-render is identical.
     std::array<float, kNumVoices> probability { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+    // Beads-style random modulation of Probability, per voice, held per bar: +-0.5 x r.
+    std::array<float, kNumVoices> probabilityRandom {};
     std::array<bool, kNumVoices> mute {};
     bool linear = false;
     std::uint32_t seed = 0x67726973u;
@@ -57,6 +59,11 @@ public:
     static float fillAt(const PatternParams& params, int voice, std::int64_t absoluteStep);
 
     static constexpr float kFillRandomSpan = 0.35f;
+
+    // Probability in effect for a voice in the bar containing absoluteStep.
+    static float probabilityAt(const PatternParams& params, int voice, std::int64_t absoluteStep);
+
+    static constexpr float kProbabilityRandomSpan = 0.5f;
 
     // Map position in effect for the bar containing absoluteStep (after Map Random).
     static std::pair<float, float> mapPositionAt(const PatternParams& params, std::int64_t absoluteStep);

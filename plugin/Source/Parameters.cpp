@@ -64,8 +64,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(percentParam(voiceId(voiceHumanize, v), name + " Humanize", 1.0f, 2.0f));
         layout.add(percentParam(voiceId(voiceDynamics, v), name + " Dynamics", 1.0f, 2.0f));
         layout.add(boolParam(voiceId(mute, v), name + " Mute", false));
-        layout.add(floatParam(voiceId(velLow, v), name + " Velocity Low", { 0.0f, 1.0f }, dyn.velLow[static_cast<size_t>(v)]));
-        layout.add(floatParam(voiceId(velHigh, v), name + " Velocity High", { 0.0f, 1.0f }, dyn.velHigh[static_cast<size_t>(v)]));
+        layout.add(percentParam(voiceId(probabilityRandom, v), name + " Probability Random", 0.0f));
+        layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMin, v), kVersion }, name + " Velocity Min", 1, 127,
+                                                             juce::roundToInt(dyn.velMin[static_cast<size_t>(v)] * 127.0f)));
+        layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMax, v), kVersion }, name + " Velocity Max", 1, 127,
+                                                             juce::roundToInt(dyn.velMax[static_cast<size_t>(v)] * 127.0f)));
         auto noteAttributes = juce::AudioParameterIntAttributes()
                                   .withStringFromValueFunction([](int n, int) { return noteDisplayName(n); })
                                   .withValueFromStringFunction([](const juce::String& t) {
@@ -107,10 +110,33 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     // Free-running clock for standalone use / auditioning without host transport.
     layout.add(boolParam(freeRun, "Free Run", false));
     layout.add(floatParam(freeTempo, "Free Tempo", { 40.0f, 240.0f, 0.1f }, 95.0f, "bpm", 1));
+    // Modulation lanes
+    juce::StringArray targetNames;
+    for (int t = 0; t < mod::kNumTargets; ++t)
+        targetNames.add(mod::targetName(t));
+    for (int lane = 0; lane < kNumModLanes; ++lane)
+    {
+        const juce::String laneName = "Lane " + juce::String(lane + 1);
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(modBars, lane), kVersion }, laneName + " Length",
+                                                                juce::StringArray { "1 bar", "2 bars", "4 bars" }, 0));
+        for (int slot = 0; slot < kModSlotsPerLane; ++slot)
+        {
+            const juce::String slotName = laneName + " Slot " + juce::String(slot + 1);
+            layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { slotId(modTarget, lane, slot), kVersion },
+                                                                    slotName + " Target", targetNames, 0));
+            auto attributes = juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) {
+                const int pct = juce::roundToInt(v * 100.0f);
+                return (pct > 0 ? "+" : "") + juce::String(pct) + "%";
+            }).withValueFromStringFunction([](const juce::String& t) { return t.getFloatValue() / 100.0f; });
+            layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID { slotId(modAmount, lane, slot), kVersion },
+                                                                   slotName + " Amount", juce::NormalisableRange<float> { -1.0f, 1.0f }, 0.0f,
+                                                                   attributes));
+        }
+    }
     return layout;
 }
 
-EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s)
+EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const ModPointStore& lanes)
 {
     EngineParams p;
     p.pattern.mapX = load(s, mapX);
@@ -131,8 +157,11 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s)
         p.humanize.voiceAmount[i] = load(s, voiceId(voiceHumanize, v));
         p.dynamics.voiceDynamics[i] = load(s, voiceId(voiceDynamics, v));
         p.pattern.mute[i] = load(s, voiceId(mute, v)) > 0.5f;
-        p.dynamics.velLow[i] = load(s, voiceId(velLow, v));
-        p.dynamics.velHigh[i] = std::max(p.dynamics.velLow[i], load(s, voiceId(velHigh, v)));
+        p.pattern.probabilityRandom[i] = load(s, voiceId(probabilityRandom, v));
+        const float lo = load(s, voiceId(velMin, v)) / 127.0f;
+        const float hi = load(s, voiceId(velMax, v)) / 127.0f;
+        p.dynamics.velMin[i] = std::min(lo, hi);
+        p.dynamics.velMax[i] = std::max(lo, hi);
     }
 
     p.groove.timing = static_cast<Timing>(juce::jlimit(0, kNumTimings - 1, static_cast<int>(load(s, timing))));
@@ -147,6 +176,19 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s)
     p.humanize.lock = load(s, humanizeLock) > 0.5f;
     p.dynamics.dynamics = load(s, dynamics);
     p.noteLengthBeats = load(s, noteLength);
+    for (int lane = 0; lane < kNumModLanes; ++lane)
+    {
+        ModLane& l = p.modulation.lanes[static_cast<size_t>(lane)];
+        l.bars = barsForChoice(static_cast<int>(load(s, laneId(modBars, lane))));
+        for (int k = 0; k < kMaxModPoints; ++k)
+            l.points[static_cast<size_t>(k)] = lanePoint(lanes, lane, k).load(std::memory_order_relaxed);
+        for (int slot = 0; slot < kModSlotsPerLane; ++slot)
+        {
+            ModSlot& sl = l.slots[static_cast<size_t>(slot)];
+            sl.target = static_cast<int>(load(s, slotId(modTarget, lane, slot)));
+            sl.amount = load(s, slotId(modAmount, lane, slot));
+        }
+    }
     return p;
 }
 

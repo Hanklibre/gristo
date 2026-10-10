@@ -43,6 +43,10 @@ public:
     std::atomic<double> displayBpm { 120.0 };
     std::atomic<bool> displayPlaying { false };
 
+    // Drawn modulation lane curves (see Parameters.h) and the editor's zoom.
+    gristo::params::ModPointStore modPoints;
+    std::atomic<float> uiScale { 0.0f }; // 0 = pick a size that fits the screen
+
 private:
     gristo::BlockInfo transportFor(int numSamples);
 

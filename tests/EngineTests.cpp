@@ -249,10 +249,12 @@ TEST("engine: velocities follow accents and level")
         {
             const HitInfo h = e.describe(s, v, 120.0, false);
             if (!h.on) continue;
+            const auto i = static_cast<size_t>(v);
+            const float normalTop = p.dynamics.velMin[i] + (p.dynamics.velMax[i] - p.dynamics.velMin[i]) * kNormalVelocity;
             if (h.accent)
-                CHECK_NEAR(h.velocity, p.dynamics.velHigh[static_cast<size_t>(v)], 1e-6);
+                CHECK_NEAR(h.velocity, p.dynamics.velMax[i], 1e-6);
             else
-                CHECK(h.velocity <= p.dynamics.velLow[static_cast<size_t>(v)] + 1e-6);
+                CHECK(h.velocity <= normalTop + 1e-6);
         }
 }
 
@@ -282,9 +284,9 @@ TEST("engine: per-voice dynamics 0 makes non-accented hits flat")
     {
         const HitInfo h = e.describe(s, HiHat1, 120.0, false);
         if (h.on && !h.accent)
-            CHECK_NEAR(h.velocity, p.dynamics.velLow[HiHat1], 1e-6);
+            CHECK_NEAR(h.velocity, e.mapVelocity(HiHat1, kNormalVelocity), 1e-6);
         const HitInfo sn = e.describe(s, Snare, 120.0, false);
-        if (sn.on && !sn.accent && sn.velocity < p.dynamics.velLow[Snare] - 0.01f)
+        if (sn.on && !sn.accent && sn.velocity < e.mapVelocity(Snare, kNormalVelocity) - 0.01f)
             sawShapedSnare = true;
     }
     CHECK(sawShapedSnare);
@@ -302,4 +304,199 @@ TEST("engine: random roll counts render consistently")
     const auto b = noteOns(render(p, 2048, 48000 * 4));
     CHECK(a.size() == b.size());
     CHECK(!a.empty());
+}
+
+// ------------------------------------------------------------------ velocity range
+
+TEST("velocity range: every note of a voice lands inside its range, accents at max")
+{
+    EngineParams p = busyParams();
+    p.groove.feeling = Feeling::Rolls;
+    p.groove.feelRandom = 1.0f;
+    p.humanize.amount = 1.0f;
+    p.dynamics.velMin = { 40 / 127.0f, 60 / 127.0f, 20 / 127.0f, 30 / 127.0f, 50 / 127.0f, 10 / 127.0f };
+    p.dynamics.velMax = { 100 / 127.0f, 110 / 127.0f, 70 / 127.0f, 90 / 127.0f, 80 / 127.0f, 127 / 127.0f };
+    const auto ons = noteOns(render(p, 256, 48000 * 8));
+    CHECK(ons.size() > 50);
+    for (const auto& e : ons)
+    {
+        const auto i = static_cast<size_t>(e.voice);
+        CHECK_MSG(e.velocity >= p.dynamics.velMin[i] - 1e-6f && e.velocity <= p.dynamics.velMax[i] + 1e-6f,
+                  "voice " << e.voice << " velocity " << e.velocity * 127.0f);
+    }
+
+    p.humanize.amount = 0.0f;
+    Engine eng;
+    eng.setParams(p);
+    for (std::int64_t s = 0; s < kPatternSteps; ++s)
+        for (int v = 0; v < kNumVoices; ++v)
+        {
+            const HitInfo h = eng.describe(s, v, 120.0, false);
+            if (h.on && h.accent)
+                CHECK_NEAR(h.velocity, p.dynamics.velMax[static_cast<size_t>(v)], 1e-6);
+        }
+}
+
+// ------------------------------------------------------------------ modulation
+
+namespace {
+EngineParams withLane(int target, float amount, ModShape shape, int bars = 1)
+{
+    EngineParams p;
+    p.pattern.fill.fill(0.9f);
+    ModLane& lane = p.modulation.lanes[0];
+    lane.bars = bars;
+    fillModShape(lane.points.data(), lane.numPoints(), shape);
+    lane.slots[0] = { target, amount };
+    return p;
+}
+} // namespace
+
+TEST("modulation: no routing leaves parameters untouched")
+{
+    EngineParams p = busyParams();
+    fillModShape(p.modulation.lanes[1].points.data(), 16, ModShape::Sine);
+    Engine e;
+    e.setParams(p);
+    for (std::int64_t s = 0; s < 64; ++s)
+    {
+        const EngineParams ep = e.effectiveParams(s);
+        CHECK(ep.pattern.fill == p.pattern.fill && ep.pattern.probability == p.pattern.probability);
+        CHECK(ep.groove.shuffle == p.groove.shuffle && ep.pattern.mapX == p.pattern.mapX);
+    }
+}
+
+TEST("modulation: a drawn lane removes a voice's notes in part of the bar (probability)")
+{
+    // Square = 1 in the second half of every bar; amount -100 % on Hihat 1 probability.
+    EngineParams p = withLane(mod::kProbability + HiHat1, -1.0f, ModShape::Square);
+    Engine e;
+    e.setParams(p);
+    Engine plain;
+    EngineParams base = p;
+    base.modulation = {};
+    plain.setParams(base);
+    int firstHalf = 0, firstHalfPlain = 0;
+    for (std::int64_t bar = 0; bar < 8; ++bar)
+        for (int k = 0; k < kStepsPerBar; ++k)
+        {
+            const std::int64_t s = bar * kStepsPerBar + k;
+            const bool on = e.describe(s, HiHat1, 120.0, false).on;
+            const bool onPlain = plain.describe(s, HiHat1, 120.0, false).on;
+            if (k >= 8)
+                CHECK(!on);
+            else
+            {
+                CHECK(on == onPlain);
+                firstHalf += on;
+                firstHalfPlain += onPlain;
+            }
+            CHECK(e.describe(s, Kick, 120.0, false).on == plain.describe(s, Kick, 120.0, false).on);
+        }
+    CHECK(firstHalf > 0 && firstHalf == firstHalfPlain);
+}
+
+TEST("modulation: lanes loop over their length")
+{
+    EngineParams p = withLane(mod::kFill + Kick, 0.5f, ModShape::RampUp, 2);
+    Engine e;
+    e.setParams(p);
+    for (std::int64_t s = 0; s < 32; ++s)
+    {
+        CHECK_NEAR(e.modulationAt(mod::kFill + Kick, s), 0.5f * s / 31.0f, 1e-6);
+        CHECK(e.modulationAt(mod::kFill + Kick, s) == e.modulationAt(mod::kFill + Kick, s + 32));
+    }
+}
+
+TEST("modulation: fill, map, chaos and flam targets move the effective values")
+{
+    EngineParams p;
+    p.pattern.fill.fill(0.2f);
+    p.pattern.mapX = 0.1f;
+    p.groove.feelMs = 5.0f;
+    ModLane& lane = p.modulation.lanes[2];
+    fillModShape(lane.points.data(), 16, ModShape::Full);
+    lane.slots = { ModSlot { mod::kFill + Snare, 0.5f }, ModSlot { mod::kMapX, 1.0f }, ModSlot { mod::kFlamMs, 0.5f },
+                   ModSlot { mod::kChaos, -1.0f } };
+    Engine e;
+    e.setParams(p);
+    const EngineParams ep = e.effectiveParams(3);
+    CHECK_NEAR(ep.pattern.fill[Snare], 0.7f, 1e-6);
+    CHECK_NEAR(ep.pattern.fill[Kick], 0.2f, 1e-6);
+    CHECK_NEAR(ep.pattern.mapX, 1.0f, 1e-6);    // clamped
+    CHECK_NEAR(ep.groove.feelMs, 20.0f, 1e-5);  // 5 + 0.5 x 30
+    CHECK_NEAR(ep.pattern.chaos, 0.0f, 1e-6);   // clamped at 0
+}
+
+TEST("modulation: velocity target shifts velocity but stays inside the range")
+{
+    EngineParams up = withLane(mod::kVelocity + Snare, 1.0f, ModShape::Full);
+    EngineParams down = withLane(mod::kVelocity + Snare, -1.0f, ModShape::Full);
+    up.dynamics.velMin[Snare] = down.dynamics.velMin[Snare] = 30 / 127.0f;
+    up.dynamics.velMax[Snare] = down.dynamics.velMax[Snare] = 90 / 127.0f;
+    Engine a, b;
+    a.setParams(up);
+    b.setParams(down);
+    int checked = 0;
+    for (std::int64_t s = 0; s < kPatternSteps; ++s)
+    {
+        const HitInfo ha = a.describe(s, Snare, 120.0, false);
+        const HitInfo hb = b.describe(s, Snare, 120.0, false);
+        if (!ha.on) continue;
+        CHECK_NEAR(ha.velocity, 90 / 127.0f, 1e-6);
+        CHECK_NEAR(hb.velocity, 30 / 127.0f, 1e-6);
+        ++checked;
+    }
+    CHECK(checked > 0);
+}
+
+TEST("modulation: shuffle is held per groove cell and positions stay monotonic")
+{
+    for (Timing t : { Timing::Trip, Timing::Shake, Timing::Push, Timing::Clave })
+    {
+        EngineParams p = withLane(mod::kShuffle, 1.0f, ModShape::Random, 4);
+        p.groove.timing = t;
+        p.groove.shuffle = 1.0f;
+        Engine e;
+        e.setParams(p);
+        for (std::int64_t s = 0; s < 128; ++s)
+        {
+            const int cell = Groove::cellSteps(t);
+            const std::int64_t start = floorDiv(s, cell) * cell;
+            CHECK(e.effectiveParams(s).groove.shuffle == e.effectiveParams(start).groove.shuffle);
+            const double a = e.describe(s, Kick, 120.0, false).gridBeats;
+            const double b = e.describe(s + 1, Kick, 120.0, false).gridBeats;
+            CHECK(b > a + 0.01);
+        }
+    }
+}
+
+TEST("modulation: output is block-size independent")
+{
+    EngineParams p = busyParams();
+    ModLane& lane = p.modulation.lanes[0];
+    lane.bars = 2;
+    fillModShape(lane.points.data(), lane.numPoints(), ModShape::Triangle);
+    lane.slots = { ModSlot { mod::kProbability + HiHat1, -0.8f }, ModSlot { mod::kShuffle, 0.5f },
+                   ModSlot { mod::kMapY, 0.4f }, ModSlot { mod::kVelocity + Kick, -0.3f } };
+    const auto ref = noteOns(render(p, 64, 48000 * 8));
+    const auto got = noteOns(render(p, 777, 48000 * 8));
+    CHECK(ref.size() == got.size());
+    for (size_t i = 0; i < std::min(ref.size(), got.size()); ++i)
+        CHECK(ref[i].voice == got[i].voice && std::abs(ref[i].sample - got[i].sample) <= 1
+              && std::abs(ref[i].velocity - got[i].velocity) < 1e-6f);
+}
+
+TEST("modulation: shapes fill the lane in range")
+{
+    std::array<float, kMaxModPoints> pts {};
+    for (int s = 0; s < static_cast<int>(ModShape::Count); ++s)
+    {
+        fillModShape(pts.data(), 32, static_cast<ModShape>(s));
+        for (int i = 0; i < 32; ++i)
+            CHECK(pts[static_cast<size_t>(i)] >= 0.0f && pts[static_cast<size_t>(i)] <= 1.0f);
+    }
+    fillModShape(pts.data(), 16, ModShape::RampUp);
+    CHECK(pts[0] == 0.0f && pts[15] == 1.0f);
+    CHECK(mod::targetName(mod::kProbability + Snare) == "Snare Probability");
 }

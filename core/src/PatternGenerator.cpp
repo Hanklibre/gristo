@@ -13,6 +13,7 @@ constexpr std::uint32_t kMapXStream = 0x3A9F0u;
 constexpr std::uint32_t kMapYStream = 0x3A9F1u;
 constexpr float kMapRandomSpan = 0.5f;
 constexpr std::uint32_t kFillRandomStream = 0xF111Au;
+constexpr std::uint32_t kProbabilityRandomStream = 0x9B0B1u;
 constexpr float kChaosDepth = 0.45f;
 } // namespace
 
@@ -40,6 +41,19 @@ float PatternGenerator::fillAt(const PatternParams& p, int voice, std::int64_t a
     return std::clamp(fill, 0.0f, 1.0f);
 }
 
+float PatternGenerator::probabilityAt(const PatternParams& p, int voice, std::int64_t absoluteStep)
+{
+    const auto v = static_cast<size_t>(voice);
+    float probability = p.probability[v];
+    if (p.probabilityRandom[v] > 0.0f)
+    {
+        const std::int64_t bar = floorDiv(absoluteStep, kStepsPerBar);
+        const float u = rnd::bipolar(rnd::hash(p.seed, kProbabilityRandomStream + static_cast<std::uint32_t>(voice), bar));
+        probability += std::clamp(p.probabilityRandom[v], 0.0f, 1.0f) * kProbabilityRandomSpan * u;
+    }
+    return std::clamp(probability, 0.0f, 1.0f);
+}
+
 StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absoluteStep) const
 {
     const int patternStep = floorMod(absoluteStep, kPatternSteps);
@@ -60,7 +74,7 @@ StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absolut
         h.threshold = 1.0f - fillAt(p, v, absoluteStep);
         h.on = level > h.threshold && level > 0.0f && !p.mute[static_cast<size_t>(v)];
 
-        const float probability = std::clamp(p.probability[static_cast<size_t>(v)], 0.0f, 1.0f);
+        const float probability = probabilityAt(p, v, absoluteStep);
         if (h.on && probability < 1.0f)
         {
             const float roll = rnd::unit(rnd::hash(p.seed, kProbabilityStream + static_cast<std::uint32_t>(v), absoluteStep));

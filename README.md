@@ -14,10 +14,14 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   correlated like a player's, weak notes lean into the swing, and the groove's
   shape is never broken.
 * **Random:** Beads-style random amounts on Flam / Rolls (per hit), Shuffle
-  (per beat), the map position and each voice's Fill (per bar).
-* **Per voice:** Fill, Fill Random, Probability, Humanize, Dynamics, MIDI note
-  and Mute, laid out as a mixer-style grid. Hover any control for a one-line
-  explanation.
+  (per beat), the map position and each voice's Fill and Probability (per bar).
+* **Modulation:** four Massive-style performer lanes. Draw a curve (1, 2 or 4
+  bars) and drag it onto a knob to modulate Fill, Probability, Velocity, the map,
+  Chaos, Shuffle, Flam or Humanize. Rings on the knobs show what is routed where.
+* **Per voice:** Fill, Fill Random, Probability, Probability Random, Humanize,
+  Dynamics, Velocity range (1–127), MIDI note and Mute, laid out as a
+  mixer-style grid. Hover any control for a one-line explanation.
+* **UI size:** 70–125 %, and it picks a size that fits your screen the first time.
 * **Output:** MIDI notes with a selectable note per voice (GM drum map by
   default) on a chosen channel, plus a built-in preview kit, so it makes sound
   straight away.

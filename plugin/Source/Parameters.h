@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <gristo/Engine.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -15,8 +16,13 @@ inline const juce::String fillRandom = "fillRnd";
 inline const juce::String voiceHumanize = "human";
 inline const juce::String voiceDynamics = "dyn";
 inline const juce::String mute = "mute";
-inline const juce::String velLow = "velLow";
-inline const juce::String velHigh = "velHigh";
+inline const juce::String probabilityRandom = "probRnd";
+inline const juce::String velMin = "velMin";
+inline const juce::String velMax = "velMax";
+// Modulation (performer lanes): bars per lane, and per lane x slot a target + amount.
+inline const juce::String modBars = "modBars";
+inline const juce::String modTarget = "modTgt";
+inline const juce::String modAmount = "modAmt";
 inline const juce::String note = "note";
 inline const juce::String linear = "linear";
 inline const juce::String timing = "timing";
@@ -39,6 +45,15 @@ inline const juce::String shuffleRandom = "shuffleRnd";
 inline const juce::String feelRandom = "feelRnd";
 
 inline juce::String voiceId(const juce::String& base, int voice) { return base + juce::String(voice); }
+inline juce::String laneId(const juce::String& base, int lane) { return base + juce::String(lane); }
+inline juce::String slotId(const juce::String& base, int lane, int slot) { return base + juce::String(lane) + "_" + juce::String(slot); }
+
+// Drawn lane curves live outside the parameter tree (they are not automatable):
+// written by the editor, read lock-free by the audio thread.
+using ModPointStore = std::array<std::atomic<float>, kNumModLanes * kMaxModPoints>;
+inline std::atomic<float>& lanePoint(ModPointStore& store, int lane, int index) { return store[static_cast<size_t>(lane * kMaxModPoints + index)]; }
+inline const std::atomic<float>& lanePoint(const ModPointStore& store, int lane, int index) { return store[static_cast<size_t>(lane * kMaxModPoints + index)]; }
+inline int barsForChoice(int choice) { return choice <= 0 ? 1 : choice == 1 ? 2 : 4; }
 
 // "C1 · 36" (middle C = C3, the Ableton / Cubase convention; the number is unambiguous).
 inline juce::String noteDisplayName(int noteNumber)
@@ -50,6 +65,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 
 // Reads the current parameter values into engine parameters. Lock-free (atomic
 // loads only), so it is safe on both the audio and the message thread.
-EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state);
+EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state, const ModPointStore& lanes);
 
 } // namespace gristo::params

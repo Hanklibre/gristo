@@ -36,6 +36,12 @@ void usage()
         "  --shuffle-rnd F        random shuffle amount (0..1, per beat)\n"
         "  --map-rnd F            random map position amount (0..1, per bar)\n"
         "  --fill-rnd F           random fill amount for all voices (0..1, per bar)\n"
+        "  --prob-rnd F           random probability amount for all voices (0..1, per bar)\n"
+        "  --vel N MIN MAX        velocity range of voice N (1..127)\n"
+        "  --mod TARGET AMOUNT SHAPE [BARS]\n"
+        "                         add a performer lane (up to 4). TARGET: fill:N prob:N vel:N\n"
+        "                         mapx mapy chaos shuffle flam humanize. AMOUNT: -1..1.\n"
+        "                         SHAPE: off full rampup rampdown triangle sine square saw offbeats random\n"
         "  --humanize F           0..1\n"
         "  --lock                 humanize repeats every 2 bars\n"
         "  --linear               linear mode\n"
@@ -82,6 +88,7 @@ int main(int argc, char** argv)
     int bars = 8;
     double bpm = 95.0;
     std::string outPath;
+    int lanesUsed = 0;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -113,6 +120,41 @@ int main(int argc, char** argv)
         else if (a == "--flam-ms") params.groove.feelMs = std::strtof(next(), nullptr);
         else if (a == "--flam-rnd") params.groove.feelRandom = std::strtof(next(), nullptr);
         else if (a == "--shuffle-rnd") params.groove.shuffleRandom = std::strtof(next(), nullptr);
+        else if (a == "--prob-rnd") params.pattern.probabilityRandom.fill(std::strtof(next(), nullptr));
+        else if (a == "--vel")
+        {
+            const int v = std::atoi(next());
+            const float lo = std::strtof(next(), nullptr) / 127.0f;
+            const float hi = std::strtof(next(), nullptr) / 127.0f;
+            if (v >= 0 && v < kNumVoices)
+            {
+                params.dynamics.velMin[static_cast<size_t>(v)] = std::min(lo, hi);
+                params.dynamics.velMax[static_cast<size_t>(v)] = std::max(lo, hi);
+            }
+        }
+        else if (a == "--mod")
+        {
+            if (lanesUsed >= kNumModLanes) { std::fprintf(stderr, "at most %d --mod lanes\n", kNumModLanes); return 2; }
+            const std::string target = next();
+            const float amount = std::strtof(next(), nullptr);
+            const int shape = indexOf(next(), { "off", "full", "rampup", "rampdown", "triangle", "sine", "square", "saw", "offbeats", "random" });
+            int bars = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-') bars = std::atoi(next());
+            auto voiceTarget = [&](const char* prefix, int base) {
+                const size_t n = std::strlen(prefix);
+                return target.compare(0, n, prefix) == 0 ? base + std::clamp(std::atoi(target.c_str() + n), 0, kNumVoices - 1) : -1;
+            };
+            int t = voiceTarget("fill:", mod::kFill);
+            if (t < 0) t = voiceTarget("prob:", mod::kProbability);
+            if (t < 0) t = voiceTarget("vel:", mod::kVelocity);
+            if (t < 0) t = target == "mapx" ? mod::kMapX : target == "mapy" ? mod::kMapY : target == "chaos" ? mod::kChaos
+                         : target == "shuffle" ? mod::kShuffle : target == "flam" ? mod::kFlamMs : target == "humanize" ? mod::kHumanize : -1;
+            if (t < 0) { std::fprintf(stderr, "unknown mod target '%s'\n", target.c_str()); return 2; }
+            ModLane& lane = params.modulation.lanes[static_cast<size_t>(lanesUsed++)];
+            lane.bars = bars >= 4 ? 4 : bars >= 2 ? 2 : 1;
+            fillModShape(lane.points.data(), lane.numPoints(), static_cast<ModShape>(shape));
+            lane.slots[0] = { t, std::clamp(amount, -1.0f, 1.0f) };
+        }
         else if (a == "--fill-rnd") params.pattern.fillRandom.fill(std::strtof(next(), nullptr));
         else if (a == "--map-rnd") params.pattern.mapRandom = std::strtof(next(), nullptr);
         else if (a == "--humanize") params.humanize.amount = std::strtof(next(), nullptr);
