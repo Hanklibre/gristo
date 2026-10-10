@@ -318,8 +318,10 @@ MapPad::MapPad(juce::AudioProcessorValueTreeState& state, const gristo::DrumMap&
         menu.addSectionHeader("Route lane " + juce::String(lane + 1) + " to");
         menu.addItem(1, "Map X (straight - syncopated)");
         menu.addItem(2, "Map Y (four on the floor - broken)");
+        // (MSVC rejects init-captures in nested lambdas, so build the pointer first.)
+        juce::Component::SafePointer<MapPad> safe(this);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
-                           [safe = juce::Component::SafePointer<MapPad>(this), lane](int result) {
+                           [safe, lane](int result) {
                                if (safe != nullptr && result > 0 && safe->onLaneAxisChosen)
                                    safe->onLaneAxisChosen(lane, result == 1 ? gristo::mod::kMapX : gristo::mod::kMapY);
                            });

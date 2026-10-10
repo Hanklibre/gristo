@@ -99,8 +99,9 @@ GristoView::GristoView(GristoProcessor& proc)
         juce::PopupMenu menu;
         for (int s = 0; s < static_cast<int>(gristo::ModShape::Count); ++s)
             menu.addItem(s + 1, gristo::modShapeName(static_cast<gristo::ModShape>(s)));
+        juce::Component::SafePointer<GristoView> safe(this);
         menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&shapesButton_),
-                           [safe = juce::Component::SafePointer<GristoView>(this)](int result) {
+                           [safe](int result) {
                                if (safe != nullptr && result > 0)
                                    safe->laneEditor_.applyShape(static_cast<gristo::ModShape>(result - 1));
                            });
