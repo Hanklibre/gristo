@@ -158,7 +158,7 @@ private:
     bool arpTrigger(int arp, std::int64_t step, double bpm, HitInfo& best, double& earliest) const;
     void resyncArp(int arp, std::int64_t firstStep, double bpm);
     void processArp(int arp, double ppqStart, double ppqEnd, double bpm);
-    void playArp(int arp, std::int64_t k, std::int64_t cycle, double beats, float velocityNorm);
+    void playArp(int arp, std::int64_t step, std::int64_t k, std::int64_t cycle, double beats, float velocityNorm);
     const ArpPattern& arpPattern(int arp, std::int64_t cycle);
 
     DrumMap map_;

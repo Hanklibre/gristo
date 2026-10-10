@@ -17,7 +17,9 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   (per beat), the map position and each voice's Fill and Probability (per bar).
 * **Modulation:** four Massive-style performer lanes. Draw a curve (1, 2 or 4
   bars) and drag it onto a knob to modulate Fill, Probability, Velocity, the map,
-  Chaos, Shuffle, Flam or Humanize. Rings on the knobs show what is routed where.
+  Chaos, Shuffle, Flam or Humanize, or each arp's Density, Accent, Slide, Gate,
+  Octaves, Length, Velocity and Transpose. Rings on the knobs show what is
+  routed where.
 * **Per voice:** Fill, Fill Random, Probability, Probability Random, Humanize,
   Dynamics, Velocity range (1–127), MIDI note, MIDI channel and Mute, laid out
   as a mixer-style grid. Hover any control for a one-line explanation.

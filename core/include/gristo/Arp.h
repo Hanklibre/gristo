@@ -78,6 +78,10 @@ struct ArpParams
                             // note range (undo it with a Pitch device in the DAW)
     float velMin = 40.0f / 127.0f;
     float velMax = 1.0f;
+
+    // Set by modulation only (no knob)
+    int transpose = 0;           // semitones added to every note before Shift
+    float velocityOffset = 0.0f; // normalized, added to the drum hit's velocity
 };
 
 // Raw random values of one generated step. Density / accent / slide amounts are

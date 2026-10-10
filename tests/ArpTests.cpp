@@ -3,6 +3,7 @@
 #include "gristo/Engine.h"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <vector>
 
@@ -195,6 +196,43 @@ TEST("arp: shift moves the MIDI out into its own range, folding at the edges")
             open[e.note] += e.on ? 1 : -1;
     for (const auto& [note, count] : open)
         CHECK_MSG(count == 0, "note " << note << " left " << count);
+}
+
+TEST("arp: modulation lanes move arp parameters at the triggering step")
+{
+    EngineParams p = fourOnFloorKickArp();
+    const std::vector<int> held { 60, 64, 67, 71, 74 };
+    const auto plain = arpOns(renderArp(p, held, 256, 48000 * 4), 0);
+
+    // Lane 1 full on, routed to Arp 1 Transpose at 50 %: +6 semitones.
+    ModLane& lane = p.modulation.lanes[0];
+    fillModShape(lane.points.data(), lane.numPoints(), ModShape::Full);
+    lane.slots[0] = { mod::arpTarget(0, mod::kArpTranspose), 0.5f };
+    const auto up = arpOns(renderArp(p, held, 256, 48000 * 4), 0);
+    CHECK(!plain.empty());
+    CHECK(up.size() == plain.size());
+    for (size_t i = 0; i < std::min(up.size(), plain.size()); ++i)
+        CHECK(up[i].note == plain[i].note + 6);
+
+    // Square lane (second half of each bar) pulling Density to 0 in Generate mode:
+    // only the first two kicks of each bar play.
+    p.arps[0].mode = ArpMode::Generate;
+    p.arps[0].density = 1.0f;
+    fillModShape(lane.points.data(), lane.numPoints(), ModShape::Square);
+    lane.slots[0] = { mod::arpTarget(0, mod::kArpDensity), -1.0f };
+    const auto evs = renderArp(p, held, 256, 48000 * 4);
+    const auto ons = arpOns(evs, 0);
+    std::vector<Ev> kicks;
+    for (const auto& e : evs)
+        if (e.on && e.voice == Kick)
+            kicks.push_back(e);
+    CHECK(!kicks.empty());
+    CHECK_MSG(ons.size() * 2 == kicks.size(), ons.size() << " arp notes for " << kicks.size() << " kicks");
+    const double samplesPerBar = 48000.0 * 2.0; // 120 bpm
+    for (const auto& e : ons)
+        CHECK(std::fmod(static_cast<double>(e.sample), samplesPerBar) < samplesPerBar / 2.0);
+
+    CHECK(mod::targetName(mod::arpTarget(1, mod::kArpGate)) == "Arp 2 Gate");
 }
 
 TEST("arp: a transport loop restarts the phrase in the same place")

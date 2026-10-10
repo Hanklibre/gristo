@@ -14,6 +14,12 @@ std::string targetName(int target)
     if (target >= kFill && target < kFill + kNumVoices) return std::string(voiceName(target - kFill)) + " Fill";
     if (target >= kProbability && target < kProbability + kNumVoices) return std::string(voiceName(target - kProbability)) + " Probability";
     if (target >= kVelocity && target < kVelocity + kNumVoices) return std::string(voiceName(target - kVelocity)) + " Velocity";
+    if (target >= kArpBase && target < kNumTargets)
+    {
+        static const char* const names[kArpTargetsPerArp] = { "Density", "Accent", "Slide", "Gate", "Octaves", "Length", "Transpose", "Velocity" };
+        const int arp = (target - kArpBase) / kArpTargetsPerArp;
+        return "Arp " + std::to_string(arp + 1) + " " + names[(target - kArpBase) % kArpTargetsPerArp];
+    }
     switch (target)
     {
         case kMapX: return "Map X";
@@ -28,6 +34,17 @@ std::string targetName(int target)
 
 float targetRange(int target)
 {
+    if (target >= kArpBase && target < kNumTargets)
+    {
+        switch ((target - kArpBase) % kArpTargetsPerArp)
+        {
+            case kArpGate: return 7.75f;              // the Gate knob: 0.25 .. 8 16ths
+            case kArpOctaves: return 3.0f;            // 1 .. 4
+            case kArpLength: return static_cast<float>(kMaxArpSteps - 1);
+            case kArpTranspose: return 12.0f;         // semitones
+            default: return 1.0f;
+        }
+    }
     switch (target)
     {
         case kShuffle: return 6.0f;

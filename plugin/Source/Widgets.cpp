@@ -276,8 +276,26 @@ void ArpView::paint(juce::Graphics& g)
     const auto colour = arpColours[arp_];
     g.setColour(colours::background);
     g.fillRoundedRectangle(bounds, 6.0f);
-    g.setColour(colours::outline);
-    g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.0f);
+    g.setColour(dropHover_ ? colours::accent : colours::outline);
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, dropHover_ ? 2.0f : 1.0f);
+
+    // Lanes routed to Transpose: a dot per lane and the current offset.
+    if (!transposeLanes.empty())
+    {
+        auto tag = bounds.reduced(8.0f, 5.0f).removeFromTop(12.0f);
+        g.setFont(juce::FontOptions(10.0f));
+        g.setColour(colours::dim);
+        const juce::String text = showLive ? "Transpose " + juce::String(liveTranspose > 0 ? "+" : "") + juce::String(liveTranspose)
+                                           : juce::String("Transpose");
+        g.drawText(text, tag, juce::Justification::centredRight);
+        float x = tag.getRight() - static_cast<float>(text.length()) * 5.6f - 8.0f;
+        for (const auto& c : transposeLanes)
+        {
+            g.setColour(c);
+            g.fillEllipse(x - 6.0f, tag.getCentreY() - 3.0f, 6.0f, 6.0f);
+            x -= 9.0f;
+        }
+    }
 
     const auto a = static_cast<size_t>(arp_);
     std::array<int, kMaxHeldNotes> held {};
@@ -869,6 +887,11 @@ void LaneHandle::paint(juce::Graphics& g)
     g.fillEllipse(dot);
     g.setColour(colours::text);
     g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
+    if (compact_)
+    {
+        g.drawText("L" + juce::String(lane_ + 1), area.withTrimmedLeft(area.getHeight() - 4.0f), juce::Justification::centredLeft);
+        return;
+    }
     g.drawText("Drag lane " + juce::String(lane_ + 1) + " to a knob", area.withTrimmedLeft(area.getHeight()), juce::Justification::centredLeft);
 }
 

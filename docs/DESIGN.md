@@ -94,7 +94,15 @@ knob range.
   the lane colour for the modulation range, and a white dot for the live value
   while playing.
 * **Targets:** per voice Fill, Probability and Velocity; Map X, Map Y, Chaos,
-  Shuffle, Flam ms, Humanize.
+  Shuffle, Flam ms, Humanize; per arp Density, Accent, Slide, Gate, Octaves,
+  Length, Velocity and Transpose (up to ±12 semitones, rounded). Octaves and
+  Length are rounded to whole values. Arp targets are read at the drum step
+  that triggers the arp, so a lane can, say, thin the sequence out at the end
+  of a bar or move it up a fifth every other bar.
+* **Arp pages:** the bottom panel shows either the lanes or an arp, so each arp
+  page has small L1–L4 chips to drag onto its knobs, its Velocity range, or the
+  note view (Transpose). The Modulation tab's routing menus list the arp
+  targets too.
 * **Engine:** `Engine::effectiveParams(step)` applies all lanes to the base
   parameters for that step before anything else is evaluated. Pattern, groove,
   humanizer and velocity all see the modulated values. Shuffle is sampled at

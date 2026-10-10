@@ -118,6 +118,8 @@ private:
     std::unique_ptr<NoteSelector> arpRoot_;
     std::unique_ptr<VelocityRange> arpVelocity_;
     ArpView arpView_;
+    LaneHandle arpLaneHandles_[gristo::kNumModLanes]; // drag sources on the arp page
+    void bindArpTargets(int arp);
 
     // Modulation panel
     juce::TextButton laneTabs_[gristo::kNumModLanes];

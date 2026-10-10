@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gristo/Arp.h"
 #include "gristo/Types.h"
 
 #include <algorithm>
@@ -28,7 +29,21 @@ constexpr int kChaos = 21;
 constexpr int kShuffle = 22;
 constexpr int kFlamMs = 23;
 constexpr int kHumanize = 24;
-constexpr int kNumTargets = 25;
+
+// Arp targets: kArpBase + arp * kArpTargetsPerArp + one of the offsets below.
+constexpr int kArpBase = 25;
+constexpr int kArpDensity = 0;
+constexpr int kArpAccent = 1;
+constexpr int kArpSlide = 2;
+constexpr int kArpGate = 3;
+constexpr int kArpOctaves = 4;
+constexpr int kArpLength = 5;
+constexpr int kArpTranspose = 6;
+constexpr int kArpVelocity = 7;
+constexpr int kArpTargetsPerArp = 8;
+constexpr int arpTarget(int arp, int which) { return kArpBase + arp * kArpTargetsPerArp + which; }
+
+constexpr int kNumTargets = kArpBase + kNumArps * kArpTargetsPerArp;
 
 std::string targetName(int target);
 

@@ -199,7 +199,7 @@ GristoView::GristoView(GristoProcessor& proc)
     setHelp(freeRun_.button, "Free Run", "Play at the Tempo knob while the host transport is stopped (or in the standalone app).");
     setHelp(freeTempo_, "Tempo", "Tempo for Free Run.");
     setHelp(noteLength_, "Note Length", "Length of the MIDI notes, in beats.");
-    setHelp(laneHandle_, "Assign lane", "Drag onto a knob (Fill, Probability, Chaos, Shuffle, Flam ms, Humanize), a Velocity range or the map to route this lane there.");
+    setHelp(laneHandle_, "Assign lane", "Drag onto a knob (Fill, Probability, Chaos, Shuffle, Flam ms, Humanize), a Velocity range or the map to route this lane there. On the Arp pages, use the L1-L4 chips.");
     setHelp(laneEditor_, "Lane curve", "Draw the modulation curve, one value per 16th. Right-click for shapes. The bright column is the current step.");
     setHelp(laneLength_, "Lane length", "How many bars the lane's curve spans before it loops.");
     setHelp(shapesButton_, "Shapes", "Fill the lane with a ready-made curve: ramps, triangle, sine, square, per-beat saw, offbeats or random steps.");
@@ -365,6 +365,10 @@ void GristoView::assignLane(int lane, int target)
             start = processor_.state.getRawParameterValue(target == mod::kMapX ? p::mapX : p::mapY)->load() > 0.5f ? -0.5f : 0.5f;
         else if (target >= mod::kVelocity && target < mod::kVelocity + gristo::kNumVoices)
             start = -0.5f;
+        else if (target >= mod::kArpBase && (target - mod::kArpBase) % mod::kArpTargetsPerArp == mod::kArpVelocity)
+            start = -0.5f;
+        else if (target >= mod::kArpBase && (target - mod::kArpBase) % mod::kArpTargetsPerArp == mod::kArpTranspose)
+            start = 7.0f / 12.0f; // up a fifth
         setParameter(p::slotId(p::modAmount, lane, slot), start);
     }
     laneTabs_[lane].setToggleState(true, juce::dontSendNotification);
@@ -403,6 +407,10 @@ void GristoView::updateModulationDisplay(const gristo::EngineParams& params)
         }
     for (auto& vr : velocityRanges_)
         vr->rings.clear();
+    const int shownArp = page_ > 0 ? page_ - 1 : -1;
+    if (arpVelocity_ != nullptr)
+        arpVelocity_->rings.clear();
+    arpView_.transposeLanes.clear();
 
     bool mapModulated = false;
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
@@ -422,6 +430,10 @@ void GristoView::updateModulationDisplay(const gristo::EngineParams& params)
                 velocityRanges_[static_cast<size_t>(slot.target - mod::kVelocity)]->rings.push_back({ colour, 0.0f, slot.amount });
             else if (slot.target == mod::kMapX || slot.target == mod::kMapY)
                 mapModulated = true;
+            else if (shownArp >= 0 && slot.target == mod::arpTarget(shownArp, mod::kArpVelocity) && arpVelocity_ != nullptr)
+                arpVelocity_->rings.push_back({ colour, 0.0f, slot.amount });
+            else if (shownArp >= 0 && slot.target == mod::arpTarget(shownArp, mod::kArpTranspose))
+                arpView_.transposeLanes.push_back(colour);
         }
 
     // Live values while playing.
@@ -443,6 +455,28 @@ void GristoView::updateModulationDisplay(const gristo::EngineParams& params)
         show(mod::kShuffle, ep.groove.shuffle);
         show(mod::kFlamMs, ep.groove.feelMs);
         show(mod::kHumanize, ep.humanize.amount);
+        if (shownArp >= 0)
+        {
+            const auto& ap = ep.arps[static_cast<size_t>(shownArp)];
+            show(mod::arpTarget(shownArp, mod::kArpDensity), ap.density);
+            show(mod::arpTarget(shownArp, mod::kArpAccent), ap.accent);
+            show(mod::arpTarget(shownArp, mod::kArpSlide), ap.slide);
+            show(mod::arpTarget(shownArp, mod::kArpGate), ap.gateSteps);
+            show(mod::arpTarget(shownArp, mod::kArpOctaves), ap.octaves);
+            show(mod::arpTarget(shownArp, mod::kArpLength), ap.length);
+        }
+    }
+    if (shownArp >= 0)
+    {
+        const auto& ap = ep.arps[static_cast<size_t>(shownArp)];
+        if (arpVelocity_ != nullptr)
+        {
+            arpVelocity_->showLive = playing;
+            arpVelocity_->liveOffset = ap.velocityOffset;
+            arpVelocity_->repaint();
+        }
+        arpView_.showLive = playing;
+        arpView_.liveTranspose = ap.transpose;
     }
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
@@ -580,12 +614,32 @@ void GristoView::updateArpOutput(const gristo::EngineParams& params, int arp)
     arpOutLabel_.setText(text, juce::dontSendNotification);
 }
 
+void GristoView::bindArpTargets(int arp)
+{
+    // The arp page has one set of knobs; route drops and rings to the arp shown.
+    for (int a = 0; a < gristo::kNumArps; ++a)
+        for (int w = 0; w < mod::kArpTargetsPerArp; ++w)
+            targetSliders_[static_cast<size_t>(mod::arpTarget(a, w))] = nullptr;
+    const std::pair<Knob*, int> knobs[] = { { &arpDensity_, mod::kArpDensity }, { &arpAccent_, mod::kArpAccent },
+                                            { &arpSlide_, mod::kArpSlide },     { &arpGate_, mod::kArpGate },
+                                            { &arpOctaves_, mod::kArpOctaves }, { &arpLength_, mod::kArpLength } };
+    for (const auto& [knob, which] : knobs)
+    {
+        makeTarget(knob->slider, knob->slider, mod::arpTarget(arp, which));
+        targetSliders_[static_cast<size_t>(mod::arpTarget(arp, which))] = &knob->slider;
+    }
+    makeTarget(*arpVelocity_, *arpVelocity_, mod::arpTarget(arp, mod::kArpVelocity));
+    makeTarget(arpView_, arpView_, mod::arpTarget(arp, mod::kArpTranspose));
+}
+
 std::vector<juce::Component*> GristoView::arpPageComponents()
 {
     std::vector<juce::Component*> list { &arpOn_.button, &arpLatch_.button, &arpMode_.box, &arpReset_.box, &arpOrder_.box,
                                          &arpOrder_.label, &arpScale_.box, &arpScale_.label, &arpNew_, &arpRootLabel_,
                                          arpChannel_.get(), arpRoot_.get(), arpVelocity_.get(), &arpView_,
                                          &arpShiftLabel_, arpShift_.get(), &arpOutLabel_ };
+    for (auto& handle : arpLaneHandles_)
+        list.push_back(&handle);
     for (auto& t : arpTriggers_)
         list.push_back(&t.button);
     for (Knob* k : { &arpOctaves_, &arpGate_, &arpLength_, &arpDensity_, &arpAccent_, &arpSlide_, &arpMutate_ })
@@ -647,6 +701,14 @@ void GristoView::setupArpPage()
     arpOutLabel_.setFont(juce::FontOptions(11.5f));
     addAndMakeVisible(arpOutLabel_);
     addAndMakeVisible(arpView_);
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+    {
+        arpLaneHandles_[lane].setLane(lane);
+        arpLaneHandles_[lane].setCompact(true);
+        addAndMakeVisible(arpLaneHandles_[lane]);
+        setHelp(arpLaneHandles_[lane], "Lane " + juce::String(lane + 1),
+                "Drag onto Density, Accent, Slide, Gate, Octaves, Length, Velocity, or the note view (Transpose). Draw the curve on the Modulation tab.");
+    }
 
     setHelp(arpOn_.button, "Arp on", "Switch this arp on. It plays on its own MIDI channel; the drums keep playing.");
     setHelp(arpMode_.box, "Mode", "Arp: plays the notes held on MIDI in. Generate: a Sting-style pattern over the held notes, or the Root + Scale when nothing is held.");
@@ -668,7 +730,7 @@ void GristoView::setupArpPage()
     setHelp(arpSlide_, "Slide", "Generate: share of steps that overlap into the next note (glide on a mono synth).");
     setHelp(arpMutate_, "Mutate", "Generate: share of steps re-rolled at every reset, so the pattern slowly evolves.");
     setHelp(arpNew_, "New pattern", "Roll a new generated pattern. It is saved with the project.");
-    setHelp(arpView_, "Arp notes", "The notes this arp plays: bars = pitch, outlines = rests, dots = accents, lines = slides. The bright column is the current step.");
+    setHelp(arpView_, "Arp notes", "Bars = pitch, outlines = rests, dots = accents, lines = slides; bright column = current step. Drop a lane here to transpose (up to an octave).");
 }
 
 void GristoView::bindArp(int arp)
@@ -717,6 +779,7 @@ void GristoView::bindArp(int arp)
     setHelp(*arpRoot_, "Root", "Generate mode: key root and lowest note when no notes are held. Click for a list, scroll to step.");
     setHelp(*arpVelocity_, "Arp velocity", "Velocity range. Notes follow the triggering drum hit (accents at the top); generator accents play at the top.");
     arpView_.setArp(arp);
+    bindArpTargets(arp);
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         arpTriggers_[v].button.setColour(juce::ToggleButton::tickColourId, voiceColours[v]);
@@ -876,6 +939,8 @@ void GristoView::resized()
     if (arpShift_ != nullptr)
         arpShift_->setBounds(140, y1 + 68, 96, 26);
     arpOutLabel_.setBounds(24, kModY + 188, 790, 22);
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+        arpLaneHandles_[lane].setBounds(820 + lane * 38, kModY + 189, 36, 20);
     placeKnob(arpOctaves_, { 244, y1, 64, 100 });
     placeKnob(arpGate_, { 308, y1, 64, 100 });
     placeKnob(arpLength_, { 372, y1, 64, 100 });

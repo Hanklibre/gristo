@@ -107,16 +107,17 @@ const ArpPattern& Engine::arpPattern(int arp, std::int64_t cycle)
     return st.pattern;
 }
 
-void Engine::playArp(int arp, std::int64_t k, std::int64_t cycle, double beats, float velocityNorm)
+void Engine::playArp(int arp, std::int64_t step, std::int64_t k, std::int64_t cycle, double beats, float velocityNorm)
 {
     ArpState& st = arps_[static_cast<size_t>(arp)];
-    const ArpParams& ap = params_.arps[static_cast<size_t>(arp)];
+    // Modulation lanes are read at the drum step that triggered the arp.
+    const ArpParams ap = hasModulation_ ? effectiveParams(step).arps[static_cast<size_t>(arp)] : params_.arps[static_cast<size_t>(arp)];
     const int voice = kArpVoiceBase + arp;
     const ArpPool pool = Arp::pool(ap, st.held.data(), st.heldCount);
     static const ArpPattern kNoPattern {};
     const ArpPattern& pattern = ap.mode == ArpMode::Generate ? arpPattern(arp, cycle) : kNoPattern;
     const ArpNote n = Arp::noteFor(ap, pool, pattern, k, cycle);
-    const int note = Arp::outputNote(n.note, ap.shift);
+    const int note = Arp::outputNote(n.note + ap.transpose, ap.shift);
 
     // End the previous note: slides overlap into a new pitch (legato), everything
     // else is cut at the new onset so the line stays monophonic.
@@ -139,7 +140,7 @@ void Engine::playArp(int arp, std::int64_t k, std::int64_t cycle, double beats, 
 
     const float lo = std::clamp(ap.velMin, 0.0f, 1.0f);
     const float hi = std::clamp(ap.velMax, lo, 1.0f);
-    const float norm = n.accent ? 1.0f : std::clamp(velocityNorm, 0.0f, 1.0f);
+    const float norm = n.accent ? 1.0f : std::clamp(velocityNorm + ap.velocityOffset, 0.0f, 1.0f);
     const float velocity = std::clamp(lo + (hi - lo) * norm, kMinVelocity, 1.0f);
     const double gate = std::max(0.02, static_cast<double>(ap.gateSteps) / kStepsPerBeat);
     const double off = beats + (n.slide ? std::max(gate, kSlideHoldBeats) : gate);
@@ -180,7 +181,7 @@ void Engine::processArp(int arp, double ppqStart, double ppqEnd, double bpm)
             for (int r = 0; r < hit.rollCount; ++r)
             {
                 const float ramp = hit.rollCount > 1 ? 0.55f + 0.45f * static_cast<float>(r) / static_cast<float>(hit.rollCount - 1) : 1.0f;
-                playArp(arp, st.count, cycle, hit.timeBeats + r * hit.rollSpacingBeats, hit.velocityNorm * ramp);
+                playArp(arp, s, st.count, cycle, hit.timeBeats + r * hit.rollSpacingBeats, hit.velocityNorm * ramp);
                 ++st.count;
             }
         }
@@ -246,6 +247,22 @@ EngineParams Engine::effectiveParams(std::int64_t step) const
     e.groove.shuffle = add(e.groove.shuffle, mod::kShuffle, 0.0f, static_cast<float>(kNumShuffleRows - 1));
     e.groove.feelMs = add(e.groove.feelMs, mod::kFlamMs, 0.0f, 30.0f);
     e.humanize.amount = add(e.humanize.amount, mod::kHumanize, 0.0f, 1.0f);
+    for (int a = 0; a < kNumArps; ++a)
+    {
+        ArpParams& ap = e.arps[static_cast<size_t>(a)];
+        auto t = [a](int which) { return mod::arpTarget(a, which); };
+        auto addInt = [&](int base, int target, int lo, int hi) {
+            return static_cast<int>(std::lround(add(static_cast<float>(base), target, static_cast<float>(lo), static_cast<float>(hi))));
+        };
+        ap.density = add(ap.density, t(mod::kArpDensity), 0.0f, 1.0f);
+        ap.accent = add(ap.accent, t(mod::kArpAccent), 0.0f, 1.0f);
+        ap.slide = add(ap.slide, t(mod::kArpSlide), 0.0f, 1.0f);
+        ap.gateSteps = add(ap.gateSteps, t(mod::kArpGate), 0.25f, 8.0f);
+        ap.octaves = addInt(ap.octaves, t(mod::kArpOctaves), 1, 4);
+        ap.length = addInt(ap.length, t(mod::kArpLength), 1, kMaxArpSteps);
+        ap.transpose = addInt(ap.transpose, t(mod::kArpTranspose), -12, 12);
+        ap.velocityOffset = acc[static_cast<size_t>(t(mod::kArpVelocity))];
+    }
     return e;
 }
 

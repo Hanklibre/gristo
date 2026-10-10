@@ -97,7 +97,7 @@ private:
 
 // Shows an arp's notes: the generated pattern (steps, rests, accents, slides) or the
 // held chord, with the current position while playing.
-class ArpView : public juce::Component
+class ArpView : public juce::Component, public ModDropTarget
 {
 public:
     explicit ArpView(GristoProcessor& processor) : processor_(processor) {}
@@ -105,7 +105,15 @@ public:
     void update(const gristo::ArpParams& params) { params_ = params; repaint(); }
     void paint(juce::Graphics&) override;
 
+    std::vector<juce::Colour> transposeLanes; // lanes routed to this arp's Transpose
+    int liveTranspose = 0;
+    bool showLive = false;
+
+protected:
+    void setDropHover(bool hover) override { dropHover_ = hover; repaint(); }
+
 private:
+    bool dropHover_ = false;
     GristoProcessor& processor_;
     int arp_ = 0;
     gristo::ArpParams params_;
@@ -220,9 +228,11 @@ class LaneHandle : public juce::Component
 {
 public:
     void setLane(int lane);
+    void setCompact(bool compact) { compact_ = compact; repaint(); } // small "L1" chip
     void paint(juce::Graphics&) override;
     void mouseDrag(const juce::MouseEvent&) override;
 
 private:
     int lane_ = 0;
+    bool compact_ = false;
 };
