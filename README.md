@@ -89,13 +89,11 @@ cmake -S . -B build -DGRISTO_BUILD_PLUGIN=OFF && cmake --build build && ./build/
   MIDI out to your drum instrument, or just use the preview kit.
 * **Ableton Live:** load it on a MIDI track. On the drum rack's track, set
   *MIDI From* to the Gristo track and choose "Gristo" as the source.
-  * **Arps in Live:** play or hold notes on the Gristo track itself (arm it, or
-    put a clip with a chord on it); that's the arps' MIDI in. Make one more MIDI
-    track per arp with your synth, set *MIDI From* to the Gristo track /
-    "Gristo", and pick the arp's channel (Arp 1 = Ch 1, Arp 2 = Ch 2 by default)
-    if Live offers a channel chooser. If it doesn't, put a MIDI channel filter
-    in front of the synth, or the synth also hears the drums. Turn *Kit* off
-    once real instruments are connected.
+  * **Arps and channels in Live:** Live merges a plugin's MIDI output into one
+    stream and sets it to channel 1, so a track listening to Gristo hears all
+    voices and both arps; the per-voice and arp channels don't separate them.
+    Play or hold the arps' chord on the Gristo track itself. Hosts that keep
+    MIDI channels (Bitwig, Reaper, Cubase) can split the parts by channel.
 * **Logic:** use the AU instrument for now. An AU MIDI-FX build is on the
   roadmap.
 * **No transport running?** Enable *Free Run* to audition at the internal
