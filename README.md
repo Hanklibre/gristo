@@ -30,7 +30,8 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   and each arp has its own MIDI channel.
 * **UI size:** 70–125 %, and it picks a size that fits your screen the first time.
 * **Output:** MIDI notes with a selectable note and channel per voice (GM drum
-  map on channel 10 by default), the arps on channels 1 and 2, plus a built-in
+  notes three octaves down on channel 10 by default, so the drums sit below the
+  arps), the arps on channels 1 and 2 with an Out Shift each, plus a built-in
   preview kit and two little preview synths, so it makes sound straight away.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for how it works and
@@ -89,11 +90,27 @@ cmake -S . -B build -DGRISTO_BUILD_PLUGIN=OFF && cmake --build build && ./build/
   MIDI out to your drum instrument, or just use the preview kit.
 * **Ableton Live:** load it on a MIDI track. On the drum rack's track, set
   *MIDI From* to the Gristo track and choose "Gristo" as the source.
-  * **Arps and channels in Live:** Live merges a plugin's MIDI output into one
-    stream and sets it to channel 1, so a track listening to Gristo hears all
-    voices and both arps; the per-voice and arp channels don't separate them.
-    Play or hold the arps' chord on the Gristo track itself. Hosts that keep
-    MIDI channels (Bitwig, Reaper, Cubase) can split the parts by channel.
+  * **Splitting drums and arps in Live (by note):** Live merges a plugin's
+    MIDI output to channel 1, so Gristo keeps each part in its own note range
+    instead. Drums default to the GM notes three octaves down (C-2 to A#-2), and
+    each arp has an Out **Shift** (Arp 1: 0, Arp 2: +36 semitones). The arp page
+    shows the exact range and the setting to use.
+    1. Hold or clip the arps' chord on the Gristo track itself (its MIDI in).
+    2. Make one MIDI track with *MIDI From* = the Gristo track / "Gristo", and
+       put an Instrument Rack on it. Show the Key zone editor and add one chain
+       per part:
+       * **Drums:** key zone C-2 to B-2, a Pitch device at +36, then your Drum
+         Rack (standard GM pads).
+       * **Arp 1:** key zone as shown on the Arp 1 page, then the synth.
+       * **Arp 2:** key zone as shown on the Arp 2 page, a Pitch device at -36
+         (the opposite of its Shift), then the synth.
+
+       For separate mixer tracks, use one listening track per part instead,
+       each with an Instrument Rack holding just that part's chain.
+    3. Turn *Kit* off once your instruments play.
+
+    Hosts that keep MIDI channels (Bitwig, Reaper, Cubase) can split the parts
+    by channel as well.
 * **Logic:** use the AU instrument for now. An AU MIDI-FX build is on the
   roadmap.
 * **No transport running?** Enable *Free Run* to audition at the internal

@@ -103,6 +103,7 @@ private:
     void showPage(int page);
     void setupArpPage();
     void bindArp(int arp);
+    void updateArpOutput(const gristo::EngineParams& params, int arp);
     std::vector<juce::Component*> modulationPageComponents();
     std::vector<juce::Component*> arpPageComponents();
 
@@ -112,8 +113,8 @@ private:
     Choice arpMode_, arpReset_, arpOrder_, arpScale_;
     Knob arpOctaves_, arpGate_, arpLength_, arpDensity_, arpAccent_, arpSlide_, arpMutate_;
     juce::TextButton arpNew_;
-    juce::Label arpRootLabel_;
-    std::unique_ptr<NumberSelector> arpChannel_;
+    juce::Label arpRootLabel_, arpShiftLabel_, arpOutLabel_;
+    std::unique_ptr<NumberSelector> arpChannel_, arpShift_;
     std::unique_ptr<NoteSelector> arpRoot_;
     std::unique_ptr<VelocityRange> arpVelocity_;
     ArpView arpView_;

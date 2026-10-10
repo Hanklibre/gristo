@@ -6,7 +6,9 @@ namespace {
 
 constexpr int kVersion = 1;
 
-const int kDefaultNotes[kNumVoices] = { 36, 38, 42, 46, 39, 45 }; // GM: kick, snare, CH, OH, clap, low tom
+// GM drum notes (kick, snare, CH, OH, clap, low tom) three octaves down, below anything the
+// arps play, so Live can split drums from arps by note. A Pitch +36 restores GM.
+const int kDefaultNotes[kNumVoices] = { 0, 2, 6, 10, 3, 9 };
 
 float load(const juce::AudioProcessorValueTreeState& s, const juce::String& id)
 {
@@ -140,6 +142,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(floatParam(laneId(arpGate, a), name + " Gate", { 0.25f, 8.0f, 0.25f }, 2.0f, "16ths"));
         layout.add(std::make_unique<juce::AudioParameterInt>(id(arpVelMin), name + " Velocity Min", 1, 127, 40));
         layout.add(std::make_unique<juce::AudioParameterInt>(id(arpVelMax), name + " Velocity Max", 1, 127, 127));
+        layout.add(std::make_unique<juce::AudioParameterInt>(
+            id(arpShift), name + " Out Shift", -60, 60, a == 0 ? 0 : 36,
+            juce::AudioParameterIntAttributes().withStringFromValueFunction(
+                [](int v, int) { return (v > 0 ? "+" : "") + juce::String(v) + " st"; })));
     }
     layout.add(boolParam(kitOn, "Preview Kit", true));
     layout.add(floatParam(kitGain, "Kit Level", { 0.0f, 1.0f }, 0.7f));
@@ -245,6 +251,7 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         ap.mutate = load(s, laneId(arpMutate, a));
         ap.seed = static_cast<std::uint32_t>(load(s, laneId(arpSeed, a)));
         ap.gateSteps = load(s, laneId(arpGate, a));
+        ap.shift = static_cast<int>(load(s, laneId(arpShift, a)));
         const float lo = load(s, laneId(arpVelMin, a)) / 127.0f;
         const float hi = load(s, laneId(arpVelMax, a)) / 127.0f;
         ap.velMin = std::min(lo, hi);

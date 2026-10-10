@@ -24,12 +24,12 @@ void PreviewKit::reset()
         s = SynthState {};
 }
 
-void PreviewKit::arpNoteOn(int arp, int note, float velocity)
+void PreviewKit::arpNoteOn(int arp, int note, int pitch, float velocity)
 {
     if (arp < 0 || arp >= kNumArps)
         return;
     SynthState& s = synths_[arp];
-    s.target = 440.0f * std::pow(2.0f, static_cast<float>(note - 69) / 12.0f);
+    s.target = 440.0f * std::pow(2.0f, static_cast<float>(pitch - 69) / 12.0f);
     if (!s.gate)
     {
         s.freq = s.target; // new phrase: no glide, retrigger the envelopes

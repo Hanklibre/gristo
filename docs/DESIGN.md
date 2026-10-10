@@ -131,9 +131,12 @@ window.
 
 ## MIDI out notes and channels
 
-Each voice has its own output note (defaults: GM 36 / 38 / 42 / 46 / 39 / 45)
-and channel (default 10, set next to Mute), so voices can go to separate
-instruments. The Voices panel shows each note as `C1 · 36`, using middle C = C3
+Each voice has its own output note and channel (default 10, set next to Mute),
+so voices can go to separate instruments. The default notes are the GM drum
+notes (36 / 38 / 42 / 46 / 39 / 45) three octaves down (0 / 2 / 6 / 10 / 3 / 9).
+That keeps them below anything the arps play, because Ableton Live merges a
+plugin's MIDI out to channel 1 and can only split the parts by note (Instrument
+Rack key zones). A Pitch +36 in the drum chain restores GM. The Voices panel shows each note as `C1 · 36`, using middle C = C3
 (Ableton / Cubase). Click a note to pick from a menu organised by octave, with
 General MIDI drum names, or scroll to step one note at a time.
 
@@ -164,6 +167,12 @@ scheduling in `Engine::processArp`).
   slightly (legato, for synths with glide) and hold until it arrives. Accents play
   at the top of the velocity range; otherwise velocity follows the drum hit that clocked the step, mapped
   into the arp's velocity range.
+* **Out Shift:** semitones added to the arp's MIDI out (Arp 1: 0, Arp 2: +36 by
+  default), folded back by octaves at the ends of the MIDI range, so each arp
+  gets its own note range in hosts that can't split by channel. The DAW undoes
+  it with a Pitch device; the preview synth plays the unshifted pitch. The arp
+  page shows the resulting range, the key zone and Pitch value to use in Live,
+  and turns red when the range overlaps a drum note or the other arp.
 
 ## Probability
 

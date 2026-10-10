@@ -116,6 +116,7 @@ void Engine::playArp(int arp, std::int64_t k, std::int64_t cycle, double beats, 
     static const ArpPattern kNoPattern {};
     const ArpPattern& pattern = ap.mode == ArpMode::Generate ? arpPattern(arp, cycle) : kNoPattern;
     const ArpNote n = Arp::noteFor(ap, pool, pattern, k, cycle);
+    const int note = Arp::outputNote(n.note, ap.shift);
 
     // End the previous note: slides overlap into a new pitch (legato), everything
     // else is cut at the new onset so the line stays monophonic.
@@ -134,7 +135,7 @@ void Engine::playArp(int arp, std::int64_t k, std::int64_t cycle, double beats, 
         st.lastSlide = false;
         return;
     }
-    endPrevious(st.lastSlide && st.lastNote != n.note);
+    endPrevious(st.lastSlide && st.lastNote != note);
 
     const float lo = std::clamp(ap.velMin, 0.0f, 1.0f);
     const float hi = std::clamp(ap.velMax, lo, 1.0f);
@@ -143,9 +144,9 @@ void Engine::playArp(int arp, std::int64_t k, std::int64_t cycle, double beats, 
     const double gate = std::max(0.02, static_cast<double>(ap.gateSteps) / kStepsPerBeat);
     const double off = beats + (n.slide ? std::max(gate, kSlideHoldBeats) : gate);
 
-    pending_.push_back({ beats, voice, velocity, true, n.note });
-    pending_.push_back({ off, voice, 0.0f, false, n.note });
-    st.lastNote = n.note;
+    pending_.push_back({ beats, voice, velocity, true, note });
+    pending_.push_back({ off, voice, 0.0f, false, note });
+    st.lastNote = note;
     st.lastSlide = n.slide;
 }
 

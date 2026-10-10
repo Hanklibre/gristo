@@ -14,7 +14,8 @@ public:
     void reset();
     void trigger(int voice, float velocity);
     // Simple mono synth per arp, with glide when a note starts before the last ended.
-    void arpNoteOn(int arp, int note, float velocity);
+    // `note` identifies the note (for note-off); `pitch` is what it sounds like.
+    void arpNoteOn(int arp, int note, int pitch, float velocity);
     void arpNoteOff(int arp, int note);
     // Adds the kit's output to the two channel buffers.
     void render(float* left, float* right, int numSamples, float gain);

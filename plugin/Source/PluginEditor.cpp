@@ -80,7 +80,7 @@ GristoView::GristoView(GristoProcessor& proc)
         channels_[v] = std::make_unique<NumberSelector>(*proc.state.getParameter(p::voiceId(p::voiceChannel, v)), "Ch ", 1, 16);
         addAndMakeVisible(*channels_[v]);
         setHelp(*channels_[v], juce::String(gristo::voiceName(v)) + " MIDI channel",
-                "MIDI channel this voice is sent on. In Ableton, set a track's MIDI From to Gristo and pick this channel.");
+                "MIDI channel this voice is sent on, for DAWs that keep channels. Ableton merges them: split by note there.");
     }
     setupArpPage();
     for (int pg = 0; pg <= gristo::kNumArps; ++pg)
@@ -181,7 +181,7 @@ GristoView::GristoView(GristoProcessor& proc)
         setHelp(voiceHumanize_[v], name + " Humanize", "Scales the master Humanize for this voice. 0 % = on the grid, 200 % = twice as loose.");
         setHelp(voiceDynamics_[v], name + " Dynamics", "Scales the master Dynamics for this voice: how much softer its weaker notes are.");
         setHelp(*velocityRanges_[v], name + " Velocity", "MIDI velocity range. Accents play at the top, ghost notes near the bottom. Drag the ends; double-click = 1-127.");
-        setHelp(*notes_[v], name + " Note", "MIDI note this voice sends. Click for a list with drum names, scroll to step.");
+        setHelp(*notes_[v], name + " Note", "MIDI note this voice sends. Defaults are GM three octaves down (Pitch +36 in Live restores GM). Click for a list, scroll to step.");
         setHelp(mutes_[v].button, name + " Mute", "Silence this voice. In Linear mode its slots go to the next voice in line.");
     }
     setHelp(timing_.box, "Timing", "How the 16ths move. Trip: tuplet snaps. Shake: MPC swing. Push: leans early. Clave: swings around 3-3-2.");
@@ -499,6 +499,7 @@ void GristoView::timerCallback()
     {
         const auto& ap = params.arps[static_cast<size_t>(page_ - 1)];
         arpView_.update(ap);
+        updateArpOutput(params, page_ - 1);
         const bool gen = ap.mode == gristo::ArpMode::Generate;
         for (juce::Component* c : std::initializer_list<juce::Component*> { &arpScale_.box, &arpScale_.label, arpRoot_.get(), &arpRootLabel_,
                                                                           &arpLength_.slider, &arpLength_.label, &arpDensity_.slider,
@@ -527,11 +528,64 @@ std::vector<juce::Component*> GristoView::modulationPageComponents()
     return list;
 }
 
+void GristoView::updateArpOutput(const gristo::EngineParams& params, int arp)
+{
+    // The notes each arp can send right now (its pool, shifted), to show where they
+    // land and to warn when they collide with the drums or the other arp.
+    auto outRange = [this, &params](int a, int& lo, int& hi) {
+        const auto& ap = params.arps[static_cast<size_t>(a)];
+        int held[gristo::kMaxHeldNotes];
+        const int count = std::clamp(processor_.displayArpInputCount[static_cast<size_t>(a)].load(), 0, gristo::kMaxHeldNotes);
+        for (int i = 0; i < count; ++i)
+            held[i] = processor_.displayArpInput[static_cast<size_t>(a)][static_cast<size_t>(i)].load();
+        const gristo::ArpPool pool = gristo::Arp::pool(ap, held, count);
+        lo = 128;
+        hi = -1;
+        for (int i = 0; i < pool.size; ++i)
+        {
+            const int n = gristo::Arp::outputNote(pool.notes[static_cast<size_t>(i)], ap.shift);
+            lo = std::min(lo, n);
+            hi = std::max(hi, n);
+        }
+        return pool.size > 0;
+    };
+    auto name = [](int note) { return juce::MidiMessage::getMidiNoteName(note, true, true, 3); };
+
+    int lo = 0, hi = 0;
+    if (!outRange(arp, lo, hi))
+    {
+        arpOutLabel_.setColour(juce::Label::textColourId, colours::dim);
+        arpOutLabel_.setText("MIDI out: no notes yet (hold notes, or use Generate)", juce::dontSendNotification);
+        return;
+    }
+    const int shift = params.arps[static_cast<size_t>(arp)].shift;
+    juce::String text = "MIDI out " + name(lo) + " - " + name(hi) + ".  In Live: chain key zone " + name(lo) + " - " + name(hi);
+    if (shift != 0)
+        text << ", Pitch " << (shift > 0 ? "-" : "+") << std::abs(shift) << " before the synth";
+
+    juce::StringArray clashes;
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        const int n = static_cast<int>(processor_.state.getRawParameterValue(p::voiceId(p::note, v))->load());
+        if (n >= lo && n <= hi)
+            clashes.addIfNotAlreadyThere("drums");
+    }
+    const int other = 1 - arp;
+    int otherLo = 0, otherHi = 0;
+    if (params.arps[static_cast<size_t>(other)].enabled && outRange(other, otherLo, otherHi) && otherLo <= hi && otherHi >= lo)
+        clashes.add("Arp " + juce::String(other + 1));
+    if (!clashes.isEmpty())
+        text << ".  Overlaps " << clashes.joinIntoString(" and ") << ": change Shift";
+    arpOutLabel_.setColour(juce::Label::textColourId, clashes.isEmpty() ? colours::dim : colours::hot);
+    arpOutLabel_.setText(text, juce::dontSendNotification);
+}
+
 std::vector<juce::Component*> GristoView::arpPageComponents()
 {
     std::vector<juce::Component*> list { &arpOn_.button, &arpLatch_.button, &arpMode_.box, &arpReset_.box, &arpOrder_.box,
                                          &arpOrder_.label, &arpScale_.box, &arpScale_.label, &arpNew_, &arpRootLabel_,
-                                         arpChannel_.get(), arpRoot_.get(), arpVelocity_.get(), &arpView_ };
+                                         arpChannel_.get(), arpRoot_.get(), arpVelocity_.get(), &arpView_,
+                                         &arpShiftLabel_, arpShift_.get(), &arpOutLabel_ };
     for (auto& t : arpTriggers_)
         list.push_back(&t.button);
     for (Knob* k : { &arpOctaves_, &arpGate_, &arpLength_, &arpDensity_, &arpAccent_, &arpSlide_, &arpMutate_ })
@@ -586,6 +640,12 @@ void GristoView::setupArpPage()
     arpRootLabel_.setFont(juce::FontOptions(12.0f));
     arpRootLabel_.setColour(juce::Label::textColourId, colours::dim);
     addAndMakeVisible(arpRootLabel_);
+    arpShiftLabel_.setText("Shift", juce::dontSendNotification);
+    arpShiftLabel_.setFont(juce::FontOptions(12.0f));
+    arpShiftLabel_.setColour(juce::Label::textColourId, colours::dim);
+    addAndMakeVisible(arpShiftLabel_);
+    arpOutLabel_.setFont(juce::FontOptions(11.5f));
+    addAndMakeVisible(arpOutLabel_);
     addAndMakeVisible(arpView_);
 
     setHelp(arpOn_.button, "Arp on", "Switch this arp on. It plays on its own MIDI channel; the drums keep playing.");
@@ -597,6 +657,8 @@ void GristoView::setupArpPage()
     setHelp(arpLatch_.button, "Latch", "On: keeps playing the last chord after you let go. Off: plays only while keys are held.");
     setHelp(arpOrder_.box, "Order", "Arp mode: the order the held notes are played in.");
     setHelp(arpScale_.box, "Scale", "Generate mode: the scale used when no notes are held.");
+    setHelp(arpShiftLabel_, "Out Shift", "Moves this arp's MIDI out into its own note range, so Live can split it from the drums and the other arp by key zone.");
+    setHelp(arpOutLabel_, "MIDI out range", "Where this arp's notes land, and how to set up the Instrument Rack chain in Live. Red = it overlaps the drums or the other arp.");
     setHelp(arpRootLabel_, "Root", "Generate mode: key root and lowest note when no notes are held.");
     setHelp(arpOctaves_, "Octaves", "How many octaves the notes are spread over.");
     setHelp(arpGate_, "Gate", "Note length in 16ths. Slides hold until the next note.");
@@ -642,13 +704,16 @@ void GristoView::bindArp(int arp)
 
     // Widgets with a ParameterAttachment are rebuilt for the new arp.
     arpChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::laneId(p::arpChannel, arp)), "Ch ", 1, 16);
+    arpShift_ = std::make_unique<NumberSelector>(*st.getParameter(p::laneId(p::arpShift, arp)), "", -60, 60, " st", 12, true);
     arpRoot_ = std::make_unique<NoteSelector>(*st.getParameter(p::laneId(p::arpRoot, arp)));
     arpVelocity_ = std::make_unique<VelocityRange>(*st.getParameter(p::laneId(p::arpVelMin, arp)),
                                                    *st.getParameter(p::laneId(p::arpVelMax, arp)), arpColours[arp]);
     addAndMakeVisible(*arpChannel_);
+    addAndMakeVisible(*arpShift_);
     addAndMakeVisible(*arpRoot_);
     addAndMakeVisible(*arpVelocity_);
-    setHelp(*arpChannel_, "Arp MIDI channel", "MIDI channel this arp is sent on. In Ableton, give the synth track MIDI From: Gristo and this channel.");
+    setHelp(*arpChannel_, "Arp MIDI channel", "MIDI channel this arp is sent on, for DAWs that keep channels. Ableton merges them: use Shift there.");
+    setHelp(*arpShift_, "Out Shift", "Moves this arp's MIDI out up or down (semitones) into its own note range. In Live, undo it with a Pitch device before the synth.");
     setHelp(*arpRoot_, "Root", "Generate mode: key root and lowest note when no notes are held. Click for a list, scroll to step.");
     setHelp(*arpVelocity_, "Arp velocity", "Velocity range. Notes follow the triggering drum hit (accents at the top); generator accents play at the top.");
     arpView_.setArp(arp);
@@ -807,6 +872,10 @@ void GristoView::resized()
     arpRootLabel_.setBounds(140, y1, 96, 16);
     if (arpRoot_ != nullptr)
         arpRoot_->setBounds(140, y1 + 18, 96, 26);
+    arpShiftLabel_.setBounds(140, y1 + 50, 96, 16);
+    if (arpShift_ != nullptr)
+        arpShift_->setBounds(140, y1 + 68, 96, 26);
+    arpOutLabel_.setBounds(24, kModY + 188, 790, 22);
     placeKnob(arpOctaves_, { 244, y1, 64, 100 });
     placeKnob(arpGate_, { 308, y1, 64, 100 });
     placeKnob(arpLength_, { 372, y1, 64, 100 });

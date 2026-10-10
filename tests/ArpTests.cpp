@@ -169,6 +169,34 @@ TEST("arp: kick steps the arp, the step resets every N bars")
     }
 }
 
+TEST("arp: shift moves the MIDI out into its own range, folding at the edges")
+{
+    CHECK(Arp::outputNote(60, 36) == 96);
+    CHECK(Arp::outputNote(100, 36) == 124);
+    CHECK(Arp::outputNote(110, 36) == 134 - 12);
+    CHECK(Arp::outputNote(5, -12) == 5 - 12 + 12);
+    EngineParams p = fourOnFloorKickArp();
+    const std::vector<int> held { 60, 64, 67, 71, 74 };
+    const auto plain = arpOns(renderArp(p, held, 256, 48000 * 4), 0);
+    p.arps[0].shift = 36;
+    const auto evs = renderArp(p, held, 256, 48000 * 4);
+    const auto shifted = arpOns(evs, 0);
+    CHECK(!plain.empty());
+    CHECK(plain.size() == shifted.size());
+    for (size_t i = 0; i < std::min(plain.size(), shifted.size()); ++i)
+    {
+        CHECK(shifted[i].note == plain[i].note + 36);
+        CHECK(shifted[i].sample == plain[i].sample);
+    }
+    // Every shifted note is released with the same (shifted) note number.
+    std::map<int, int> open;
+    for (const auto& e : evs)
+        if (e.voice == kArpVoiceBase)
+            open[e.note] += e.on ? 1 : -1;
+    for (const auto& [note, count] : open)
+        CHECK_MSG(count == 0, "note " << note << " left " << count);
+}
+
 TEST("arp: a transport loop restarts the phrase in the same place")
 {
     EngineParams p = fourOnFloorKickArp();

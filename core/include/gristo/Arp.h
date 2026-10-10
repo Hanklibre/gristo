@@ -74,6 +74,8 @@ struct ArpParams
 
     // Output
     float gateSteps = 2.0f; // note length in 16ths (slides overlap the next note)
+    int shift = 0;          // semitones added to the MIDI out, to give the arp its own
+                            // note range (undo it with a Pitch device in the DAW)
     float velMin = 40.0f / 127.0f;
     float velMax = 1.0f;
 };
@@ -123,6 +125,9 @@ public:
     // Note for advance number k (0-based since the last reset) in a cycle.
     static ArpNote noteFor(const ArpParams& p, const ArpPool& pool, const ArpPattern& pattern, std::int64_t k,
                            std::int64_t cycle);
+
+    // MIDI out note for a played note: note + shift, folded back by octaves into 0..127.
+    static int outputNote(int note, int shift);
 };
 
 } // namespace gristo

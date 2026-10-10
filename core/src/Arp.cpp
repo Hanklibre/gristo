@@ -51,6 +51,16 @@ ArpStepValues randomStep(std::uint32_t seed, std::int64_t salt, int i)
 
 } // namespace
 
+int Arp::outputNote(int note, int shift)
+{
+    int out = note + shift;
+    while (out > 127)
+        out -= 12;
+    while (out < 0)
+        out += 12;
+    return out;
+}
+
 const char* arpOrderName(ArpOrder order)
 {
     switch (order)

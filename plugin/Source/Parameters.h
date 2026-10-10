@@ -56,6 +56,7 @@ inline const juce::String arpSeed = "arpSeed";
 inline const juce::String arpGate = "arpGate";
 inline const juce::String arpVelMin = "arpVelMin";
 inline const juce::String arpVelMax = "arpVelMax";
+inline const juce::String arpShift = "arpShift";
 inline const int kResetBarChoices[] = { 1, 2, 4, 8, 16 };
 inline const juce::String kitOn = "kitOn";
 inline const juce::String kitGain = "kitGain";

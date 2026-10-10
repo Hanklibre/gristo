@@ -78,17 +78,21 @@ private:
 class NumberSelector : public juce::Component
 {
 public:
-    NumberSelector(juce::RangedAudioParameter& parameter, juce::String prefix, int minValue, int maxValue);
+    NumberSelector(juce::RangedAudioParameter& parameter, juce::String prefix, int minValue, int maxValue,
+                   juce::String suffix = {}, int menuStep = 1, bool showSign = false);
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
     void setValue(int value);
+    juce::String text(int value) const;
 
     juce::ParameterAttachment attachment_;
-    juce::String prefix_;
+    juce::String prefix_, suffix_;
     int min_, max_, value_ = 1;
+    int menuStep_;
+    bool showSign_;
 };
 
 // Shows an arp's notes: the generated pattern (steps, rests, accents, slides) or the

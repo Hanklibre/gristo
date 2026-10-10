@@ -106,8 +106,12 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         notes[v] = static_cast<int>(state.getRawParameterValue(p::voiceId(p::note, v))->load());
         channels[v] = static_cast<int>(state.getRawParameterValue(p::voiceId(p::voiceChannel, v))->load());
     }
+    int shifts[gristo::kNumArps];
     for (int a = 0; a < gristo::kNumArps; ++a)
+    {
         channels[gristo::kArpVoiceBase + a] = static_cast<int>(state.getRawParameterValue(p::laneId(p::arpChannel, a))->load());
+        shifts[a] = static_cast<int>(state.getRawParameterValue(p::laneId(p::arpShift, a))->load());
+    }
 
     const bool kitOn = state.getRawParameterValue(p::kitOn)->load() > 0.5f;
     const float kitGain = state.getRawParameterValue(p::kitGain)->load();
@@ -143,7 +147,11 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             if (kitOn)
             {
                 if (isArp)
-                    kit_.arpNoteOn(ev.voice - gristo::kArpVoiceBase, note, ev.velocity);
+                {
+                    // The kit plays the unshifted pitch, as the synth behind a Pitch device would.
+                    const int arp = ev.voice - gristo::kArpVoiceBase;
+                    kit_.arpNoteOn(arp, note, note - shifts[arp], ev.velocity);
+                }
                 else
                     kit_.trigger(ev.voice, ev.velocity);
             }

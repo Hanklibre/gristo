@@ -211,9 +211,11 @@ void NoteSelector::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWhee
 // ---------------------------------------------------------------------------------
 // Number selector
 
-NumberSelector::NumberSelector(juce::RangedAudioParameter& parameter, juce::String prefix, int minValue, int maxValue)
+NumberSelector::NumberSelector(juce::RangedAudioParameter& parameter, juce::String prefix, int minValue, int maxValue,
+                               juce::String suffix, int menuStep, bool showSign)
     : attachment_(parameter, [this](float v) { value_ = juce::roundToInt(v); repaint(); }),
-      prefix_(std::move(prefix)), min_(minValue), max_(maxValue)
+      prefix_(std::move(prefix)), suffix_(std::move(suffix)), min_(minValue), max_(maxValue),
+      menuStep_(std::max(1, menuStep)), showSign_(showSign)
 {
     attachment_.sendInitialUpdate();
     setMouseCursor(juce::MouseCursor::PointingHandCursor);
@@ -222,6 +224,11 @@ NumberSelector::NumberSelector(juce::RangedAudioParameter& parameter, juce::Stri
 void NumberSelector::setValue(int value)
 {
     attachment_.setValueAsCompleteGesture(static_cast<float>(juce::jlimit(min_, max_, value)));
+}
+
+juce::String NumberSelector::text(int value) const
+{
+    return prefix_ + (showSign_ && value > 0 ? "+" : "") + juce::String(value) + suffix_;
 }
 
 void NumberSelector::paint(juce::Graphics& g)
@@ -233,14 +240,15 @@ void NumberSelector::paint(juce::Graphics& g)
     g.drawRoundedRectangle(area, 4.0f, 1.0f);
     g.setColour(colours::text);
     g.setFont(juce::FontOptions(11.5f));
-    g.drawText(prefix_ + juce::String(value_), area, juce::Justification::centred);
+    g.drawText(text(value_), area, juce::Justification::centred);
 }
 
 void NumberSelector::mouseDown(const juce::MouseEvent&)
 {
     juce::PopupMenu menu;
     for (int v = min_; v <= max_; ++v)
-        menu.addItem(v - min_ + 1, prefix_ + juce::String(v), true, v == value_);
+        if ((v - min_) % menuStep_ == 0 || v == value_)
+            menu.addItem(v - min_ + 1, text(v), true, v == value_);
     juce::Component::SafePointer<NumberSelector> safe(this);
     const int base = min_;
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [safe, base](int result) {
