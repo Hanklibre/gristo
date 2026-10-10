@@ -2,12 +2,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace gristo {
 
 namespace {
 constexpr float kMinVelocity = 1.0f / 127.0f;
 constexpr int kMaxStepsPerBlock = 4096;
+constexpr double kSlideOverlapBeats = 0.02; // legato overlap for slides (~10 ms at 120 bpm)
+constexpr double kSlideHoldBeats = 4.0;     // a slide note waits up to a bar for the next note
 } // namespace
 
 Engine::Engine(const DrumMapData& data) : map_(data), generator_(map_)
@@ -19,7 +22,169 @@ void Engine::reset()
 {
     pending_.clear();
     sounding_.fill(false);
+    for (ArpState& st : arps_)
+    {
+        st.sounding.fill(false);
+        st.needsResync = true;
+        st.lastNote = -1;
+        st.lastSlide = false;
+    }
     needsResync_ = true;
+}
+
+void Engine::setArpInput(int arp, const int* notes, int count)
+{
+    ArpState& st = arps_[static_cast<size_t>(arp)];
+    st.heldCount = std::clamp(count, 0, kMaxHeldNotes);
+    std::copy(notes, notes + st.heldCount, st.held.begin());
+}
+
+int Engine::resetSteps(const ArpParams& p)
+{
+    const int bars = p.resetBars >= 16 ? 16 : p.resetBars >= 8 ? 8 : p.resetBars >= 4 ? 4 : p.resetBars >= 2 ? 2 : 1;
+    return bars * kStepsPerBar;
+}
+
+bool Engine::arpActive(int arp) const
+{
+    const ArpParams& ap = params_.arps[static_cast<size_t>(arp)];
+    return ap.enabled && std::any_of(ap.triggers.begin(), ap.triggers.end(), [](bool t) { return t; });
+}
+
+bool Engine::arpTrigger(int arp, std::int64_t step, double bpm, HitInfo& best, double& earliest) const
+{
+    // Simultaneous trigger hits advance the arp once; the loudest hit wins.
+    const ArpParams& ap = params_.arps[static_cast<size_t>(arp)];
+    bool found = false;
+    earliest = std::numeric_limits<double>::infinity();
+    for (int v = 0; v < kNumVoices; ++v)
+    {
+        if (!ap.triggers[static_cast<size_t>(v)])
+            continue;
+        const HitInfo h = describe(step, v, bpm, true);
+        earliest = std::min(earliest, h.timeBeats);
+        if (h.on && (!found || h.velocityNorm > best.velocityNorm))
+        {
+            best = h;
+            found = true;
+        }
+    }
+    return found;
+}
+
+void Engine::resyncArp(int arp, std::int64_t firstStep, double bpm)
+{
+    // Recount the trigger hits since the last reset bar, exactly as continuous
+    // playback would have counted them.
+    ArpState& st = arps_[static_cast<size_t>(arp)];
+    const int resetLen = resetSteps(params_.arps[static_cast<size_t>(arp)]);
+    const std::int64_t cycleStart = floorDiv(firstStep, resetLen) * resetLen;
+    st.count = 0;
+    for (std::int64_t s = cycleStart; s < firstStep; ++s)
+    {
+        HitInfo h;
+        double earliest = 0.0;
+        if (arpTrigger(arp, s, bpm, h, earliest))
+            st.count += h.rollCount;
+    }
+    st.nextStep = firstStep;
+    st.lastNote = -1;
+    st.lastSlide = false;
+    st.needsResync = false;
+}
+
+const ArpPattern& Engine::arpPattern(int arp, std::int64_t cycle)
+{
+    ArpState& st = arps_[static_cast<size_t>(arp)];
+    const ArpParams& ap = params_.arps[static_cast<size_t>(arp)];
+    if (st.patternCycle != cycle || st.patternSeed != ap.seed || st.patternMutate != ap.mutate)
+    {
+        st.pattern = Arp::pattern(ap.seed, ap.mutate, std::max<std::int64_t>(0, cycle));
+        st.patternCycle = cycle;
+        st.patternSeed = ap.seed;
+        st.patternMutate = ap.mutate;
+    }
+    return st.pattern;
+}
+
+void Engine::playArp(int arp, std::int64_t k, std::int64_t cycle, double beats, float velocityNorm)
+{
+    ArpState& st = arps_[static_cast<size_t>(arp)];
+    const ArpParams& ap = params_.arps[static_cast<size_t>(arp)];
+    const int voice = kArpVoiceBase + arp;
+    const ArpPool pool = Arp::pool(ap, st.held.data(), st.heldCount);
+    static const ArpPattern kNoPattern {};
+    const ArpPattern& pattern = ap.mode == ArpMode::Generate ? arpPattern(arp, cycle) : kNoPattern;
+    const ArpNote n = Arp::noteFor(ap, pool, pattern, k, cycle);
+
+    // End the previous note: slides overlap into a new pitch (legato), everything
+    // else is cut at the new onset so the line stays monophonic.
+    auto endPrevious = [&](bool slideInto) {
+        if (st.lastNote < 0)
+            return;
+        for (Pending& p : pending_)
+            if (!p.noteOn && p.voice == voice && p.note == st.lastNote)
+                p.beats = slideInto ? beats + kSlideOverlapBeats : std::min(p.beats, beats);
+    };
+
+    if (!n.play)
+    {
+        if (st.lastSlide)
+            endPrevious(false); // a rest after a slide: don't leave the note hanging
+        st.lastSlide = false;
+        return;
+    }
+    endPrevious(st.lastSlide && st.lastNote != n.note);
+
+    const float lo = std::clamp(ap.velMin, 0.0f, 1.0f);
+    const float hi = std::clamp(ap.velMax, lo, 1.0f);
+    const float norm = n.accent ? 1.0f : std::clamp(velocityNorm, 0.0f, 1.0f);
+    const float velocity = std::clamp(lo + (hi - lo) * norm, kMinVelocity, 1.0f);
+    const double gate = std::max(0.02, static_cast<double>(ap.gateSteps) / kStepsPerBeat);
+    const double off = beats + (n.slide ? std::max(gate, kSlideHoldBeats) : gate);
+
+    pending_.push_back({ beats, voice, velocity, true, n.note });
+    pending_.push_back({ off, voice, 0.0f, false, n.note });
+    st.lastNote = n.note;
+    st.lastSlide = n.slide;
+}
+
+void Engine::processArp(int arp, double ppqStart, double ppqEnd, double bpm)
+{
+    ArpState& st = arps_[static_cast<size_t>(arp)];
+    if (!arpActive(arp))
+    {
+        st.needsResync = true;
+        return;
+    }
+    if (st.needsResync)
+        resyncArp(arp, static_cast<std::int64_t>(std::ceil(ppqStart * kStepsPerBeat - 1e-9)), bpm);
+
+    const int resetLen = resetSteps(params_.arps[static_cast<size_t>(arp)]);
+    for (int guard = 0; guard < kMaxStepsPerBlock; ++guard)
+    {
+        const std::int64_t s = st.nextStep;
+        if (static_cast<double>(s) / kStepsPerBeat - kMaxEarlyBeats >= ppqEnd)
+            break;
+        HitInfo hit;
+        double earliest = 0.0;
+        const bool found = arpTrigger(arp, s, bpm, hit, earliest);
+        if (earliest >= ppqEnd)
+            break;
+        if (floorMod(s, resetLen) == 0)
+            st.count = 0; // reset bar: the phrase starts over
+        if (found)
+        {
+            const std::int64_t cycle = floorDiv(s, resetLen);
+            for (int r = 0; r < hit.rollCount; ++r)
+            {
+                const float ramp = hit.rollCount > 1 ? 0.55f + 0.45f * static_cast<float>(r) / static_cast<float>(hit.rollCount - 1) : 1.0f;
+                playArp(arp, st.count, cycle, hit.timeBeats + r * hit.rollSpacingBeats, hit.velocityNorm * ramp);
+                ++st.count;
+            }
+        }
+        ++st.nextStep;
+    }
 }
 
 void Engine::setParams(const EngineParams& p)
@@ -187,6 +352,17 @@ void Engine::flushNoteOffs(std::vector<OutputEvent>& out)
             out.push_back({ 0, v, 0.0f, false });
     }
     sounding_.fill(false);
+    for (int a = 0; a < kNumArps; ++a)
+    {
+        ArpState& st = arps_[static_cast<size_t>(a)];
+        for (int n = 0; n < 128; ++n)
+            if (st.sounding[static_cast<size_t>(n)])
+                out.push_back({ 0, kArpVoiceBase + a, 0.0f, false, n });
+        st.sounding.fill(false);
+        st.lastNote = -1;
+        st.lastSlide = false;
+        st.needsResync = true;
+    }
     pending_.clear();
 }
 
@@ -237,6 +413,9 @@ void Engine::process(const BlockInfo& block, std::vector<OutputEvent>& out)
         }
     }
 
+    for (int a = 0; a < kNumArps; ++a)
+        processArp(a, ppqStart, ppqEnd, block.bpm);
+
     // Emit everything due before the end of the block, note-offs first on ties.
     std::stable_sort(pending_.begin(), pending_.end(), [](const Pending& a, const Pending& b) {
         if (a.beats != b.beats) return a.beats < b.beats;
@@ -251,8 +430,11 @@ void Engine::process(const BlockInfo& block, std::vector<OutputEvent>& out)
         // rounding down to the previous sample.
         const double offset = std::floor((p.beats - ppqStart) / beatsPerSample + 1e-6);
         const int sample = static_cast<int>(std::clamp(offset, 0.0, static_cast<double>(block.numSamples - 1)));
-        out.push_back({ sample, p.voice, p.velocity, p.noteOn });
-        sounding_[static_cast<size_t>(p.voice)] = p.noteOn;
+        out.push_back({ sample, p.voice, p.velocity, p.noteOn, p.note });
+        if (p.voice < kNumVoices)
+            sounding_[static_cast<size_t>(p.voice)] = p.noteOn;
+        else if (p.note >= 0 && p.note < 128)
+            arps_[static_cast<size_t>(p.voice - kArpVoiceBase)].sounding[static_cast<size_t>(p.note)] = p.noteOn;
     }
     pending_.erase(pending_.begin(), pending_.begin() + static_cast<std::ptrdiff_t>(emitted));
 }

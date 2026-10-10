@@ -73,6 +73,40 @@ private:
     int note_ = 36;
 };
 
+// Small integer selector shown as "<prefix><value>" (e.g. MIDI channel): click for a
+// menu, scroll to step.
+class NumberSelector : public juce::Component
+{
+public:
+    NumberSelector(juce::RangedAudioParameter& parameter, juce::String prefix, int minValue, int maxValue);
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+private:
+    void setValue(int value);
+
+    juce::ParameterAttachment attachment_;
+    juce::String prefix_;
+    int min_, max_, value_ = 1;
+};
+
+// Shows an arp's notes: the generated pattern (steps, rests, accents, slides) or the
+// held chord, with the current position while playing.
+class ArpView : public juce::Component
+{
+public:
+    explicit ArpView(GristoProcessor& processor) : processor_(processor) {}
+    void setArp(int arp) { arp_ = arp; repaint(); }
+    void update(const gristo::ArpParams& params) { params_ = params; repaint(); }
+    void paint(juce::Graphics&) override;
+
+private:
+    GristoProcessor& processor_;
+    int arp_ = 0;
+    gristo::ArpParams params_;
+};
+
 // Two-handle MIDI velocity range (1..127) for one voice. Accepts lanes (Velocity target).
 class VelocityRange : public juce::Component, public ModDropTarget
 {

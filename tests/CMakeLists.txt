@@ -4,6 +4,7 @@ add_executable(gristo_tests
     GrooveTests.cpp
     HumanizerTests.cpp
     EngineTests.cpp
+    ArpTests.cpp
 )
 target_link_libraries(gristo_tests PRIVATE gristo_core)
 add_test(NAME gristo_tests COMMAND gristo_tests)

@@ -47,6 +47,11 @@ public:
     gristo::params::ModPointStore modPoints;
     std::atomic<float> uiScale { 0.0f }; // 0 = pick a size that fits the screen
 
+    // Arp display: advances since the last reset, and the notes feeding each arp.
+    std::array<std::atomic<std::int64_t>, gristo::kNumArps> displayArpCount {};
+    std::array<std::array<std::atomic<int>, gristo::kMaxHeldNotes>, gristo::kNumArps> displayArpInput {};
+    std::array<std::atomic<int>, gristo::kNumArps> displayArpInputCount {};
+
 private:
     gristo::BlockInfo transportFor(int numSamples);
 
@@ -55,6 +60,13 @@ private:
     std::vector<gristo::OutputEvent> events_;
     double sampleRate_ = 48000.0;
     double freePpq_ = 0.0;
+
+    // MIDI in: notes held now (press order) and the last chord, for Latch.
+    void handleMidiInput(const juce::MidiBuffer& midi);
+    std::array<int, gristo::kMaxHeldNotes> held_ {};
+    int heldCount_ = 0;
+    std::array<int, gristo::kMaxHeldNotes> latched_ {};
+    int latchedCount_ = 0;
     bool wasFreeRunning_ = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GristoProcessor)

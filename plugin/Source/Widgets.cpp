@@ -209,6 +209,146 @@ void NoteSelector::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWhee
 }
 
 // ---------------------------------------------------------------------------------
+// Number selector
+
+NumberSelector::NumberSelector(juce::RangedAudioParameter& parameter, juce::String prefix, int minValue, int maxValue)
+    : attachment_(parameter, [this](float v) { value_ = juce::roundToInt(v); repaint(); }),
+      prefix_(std::move(prefix)), min_(minValue), max_(maxValue)
+{
+    attachment_.sendInitialUpdate();
+    setMouseCursor(juce::MouseCursor::PointingHandCursor);
+}
+
+void NumberSelector::setValue(int value)
+{
+    attachment_.setValueAsCompleteGesture(static_cast<float>(juce::jlimit(min_, max_, value)));
+}
+
+void NumberSelector::paint(juce::Graphics& g)
+{
+    const auto area = getLocalBounds().toFloat().reduced(1.0f);
+    g.setColour(colours::background);
+    g.fillRoundedRectangle(area, 4.0f);
+    g.setColour(isMouseOver() ? colours::text : colours::outline);
+    g.drawRoundedRectangle(area, 4.0f, 1.0f);
+    g.setColour(colours::text);
+    g.setFont(juce::FontOptions(11.5f));
+    g.drawText(prefix_ + juce::String(value_), area, juce::Justification::centred);
+}
+
+void NumberSelector::mouseDown(const juce::MouseEvent&)
+{
+    juce::PopupMenu menu;
+    for (int v = min_; v <= max_; ++v)
+        menu.addItem(v - min_ + 1, prefix_ + juce::String(v), true, v == value_);
+    juce::Component::SafePointer<NumberSelector> safe(this);
+    const int base = min_;
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [safe, base](int result) {
+        if (safe != nullptr && result > 0)
+            safe->setValue(base + result - 1);
+    });
+}
+
+void NumberSelector::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
+{
+    const float delta = std::abs(wheel.deltaY) > std::abs(wheel.deltaX) ? wheel.deltaY : -wheel.deltaX;
+    if (delta > 0.0f)
+        setValue(value_ + 1);
+    else if (delta < 0.0f)
+        setValue(value_ - 1);
+}
+
+// ---------------------------------------------------------------------------------
+// Arp view
+
+void ArpView::paint(juce::Graphics& g)
+{
+    using namespace gristo;
+    const auto bounds = getLocalBounds().toFloat();
+    const auto colour = arpColours[arp_];
+    g.setColour(colours::background);
+    g.fillRoundedRectangle(bounds, 6.0f);
+    g.setColour(colours::outline);
+    g.drawRoundedRectangle(bounds.reduced(0.5f), 6.0f, 1.0f);
+
+    const auto a = static_cast<size_t>(arp_);
+    std::array<int, kMaxHeldNotes> held {};
+    const int heldCount = std::clamp(processor_.displayArpInputCount[a].load(), 0, kMaxHeldNotes);
+    for (int i = 0; i < heldCount; ++i)
+        held[static_cast<size_t>(i)] = processor_.displayArpInput[a][static_cast<size_t>(i)].load();
+    const ArpPool pool = Arp::pool(params_, held.data(), heldCount);
+
+    auto area = bounds.reduced(8.0f, 6.0f);
+    auto caption = area.removeFromBottom(14.0f);
+    g.setFont(juce::FontOptions(10.5f));
+    g.setColour(colours::dim);
+    juce::String text;
+    if (!params_.enabled)
+        text = "Off - switch On to play";
+    else if (heldCount > 0)
+        text = juce::String(heldCount) + (heldCount == 1 ? " note" : " notes") + " from MIDI in";
+    else if (params_.mode == ArpMode::Generate)
+        text = juce::MidiMessage::getMidiNoteName(params_.root, true, true, 3) + " " + arpScaleName(params_.scale);
+    else
+        text = "Hold notes on Gristo's MIDI input";
+    g.drawText(text, caption, juce::Justification::centredLeft);
+    if (pool.size == 0)
+        return;
+
+    const bool playing = processor_.displayPlaying.load();
+    const std::int64_t count = processor_.displayArpCount[a].load();
+    const int resetLen = Engine::resetSteps(params_);
+    const auto step = static_cast<std::int64_t>(std::floor(processor_.displayPpq.load() * kStepsPerBeat));
+    const std::int64_t cycle = playing ? floorDiv(step, resetLen) : 0;
+    const ArpPattern pattern = Arp::pattern(params_.seed, params_.mutate, cycle);
+    const int columns = params_.mode == ArpMode::Generate ? std::clamp(params_.length, 1, kMaxArpSteps)
+                                                          : std::min(pool.size, kMaxArpSteps);
+    const int current = playing && count > 0 ? static_cast<int>((count - 1) % columns) : -1;
+    const float colW = area.getWidth() / static_cast<float>(columns);
+    auto heightOf = [&](int note) {
+        const int lo = pool.notes[0], hi = pool.notes[static_cast<size_t>(pool.size - 1)];
+        return hi > lo ? 0.15f + 0.85f * static_cast<float>(note - lo) / static_cast<float>(hi - lo) : 0.6f;
+    };
+
+    juce::Point<float> lastTop;
+    bool lastSlide = false;
+    for (int i = 0; i < columns; ++i)
+    {
+        const auto col = juce::Rectangle<float>(area.getX() + i * colW + 1.0f, area.getY(), colW - 2.0f, area.getHeight());
+        if (i == current)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.12f));
+            g.fillRect(col);
+        }
+        const ArpNote n = params_.mode == ArpMode::Generate ? Arp::noteFor(params_, pool, pattern, i, cycle)
+                                                            : ArpNote { true, pool.notes[static_cast<size_t>(i)], false, false };
+        if (!n.play)
+        {
+            g.setColour(colour.withAlpha(0.35f));
+            g.drawRect(col.withTop(col.getBottom() - 4.0f), 1.0f);
+            lastSlide = false;
+            continue;
+        }
+        const float h = col.getHeight() * heightOf(n.note);
+        const auto bar = col.withTop(col.getBottom() - h);
+        g.setColour(colour.withAlpha(n.accent ? 1.0f : 0.6f));
+        g.fillRoundedRectangle(bar, 2.0f);
+        if (n.accent)
+        {
+            g.setColour(juce::Colours::white);
+            g.fillEllipse(bar.getCentreX() - 2.0f, bar.getY() - 6.0f, 4.0f, 4.0f);
+        }
+        if (lastSlide)
+        {
+            g.setColour(colours::text);
+            g.drawLine({ lastTop, { bar.getX(), bar.getY() } }, 1.5f);
+        }
+        lastTop = { bar.getRight(), bar.getY() };
+        lastSlide = n.slide;
+    }
+}
+
+// ---------------------------------------------------------------------------------
 // Velocity range
 
 VelocityRange::VelocityRange(juce::RangedAudioParameter& minParam, juce::RangedAudioParameter& maxParam, juce::Colour colour)

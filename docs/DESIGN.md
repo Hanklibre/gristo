@@ -129,12 +129,41 @@ velocity.
 Hovering any control shows a one-line explanation in the box at the top of the
 window.
 
-## MIDI out notes
+## MIDI out notes and channels
 
-Each voice has its own output note (defaults: GM 36 / 38 / 42 / 46 / 39 / 45 on
-channel 10). The Voices panel shows each note as `C1 · 36`, using middle C = C3
+Each voice has its own output note (defaults: GM 36 / 38 / 42 / 46 / 39 / 45)
+and channel (default 10, set next to Mute), so voices can go to separate
+instruments. The Voices panel shows each note as `C1 · 36`, using middle C = C3
 (Ableton / Cubase). Click a note to pick from a menu organised by octave, with
 General MIDI drum names, or scroll to step one note at a time.
+
+## Arps (drum-clocked arpeggiator / sequencer)
+
+Two independent arps live on the tabs next to Modulation (`core/src/Arp.cpp`,
+scheduling in `Engine::processArp`).
+
+* **Clock:** an arp advances one step each time one of its trigger voices plays
+  (any mix of the six). Simultaneous triggers count once, the loudest hit wins;
+  each roll sub-hit advances it. The count restarts every *Reset* bars
+  (1/2/4/8/16), so a kick-driven arp lines up with the bar. The trigger voices
+  keep playing their drum notes.
+* **Deterministic position:** the step is the number of trigger hits since the
+  last reset bar. After a jump or loop the engine recounts from the start of the
+  cycle, so the arp is in the same place every time you play a section.
+* **Arp mode:** held notes (sorted, or as played) spread over 1–4 octaves, in
+  Up / Down / Up-Down / Random / As Played order. Latch keeps the last chord
+  after release; a new chord replaces it when you play with no keys held.
+* **Generate mode (Sting-style):** a seeded pattern of 1–16 steps. Each step
+  has a pitch (a random walk, mostly small moves with the odd leap), a rest
+  value, an accent value and a slide value. Density, Accent and Slide are
+  thresholds over those values, so turning a knob adds or removes steps without
+  reshuffling the rest. *New* picks a new seed. *Mutate* changes some steps
+  each reset cycle, and the changes accumulate. Pitches come from the held
+  notes if any, else the chosen scale from Root over the octave range.
+* **Notes:** monophonic. Gate is in 16ths. Slides overlap the next note
+  slightly (legato, for synths with glide) and hold until it arrives. Accents play
+  at the top of the velocity range; otherwise velocity follows the drum hit that clocked the step, mapped
+  into the arp's velocity range.
 
 ## Probability
 
@@ -223,6 +252,8 @@ At Humanize = 1, hats deviate by a few ms on average and never more than about
 
 * **Host coverage:** an AU MIDI-FX target for Logic (`IS_MIDI_EFFECT`) and CLAP
   via `clap-juce-extensions`.
+* **Arps:** per-step pitch editing, a note-length pattern, and CC output for
+  accents / slides.
 * **MIDI in:** pattern snapshots (X/Y/Fill sets) switchable by note, like the
   Stolperbeats MIDI pattern select, and mutes.
 * **ENV/LFO modulators:** tempo-synced shapes that move X/Y (the beat walks

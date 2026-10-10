@@ -6,6 +6,7 @@ namespace gristo {
 
 namespace {
 constexpr float kTwoPi = 6.28318530718f;
+inline float clamp01(float x) { return x < 0.0f ? 0.0f : (x > 1.0f ? 1.0f : x); }
 constexpr float kPan[kNumVoices] = { 0.0f, 0.0f, 0.3f, 0.3f, -0.35f, -0.2f };
 } // namespace
 
@@ -19,6 +20,34 @@ void PreviewKit::reset()
 {
     for (auto& v : voices_)
         v = VoiceState {};
+    for (auto& s : synths_)
+        s = SynthState {};
+}
+
+void PreviewKit::arpNoteOn(int arp, int note, float velocity)
+{
+    if (arp < 0 || arp >= kNumArps)
+        return;
+    SynthState& s = synths_[arp];
+    s.target = 440.0f * std::pow(2.0f, static_cast<float>(note - 69) / 12.0f);
+    if (!s.gate)
+    {
+        s.freq = s.target; // new phrase: no glide, retrigger the envelopes
+        s.filterEnv = 1.0f;
+    }
+    else
+    {
+        s.filterEnv = std::max(s.filterEnv, 0.5f); // legato: glide, softer filter re-accent
+    }
+    s.note = note;
+    s.gate = true;
+    s.velocity = velocity;
+}
+
+void PreviewKit::arpNoteOff(int arp, int note)
+{
+    if (arp >= 0 && arp < kNumArps && synths_[arp].note == note)
+        synths_[arp].gate = false;
 }
 
 float PreviewKit::decayFor(float seconds) const
@@ -133,6 +162,26 @@ void PreviewKit::render(float* left, float* right, int numSamples, float gain)
             s *= v.velocity;
             l += s * (1.0f - kPan[vi]);
             r += s * (1.0f + kPan[vi]);
+        }
+        // Arp preview synths: saw (arp 1) and square (arp 2) through a decaying lowpass.
+        const float sr = static_cast<float>(sampleRate_);
+        for (int a = 0; a < kNumArps; ++a)
+        {
+            SynthState& s = synths_[a];
+            if (!s.gate && s.env < 1e-4f)
+                continue;
+            s.freq += (s.target - s.freq) * (1.0f - std::exp(-1.0f / (0.045f * sr))); // ~45 ms glide
+            s.phase += s.freq * invSr;
+            if (s.phase >= 1.0f) s.phase -= 1.0f;
+            const float osc = a == 0 ? 2.0f * s.phase - 1.0f : (s.phase < 0.5f ? 0.7f : -0.7f);
+            s.env = s.gate ? s.env + (1.0f - s.env) * 0.01f : s.env * (1.0f - 30.0f * invSr * 4.0f);
+            s.filterEnv *= 1.0f - 8.0f * invSr;
+            const float cutoff = clamp01(0.02f + 0.35f * s.filterEnv * (0.4f + 0.6f * s.velocity));
+            s.lowpass += (osc - s.lowpass) * cutoff;
+            const float out = s.lowpass * s.env * s.velocity * 0.35f;
+            const float pan = a == 0 ? -0.2f : 0.25f;
+            l += out * (1.0f - pan);
+            r += out * (1.0f + pan);
         }
         left[i] += std::tanh(l * gain) * 0.8f;
         right[i] += std::tanh(r * gain) * 0.8f;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <gristo/Types.h>
+#include <gristo/Arp.h>
 
 namespace gristo {
 
@@ -13,6 +13,9 @@ public:
     void prepare(double sampleRate);
     void reset();
     void trigger(int voice, float velocity);
+    // Simple mono synth per arp, with glide when a note starts before the last ended.
+    void arpNoteOn(int arp, int note, float velocity);
+    void arpNoteOff(int arp, int note);
     // Adds the kit's output to the two channel buffers.
     void render(float* left, float* right, int numSamples, float gain);
 
@@ -36,9 +39,23 @@ private:
     float decayFor(float seconds) const;
     float noise();
 
+    struct SynthState
+    {
+        int note = -1;
+        bool gate = false;
+        float freq = 110.0f;
+        float target = 110.0f;
+        float phase = 0.0f;
+        float env = 0.0f;
+        float filterEnv = 0.0f;
+        float lowpass = 0.0f;
+        float velocity = 0.0f;
+    };
+
     double sampleRate_ = 48000.0;
     std::uint32_t rng_ = 0x12345678u;
     VoiceState voices_[kNumVoices];
+    SynthState synths_[kNumArps];
 };
 
 } // namespace gristo

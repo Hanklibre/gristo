@@ -94,7 +94,29 @@ private:
     Knob humanize_, dynamics_;
     Toggle lock_, linear_;
     Toggle kitOn_, freeRun_;
-    Knob kitGain_, freeTempo_, midiChannel_, noteLength_;
+    Knob kitGain_, freeTempo_, noteLength_;
+    std::unique_ptr<NumberSelector> channels_[gristo::kNumVoices];
+
+    // Bottom panel pages: 0 = modulation, 1.. = arps
+    juce::TextButton pageTabs_[1 + gristo::kNumArps];
+    int page_ = 0;
+    void showPage(int page);
+    void setupArpPage();
+    void bindArp(int arp);
+    std::vector<juce::Component*> modulationPageComponents();
+    std::vector<juce::Component*> arpPageComponents();
+
+    // Arp page: one set of controls, bound to the arp being shown
+    Toggle arpOn_, arpLatch_;
+    Toggle arpTriggers_[gristo::kNumVoices];
+    Choice arpMode_, arpReset_, arpOrder_, arpScale_;
+    Knob arpOctaves_, arpGate_, arpLength_, arpDensity_, arpAccent_, arpSlide_, arpMutate_;
+    juce::TextButton arpNew_;
+    juce::Label arpRootLabel_;
+    std::unique_ptr<NumberSelector> arpChannel_;
+    std::unique_ptr<NoteSelector> arpRoot_;
+    std::unique_ptr<VelocityRange> arpVelocity_;
+    ArpView arpView_;
 
     // Modulation panel
     juce::TextButton laneTabs_[gristo::kNumModLanes];

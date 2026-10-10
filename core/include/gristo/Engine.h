@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gristo/Arp.h"
 #include "gristo/Groove.h"
 #include "gristo/Humanizer.h"
 #include "gristo/Modulation.h"
@@ -32,8 +33,12 @@ struct EngineParams
     HumanizeParams humanize;
     DynamicsParams dynamics;
     ModulationParams modulation;
+    std::array<ArpParams, kNumArps> arps {};
     float noteLengthBeats = 0.125f;
 };
+
+// Output "voices" 0..5 are the drums; kArpVoiceBase + a is arp a.
+constexpr int kArpVoiceBase = kNumVoices;
 
 // Fully resolved description of one voice at one step.
 struct HitInfo
@@ -65,6 +70,7 @@ struct OutputEvent
     int voice = 0;
     float velocity = 0.0f; // 0 for note-off
     bool noteOn = false;
+    int note = -1;         // arps: the MIDI note; drums: -1 (the plugin maps voice -> note)
 };
 
 // Pattern generator + groove + humanizer + a sample-accurate scheduler.
@@ -103,6 +109,14 @@ public:
     // Forget transport state (call on prepare / reset). Pending note-offs are dropped.
     void reset();
 
+    // Notes currently feeding arp `arp` (held or latched on MIDI in), in press order.
+    void setArpInput(int arp, const int* notes, int count);
+    // Advances since the arp's last reset (for the UI).
+    std::int64_t arpCount(int arp) const { return arps_[static_cast<size_t>(arp)].count; }
+
+    // Resolve the arp step counter / pattern without playing (used by tests and UI).
+    static int resetSteps(const ArpParams& p);
+
     // Largest distance a note can be moved earlier than its straight position.
     static constexpr double kMaxEarlyBeats = 0.5;
     // A block start further than this from the previous block's end is a jump.
@@ -115,6 +129,23 @@ private:
         int voice;
         float velocity;
         bool noteOn;
+        int note = -1;
+    };
+
+    struct ArpState
+    {
+        std::int64_t nextStep = 0;
+        std::int64_t count = 0;
+        bool needsResync = true;
+        int lastNote = -1;
+        bool lastSlide = false;
+        std::array<bool, 128> sounding {};
+        std::array<int, kMaxHeldNotes> held {};
+        int heldCount = 0;
+        std::int64_t patternCycle = -1;
+        std::uint32_t patternSeed = 0;
+        float patternMutate = -1.0f;
+        ArpPattern pattern;
     };
 
     static float normalizedVelocity(const EngineParams& ep, const VoiceHit& hit, int voice);
@@ -122,6 +153,13 @@ private:
     void schedule(const HitInfo& hit, int voice);
     void flushNoteOffs(std::vector<OutputEvent>& out);
     void resync(double ppqStart);
+
+    bool arpActive(int arp) const;
+    bool arpTrigger(int arp, std::int64_t step, double bpm, HitInfo& best, double& earliest) const;
+    void resyncArp(int arp, std::int64_t firstStep, double bpm);
+    void processArp(int arp, double ppqStart, double ppqEnd, double bpm);
+    void playArp(int arp, std::int64_t k, std::int64_t cycle, double beats, float velocityNorm);
+    const ArpPattern& arpPattern(int arp, std::int64_t cycle);
 
     DrumMap map_;
     PatternGenerator generator_;
@@ -132,6 +170,7 @@ private:
     std::vector<Pending> pending_;
     std::array<std::int64_t, kNumVoices> nextStep_ {};
     std::array<bool, kNumVoices> sounding_ {};
+    std::array<ArpState, kNumArps> arps_ {};
     double expectedPpq_ = 0.0;
     bool needsResync_ = true;
 };

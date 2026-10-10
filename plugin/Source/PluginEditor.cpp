@@ -19,7 +19,9 @@ const char* const kVoiceRowNames[] = { "Fill", "Random", "Probability", "Random"
 // Modulation panel geometry
 constexpr int kModY = 868;
 constexpr int kSlotX = 664;
-constexpr int kSlotRowY[] = { 912, 952, 992, 1032 };
+constexpr int kModRowY = kModY + 34;      // lane tabs / arp first row
+constexpr int kSlotRowY[] = { kModY + 54, kModY + 92, kModY + 130, kModY + 168 };
+const char* const kTriggerNames[] = { "BD", "SD", "H1", "H2", "P1", "P2" };
 
 const float kScales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.25f };
 
@@ -29,7 +31,7 @@ const float kScales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.25f };
 // View
 
 GristoView::GristoView(GristoProcessor& proc)
-    : processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_), laneEditor_(proc)
+    : processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_), arpView_(proc), laneEditor_(proc)
 {
     setLookAndFeel(&lookAndFeel_);
 
@@ -73,7 +75,28 @@ GristoView::GristoView(GristoProcessor& proc)
     setupKnob(kitGain_, p::kitGain, "Kit Level");
     setupToggle(freeRun_, p::freeRun, "Free Run");
     setupKnob(freeTempo_, p::freeTempo, "Tempo");
-    setupKnob(midiChannel_, p::midiChannel, "MIDI Ch");
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        channels_[v] = std::make_unique<NumberSelector>(*proc.state.getParameter(p::voiceId(p::voiceChannel, v)), "Ch ", 1, 16);
+        addAndMakeVisible(*channels_[v]);
+        setHelp(*channels_[v], juce::String(gristo::voiceName(v)) + " MIDI channel",
+                "MIDI channel this voice is sent on. In Ableton, set a track's MIDI From to Gristo and pick this channel.");
+    }
+    setupArpPage();
+    for (int pg = 0; pg <= gristo::kNumArps; ++pg)
+    {
+        auto& tab = pageTabs_[pg];
+        tab.setButtonText(pg == 0 ? "Modulation" : "Arp " + juce::String(pg));
+        tab.setClickingTogglesState(true);
+        tab.setRadioGroupId(4712);
+        tab.setColour(juce::TextButton::buttonOnColourId, pg == 0 ? colours::accent : arpColours[pg - 1]);
+        tab.setColour(juce::TextButton::textColourOnId, colours::background);
+        tab.onClick = [this, pg] { showPage(pg); };
+        addAndMakeVisible(tab);
+        setHelp(tab, pg == 0 ? "Modulation" : "Arp " + juce::String(pg),
+                pg == 0 ? "Drawn modulation lanes and their routing."
+                        : "A drum-clocked arpeggiator / Sting-style sequencer on its own MIDI channel.");
+    }
     setupKnob(noteLength_, p::noteLength, "Note Len");
 
     // ---- Modulation panel
@@ -175,7 +198,6 @@ GristoView::GristoView(GristoProcessor& proc)
     setHelp(kitGain_, "Kit Level", "Volume of the built-in preview drums.");
     setHelp(freeRun_.button, "Free Run", "Play at the Tempo knob while the host transport is stopped (or in the standalone app).");
     setHelp(freeTempo_, "Tempo", "Tempo for Free Run.");
-    setHelp(midiChannel_, "MIDI Channel", "Channel all notes are sent on. 10 = General MIDI drums.");
     setHelp(noteLength_, "Note Length", "Length of the MIDI notes, in beats.");
     setHelp(laneHandle_, "Assign lane", "Drag onto a knob (Fill, Probability, Chaos, Shuffle, Flam ms, Humanize), a Velocity range or the map to route this lane there.");
     setHelp(laneEditor_, "Lane curve", "Draw the modulation curve, one value per 16th. Right-click for shapes. The bright column is the current step.");
@@ -189,6 +211,8 @@ GristoView::GristoView(GristoProcessor& proc)
 
     laneTabs_[0].setToggleState(true, juce::dontSendNotification);
     selectLane(0);
+    pageTabs_[0].setToggleState(true, juce::dontSendNotification);
+    showPage(0);
 
     setSize(kWidth, kHeight);
     timerCallback();
@@ -471,6 +495,167 @@ void GristoView::timerCallback()
     nodeLabel_.setText("Near: " + mapPad_.nearestNodeName(), juce::dontSendNotification);
     patternView_.setPlayhead(processor_.displayPpq.load(), processor_.displayBpm.load(), processor_.displayPlaying.load());
     laneEditor_.repaint();
+    if (page_ > 0)
+    {
+        const auto& ap = params.arps[static_cast<size_t>(page_ - 1)];
+        arpView_.update(ap);
+        const bool gen = ap.mode == gristo::ArpMode::Generate;
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &arpScale_.box, &arpScale_.label, arpRoot_.get(), &arpRootLabel_,
+                                                                          &arpLength_.slider, &arpLength_.label, &arpDensity_.slider,
+                                                                          &arpDensity_.label, &arpAccent_.slider, &arpAccent_.label,
+                                                                          &arpSlide_.slider, &arpSlide_.label, &arpMutate_.slider,
+                                                                          &arpMutate_.label, &arpNew_ })
+            c->setAlpha(gen ? 1.0f : 0.35f);
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &arpOrder_.box, &arpOrder_.label })
+            c->setAlpha(gen ? 0.35f : 1.0f);
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Bottom panel pages and the arp page
+
+std::vector<juce::Component*> GristoView::modulationPageComponents()
+{
+    std::vector<juce::Component*> list { &laneHandle_, &laneEditor_, &laneLength_, &shapesButton_ };
+    for (auto& tab : laneTabs_)
+        list.push_back(&tab);
+    for (auto& slot : slots_)
+    {
+        list.push_back(&slot.target);
+        list.push_back(&slot.amount);
+    }
+    return list;
+}
+
+std::vector<juce::Component*> GristoView::arpPageComponents()
+{
+    std::vector<juce::Component*> list { &arpOn_.button, &arpLatch_.button, &arpMode_.box, &arpReset_.box, &arpOrder_.box,
+                                         &arpOrder_.label, &arpScale_.box, &arpScale_.label, &arpNew_, &arpRootLabel_,
+                                         arpChannel_.get(), arpRoot_.get(), arpVelocity_.get(), &arpView_ };
+    for (auto& t : arpTriggers_)
+        list.push_back(&t.button);
+    for (Knob* k : { &arpOctaves_, &arpGate_, &arpLength_, &arpDensity_, &arpAccent_, &arpSlide_, &arpMutate_ })
+    {
+        list.push_back(&k->slider);
+        list.push_back(&k->label);
+    }
+    return list;
+}
+
+void GristoView::showPage(int page)
+{
+    page_ = page;
+    if (page > 0)
+        bindArp(page - 1);
+    for (auto* c : modulationPageComponents())
+        c->setVisible(page == 0);
+    for (auto* c : arpPageComponents())
+        if (c != nullptr)
+            c->setVisible(page > 0);
+    resized();
+    repaint();
+}
+
+void GristoView::setupArpPage()
+{
+    setupToggle(arpOn_, p::laneId(p::arpOn, 0), "On");
+    setupToggle(arpLatch_, p::laneId(p::arpLatch, 0), "Latch");
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        setupToggle(arpTriggers_[v], p::slotId(p::arpTrigger, 0, v), kTriggerNames[v]);
+    setupChoice(arpMode_, p::laneId(p::arpMode, 0), "Mode");
+    setupChoice(arpReset_, p::laneId(p::arpReset, 0), "Reset");
+    setupChoice(arpOrder_, p::laneId(p::arpOrder, 0), "Order");
+    setupChoice(arpScale_, p::laneId(p::arpScale, 0), "Scale");
+    arpMode_.label.setVisible(false);
+    arpReset_.label.setVisible(false);
+    setupKnob(arpOctaves_, p::laneId(p::arpOctaves, 0), "Octaves");
+    setupKnob(arpGate_, p::laneId(p::arpGate, 0), "Gate");
+    setupKnob(arpLength_, p::laneId(p::arpLength, 0), "Length");
+    setupKnob(arpDensity_, p::laneId(p::arpDensity, 0), "Density");
+    setupKnob(arpAccent_, p::laneId(p::arpAccent, 0), "Accent");
+    setupKnob(arpSlide_, p::laneId(p::arpSlide, 0), "Slide");
+    setupKnob(arpMutate_, p::laneId(p::arpMutate, 0), "Mutate");
+    arpNew_.setButtonText("New");
+    arpNew_.onClick = [this] {
+        // Roll a new pattern: a different seed for the generator.
+        if (page_ > 0)
+            setParameter(p::laneId(p::arpSeed, page_ - 1), static_cast<float>(juce::Random::getSystemRandom().nextInt({ 1, 10000 })));
+    };
+    addAndMakeVisible(arpNew_);
+    arpRootLabel_.setText("Root", juce::dontSendNotification);
+    arpRootLabel_.setFont(juce::FontOptions(12.0f));
+    arpRootLabel_.setColour(juce::Label::textColourId, colours::dim);
+    addAndMakeVisible(arpRootLabel_);
+    addAndMakeVisible(arpView_);
+
+    setHelp(arpOn_.button, "Arp on", "Switch this arp on. It plays on its own MIDI channel; the drums keep playing.");
+    setHelp(arpMode_.box, "Mode", "Arp: plays the notes held on MIDI in. Generate: a Sting-style pattern over the held notes, or the Root + Scale when nothing is held.");
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        setHelp(arpTriggers_[v].button, juce::String("Trigger: ") + gristo::voiceName(v),
+                "Hits of this drum voice step the arp forward. Several voices can drive it; hits on the same step count once.");
+    setHelp(arpReset_.box, "Reset", "The arp starts its phrase over every N bars (counted from the song start).");
+    setHelp(arpLatch_.button, "Latch", "On: keeps playing the last chord after you let go. Off: plays only while keys are held.");
+    setHelp(arpOrder_.box, "Order", "Arp mode: the order the held notes are played in.");
+    setHelp(arpScale_.box, "Scale", "Generate mode: the scale used when no notes are held.");
+    setHelp(arpRootLabel_, "Root", "Generate mode: key root and lowest note when no notes are held.");
+    setHelp(arpOctaves_, "Octaves", "How many octaves the notes are spread over.");
+    setHelp(arpGate_, "Gate", "Note length in 16ths. Slides hold until the next note.");
+    setHelp(arpLength_, "Length", "Generate: number of steps in the pattern before it repeats (within the reset).");
+    setHelp(arpDensity_, "Density", "Generate: share of steps that play. Lower = more rests, even if the drum is busy.");
+    setHelp(arpAccent_, "Accent", "Generate: share of steps played at full velocity.");
+    setHelp(arpSlide_, "Slide", "Generate: share of steps that overlap into the next note (glide on a mono synth).");
+    setHelp(arpMutate_, "Mutate", "Generate: share of steps re-rolled at every reset, so the pattern slowly evolves.");
+    setHelp(arpNew_, "New pattern", "Roll a new generated pattern. It is saved with the project.");
+    setHelp(arpView_, "Arp notes", "The notes this arp plays: bars = pitch, outlines = rests, dots = accents, lines = slides. The bright column is the current step.");
+}
+
+void GristoView::bindArp(int arp)
+{
+    auto& st = processor_.state;
+    auto bindToggle = [&](Toggle& t, const juce::String& id) {
+        t.attachment.reset();
+        t.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(st, id, t.button);
+    };
+    auto bindChoice = [&](Choice& c, const juce::String& id) {
+        c.attachment.reset();
+        c.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(st, id, c.box);
+    };
+    auto bindKnob = [&](Knob& k, const juce::String& id) {
+        k.attachment.reset();
+        k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(st, id, k.slider);
+    };
+    bindToggle(arpOn_, p::laneId(p::arpOn, arp));
+    bindToggle(arpLatch_, p::laneId(p::arpLatch, arp));
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        bindToggle(arpTriggers_[v], p::slotId(p::arpTrigger, arp, v));
+    bindChoice(arpMode_, p::laneId(p::arpMode, arp));
+    bindChoice(arpReset_, p::laneId(p::arpReset, arp));
+    bindChoice(arpOrder_, p::laneId(p::arpOrder, arp));
+    bindChoice(arpScale_, p::laneId(p::arpScale, arp));
+    bindKnob(arpOctaves_, p::laneId(p::arpOctaves, arp));
+    bindKnob(arpGate_, p::laneId(p::arpGate, arp));
+    bindKnob(arpLength_, p::laneId(p::arpLength, arp));
+    bindKnob(arpDensity_, p::laneId(p::arpDensity, arp));
+    bindKnob(arpAccent_, p::laneId(p::arpAccent, arp));
+    bindKnob(arpSlide_, p::laneId(p::arpSlide, arp));
+    bindKnob(arpMutate_, p::laneId(p::arpMutate, arp));
+
+    // Widgets with a ParameterAttachment are rebuilt for the new arp.
+    arpChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::laneId(p::arpChannel, arp)), "Ch ", 1, 16);
+    arpRoot_ = std::make_unique<NoteSelector>(*st.getParameter(p::laneId(p::arpRoot, arp)));
+    arpVelocity_ = std::make_unique<VelocityRange>(*st.getParameter(p::laneId(p::arpVelMin, arp)),
+                                                   *st.getParameter(p::laneId(p::arpVelMax, arp)), arpColours[arp]);
+    addAndMakeVisible(*arpChannel_);
+    addAndMakeVisible(*arpRoot_);
+    addAndMakeVisible(*arpVelocity_);
+    setHelp(*arpChannel_, "Arp MIDI channel", "MIDI channel this arp is sent on. In Ableton, give the synth track MIDI From: Gristo and this channel.");
+    setHelp(*arpRoot_, "Root", "Generate mode: key root and lowest note when no notes are held. Click for a list, scroll to step.");
+    setHelp(*arpVelocity_, "Arp velocity", "Velocity range. Notes follow the triggering drum hit (accents at the top); generator accents play at the top.");
+    arpView_.setArp(arp);
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        arpTriggers_[v].button.setColour(juce::ToggleButton::tickColourId, voiceColours[v]);
+    }
 }
 
 void GristoView::paint(juce::Graphics& g)
@@ -504,7 +689,7 @@ void GristoView::paint(juce::Graphics& g)
     drawPanel(g, { 372, 308, 612, 408 }, "Voices");
     drawPanel(g, { 16, 724, 544, 136 }, "Groove");
     drawPanel(g, { 572, 724, 412, 136 }, "Output");
-    drawPanel(g, { 16, kModY, 968, 216 }, "Modulation");
+    drawPanel(g, { 16, kModY, 968, 216 }, {});
 
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
     for (int v = 0; v < gristo::kNumVoices; ++v)
@@ -526,13 +711,25 @@ void GristoView::paint(juce::Graphics& g)
     g.setColour(colours::dim);
     g.drawText("Velocity", 382, kVelocityRowY + 3, 68, 16, juce::Justification::centredLeft);
     g.drawText("Note", 382, kNoteRowY + 3, 68, 16, juce::Justification::centredLeft);
+    g.drawText("Mute / Ch", 382, kMuteRowY + 5, 68, 16, juce::Justification::centredLeft);
 
-    // Modulation panel labels
-    g.setColour(colours::dim);
-    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-    g.drawText("ROUTING  (LANE " + juce::String(selectedLane_ + 1) + ")", kSlotX, kModY + 22, 300, 14, juce::Justification::centredLeft);
-    g.setColour(laneColours[selectedLane_]);
-    g.fillRoundedRectangle(juce::Rectangle<float>(static_cast<float>(kSlotX) - 8.0f, static_cast<float>(kSlotRowY[0]), 3.0f, 152.0f), 1.5f);
+    if (page_ == 0)
+    {
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        g.drawText("ROUTING  (LANE " + juce::String(selectedLane_ + 1) + ")", kSlotX, kModRowY + 4, 300, 14, juce::Justification::centredLeft);
+        g.setColour(laneColours[selectedLane_]);
+        g.fillRoundedRectangle(juce::Rectangle<float>(static_cast<float>(kSlotX) - 8.0f, static_cast<float>(kSlotRowY[0]), 3.0f, 142.0f), 1.5f);
+    }
+    else
+    {
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(11.5f));
+        g.drawText("Triggers", 204, kModRowY, 56, 26, juce::Justification::centredLeft);
+        g.drawText("Velocity", 764, kModRowY + 124, 56, 24, juce::Justification::centredLeft);
+        g.setColour(arpColours[page_ - 1]);
+        g.fillRoundedRectangle(juce::Rectangle<float>(20.0f, static_cast<float>(kModRowY), 3.0f, 160.0f), 1.5f);
+    }
 }
 
 void GristoView::resized()
@@ -562,7 +759,8 @@ void GristoView::resized()
             rows[r]->slider.setBounds(x + 2, kVoiceRowY[r], kVoiceColW - 4, kVoiceRowH);
         velocityRanges_[v]->setBounds(x + 4, kVelocityRowY, kVoiceColW - 8, 24);
         notes_[v]->setBounds(x + 6, kNoteRowY, kVoiceColW - 12, 22);
-        mutes_[v].button.setBounds(x + 16, kMuteRowY, kVoiceColW - 32, 26);
+        mutes_[v].button.setBounds(x + 2, kMuteRowY, 46, 26);
+        channels_[v]->setBounds(x + 50, kMuteRowY + 2, kVoiceColW - 54, 22);
     }
 
     // Groove
@@ -578,18 +776,48 @@ void GristoView::resized()
     // Output
     kitOn_.button.setBounds(584, 764, 72, 26);
     freeRun_.button.setBounds(584, 806, 72, 26);
-    placeKnob(kitGain_, { 664, 744, 78, 104 });
-    placeKnob(freeTempo_, { 742, 744, 78, 104 });
-    placeKnob(midiChannel_, { 820, 744, 78, 104 });
-    placeKnob(noteLength_, { 898, 744, 78, 104 });
+    placeKnob(kitGain_, { 680, 744, 90, 104 });
+    placeKnob(freeTempo_, { 776, 744, 90, 104 });
+    placeKnob(noteLength_, { 872, 744, 90, 104 });
 
     // Modulation
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
-        laneTabs_[lane].setBounds(28 + lane * 68, kModY + 22, 64, 24);
-    laneHandle_.setBounds(304, kModY + 22, 170, 24);
-    laneLength_.setBounds(482, kModY + 22, 84, 24);
-    shapesButton_.setBounds(572, kModY + 22, 76, 24);
-    laneEditor_.setBounds(28, kModY + 54, 620, 150);
+        laneTabs_[lane].setBounds(28 + lane * 68, kModRowY, 64, 24);
+    laneHandle_.setBounds(304, kModRowY, 170, 24);
+    laneLength_.setBounds(482, kModRowY, 84, 24);
+    shapesButton_.setBounds(572, kModRowY, 76, 24);
+    laneEditor_.setBounds(28, kModRowY + 30, 620, 146);
+
+    // Page tabs and the arp page
+    for (int pg = 0; pg <= gristo::kNumArps; ++pg)
+        pageTabs_[pg].setBounds(24 + pg * 96, kModY + 6, 92, 22);
+    arpOn_.button.setBounds(28, kModRowY, 56, 26);
+    arpMode_.box.setBounds(92, kModRowY, 104, 26);
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        arpTriggers_[v].button.setBounds(262 + v * 40, kModRowY, 38, 26);
+    arpReset_.box.setBounds(510, kModRowY, 86, 26);
+    arpLatch_.button.setBounds(604, kModRowY, 64, 26);
+    if (arpChannel_ != nullptr)
+        arpChannel_->setBounds(676, kModRowY + 1, 66, 24);
+    const int y1 = kModRowY + 38;
+    arpOrder_.label.setBounds(28, y1, 104, 16);
+    arpOrder_.box.setBounds(28, y1 + 18, 104, 26);
+    arpScale_.label.setBounds(28, y1 + 50, 104, 16);
+    arpScale_.box.setBounds(28, y1 + 68, 104, 26);
+    arpRootLabel_.setBounds(140, y1, 96, 16);
+    if (arpRoot_ != nullptr)
+        arpRoot_->setBounds(140, y1 + 18, 96, 26);
+    placeKnob(arpOctaves_, { 244, y1, 64, 100 });
+    placeKnob(arpGate_, { 308, y1, 64, 100 });
+    placeKnob(arpLength_, { 372, y1, 64, 100 });
+    placeKnob(arpDensity_, { 436, y1, 64, 100 });
+    placeKnob(arpAccent_, { 500, y1, 64, 100 });
+    placeKnob(arpSlide_, { 564, y1, 64, 100 });
+    placeKnob(arpMutate_, { 628, y1, 64, 100 });
+    arpNew_.setBounds(700, y1 + 36, 56, 28);
+    arpView_.setBounds(764, kModRowY, 208, 116);
+    if (arpVelocity_ != nullptr)
+        arpVelocity_->setBounds(820, kModRowY + 124, 152, 24);
     for (int s = 0; s < gristo::kModSlotsPerLane; ++s)
     {
         slots_[s].target.setBounds(kSlotX, kSlotRowY[s], 196, 28);

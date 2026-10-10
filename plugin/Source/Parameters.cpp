@@ -103,7 +103,44 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
 
     // Output
     layout.add(floatParam(noteLength, "Note Length", { 0.02f, 1.0f }, 0.125f, "beats"));
-    layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { midiChannel, kVersion }, "MIDI Channel", 1, 16, 10));
+    for (int v = 0; v < kNumVoices; ++v)
+        layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(voiceChannel, v), kVersion },
+                                                             juce::String(voiceName(v)) + " MIDI Channel", 1, 16, 10));
+
+    // Arps
+    juce::StringArray orders, scales;
+    for (int i = 0; i < static_cast<int>(ArpOrder::Count); ++i)
+        orders.add(arpOrderName(static_cast<ArpOrder>(i)));
+    for (int i = 0; i < static_cast<int>(ArpScale::Count); ++i)
+        scales.add(arpScaleName(static_cast<ArpScale>(i)));
+    auto noteAttributes = juce::AudioParameterIntAttributes().withStringFromValueFunction([](int n, int) { return noteDisplayName(n); });
+    for (int a = 0; a < kNumArps; ++a)
+    {
+        const juce::String name = "Arp " + juce::String(a + 1);
+        auto id = [a](const juce::String& base) { return juce::ParameterID { laneId(base, a), kVersion }; };
+        layout.add(std::make_unique<juce::AudioParameterBool>(id(arpOn), name + " On", false));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpMode), name + " Mode", juce::StringArray { "Arp", "Generate" }, 0));
+        for (int v = 0; v < kNumVoices; ++v)
+            layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID { slotId(arpTrigger, a, v), kVersion },
+                                                                  name + " Trigger " + voiceName(v), v == (a == 0 ? Kick : HiHat1)));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpReset), name + " Reset",
+                                                                juce::StringArray { "1 bar", "2 bars", "4 bars", "8 bars", "16 bars" }, 2));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpChannel), name + " MIDI Channel", 1, 16, a + 1));
+        layout.add(std::make_unique<juce::AudioParameterBool>(id(arpLatch), name + " Latch", true));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpOrder), name + " Order", orders, 0));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpOctaves), name + " Octaves", 1, 4, 1));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpRoot), name + " Root", 24, 96, a == 0 ? 36 : 60, noteAttributes));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpScale), name + " Scale", scales, 1));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpLength), name + " Length", 1, kMaxArpSteps, 8));
+        layout.add(percentParam(laneId(arpDensity, a), name + " Density", 0.8f));
+        layout.add(percentParam(laneId(arpAccent, a), name + " Accent", 0.25f));
+        layout.add(percentParam(laneId(arpSlide, a), name + " Slide", 0.15f));
+        layout.add(percentParam(laneId(arpMutate, a), name + " Mutate", 0.0f));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpSeed), name + " Pattern", 1, 9999, a + 1));
+        layout.add(floatParam(laneId(arpGate, a), name + " Gate", { 0.25f, 8.0f, 0.25f }, 2.0f, "16ths"));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpVelMin), name + " Velocity Min", 1, 127, 40));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpVelMax), name + " Velocity Max", 1, 127, 127));
+    }
     layout.add(boolParam(kitOn, "Preview Kit", true));
     layout.add(floatParam(kitGain, "Kit Level", { 0.0f, 1.0f }, 0.7f));
 
@@ -188,6 +225,30 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
             sl.target = static_cast<int>(load(s, slotId(modTarget, lane, slot)));
             sl.amount = load(s, slotId(modAmount, lane, slot));
         }
+    }
+    for (int a = 0; a < kNumArps; ++a)
+    {
+        ArpParams& ap = p.arps[static_cast<size_t>(a)];
+        ap.enabled = load(s, laneId(arpOn, a)) > 0.5f;
+        ap.mode = static_cast<ArpMode>(juce::jlimit(0, 1, static_cast<int>(load(s, laneId(arpMode, a)))));
+        for (int v = 0; v < kNumVoices; ++v)
+            ap.triggers[static_cast<size_t>(v)] = load(s, slotId(arpTrigger, a, v)) > 0.5f;
+        ap.resetBars = kResetBarChoices[juce::jlimit(0, 4, static_cast<int>(load(s, laneId(arpReset, a))))];
+        ap.order = static_cast<ArpOrder>(juce::jlimit(0, static_cast<int>(ArpOrder::Count) - 1, static_cast<int>(load(s, laneId(arpOrder, a)))));
+        ap.octaves = static_cast<int>(load(s, laneId(arpOctaves, a)));
+        ap.root = static_cast<int>(load(s, laneId(arpRoot, a)));
+        ap.scale = static_cast<ArpScale>(juce::jlimit(0, static_cast<int>(ArpScale::Count) - 1, static_cast<int>(load(s, laneId(arpScale, a)))));
+        ap.length = static_cast<int>(load(s, laneId(arpLength, a)));
+        ap.density = load(s, laneId(arpDensity, a));
+        ap.accent = load(s, laneId(arpAccent, a));
+        ap.slide = load(s, laneId(arpSlide, a));
+        ap.mutate = load(s, laneId(arpMutate, a));
+        ap.seed = static_cast<std::uint32_t>(load(s, laneId(arpSeed, a)));
+        ap.gateSteps = load(s, laneId(arpGate, a));
+        const float lo = load(s, laneId(arpVelMin, a)) / 127.0f;
+        const float hi = load(s, laneId(arpVelMax, a)) / 127.0f;
+        ap.velMin = std::min(lo, hi);
+        ap.velMax = std::max(lo, hi);
     }
     return p;
 }

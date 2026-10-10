@@ -81,18 +81,33 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     juce::ScopedNoDenormals noDenormals;
     const int numSamples = buffer.getNumSamples();
     buffer.clear();
-    midi.clear(); // incoming MIDI is not used yet (pattern switching is on the roadmap)
+    handleMidiInput(midi);
+    midi.clear(); // MIDI in is consumed (it feeds the arps); the output is Gristo's own
 
     engine_.setParams(p::readEngineParams(state, modPoints));
+    for (int a = 0; a < gristo::kNumArps; ++a)
+    {
+        const bool latch = state.getRawParameterValue(p::laneId(p::arpLatch, a))->load() > 0.5f;
+        const int* notes = latch ? latched_.data() : held_.data();
+        const int count = latch ? latchedCount_ : heldCount_;
+        engine_.setArpInput(a, notes, count);
+        for (int i = 0; i < count; ++i)
+            displayArpInput[static_cast<size_t>(a)][static_cast<size_t>(i)].store(notes[i]);
+        displayArpInputCount[static_cast<size_t>(a)].store(count);
+    }
     const gristo::BlockInfo block = transportFor(numSamples);
 
     events_.clear();
     engine_.process(block, events_);
 
-    const int channel = static_cast<int>(state.getRawParameterValue(p::midiChannel)->load());
-    int notes[gristo::kNumVoices];
+    int notes[gristo::kNumVoices], channels[gristo::kNumVoices + gristo::kNumArps];
     for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
         notes[v] = static_cast<int>(state.getRawParameterValue(p::voiceId(p::note, v))->load());
+        channels[v] = static_cast<int>(state.getRawParameterValue(p::voiceId(p::voiceChannel, v))->load());
+    }
+    for (int a = 0; a < gristo::kNumArps; ++a)
+        channels[gristo::kArpVoiceBase + a] = static_cast<int>(state.getRawParameterValue(p::laneId(p::arpChannel, a))->load());
 
     const bool kitOn = state.getRawParameterValue(p::kitOn)->load() > 0.5f;
     const float kitGain = state.getRawParameterValue(p::kitGain)->load();
@@ -117,27 +132,79 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     for (const auto& ev : events_)
     {
-        const int note = notes[ev.voice];
+        const bool isArp = ev.voice >= gristo::kArpVoiceBase;
+        const int note = isArp ? ev.note : notes[ev.voice];
+        const int channel = channels[ev.voice];
+        renderKitTo(ev.sampleOffset);
         if (ev.noteOn)
         {
             const auto velocity = static_cast<juce::uint8>(juce::jlimit(1, 127, juce::roundToInt(ev.velocity * 127.0f)));
             midi.addEvent(juce::MidiMessage::noteOn(channel, note, velocity), ev.sampleOffset);
-            renderKitTo(ev.sampleOffset);
             if (kitOn)
-                kit_.trigger(ev.voice, ev.velocity);
+            {
+                if (isArp)
+                    kit_.arpNoteOn(ev.voice - gristo::kArpVoiceBase, note, ev.velocity);
+                else
+                    kit_.trigger(ev.voice, ev.velocity);
+            }
         }
         else
         {
             midi.addEvent(juce::MidiMessage::noteOff(channel, note), ev.sampleOffset);
+            if (isArp)
+                kit_.arpNoteOff(ev.voice - gristo::kArpVoiceBase, note);
         }
     }
     renderKitTo(numSamples);
 
+    for (int a = 0; a < gristo::kNumArps; ++a)
+        displayArpCount[static_cast<size_t>(a)].store(engine_.arpCount(a));
     displayPlaying.store(block.playing);
     if (block.playing)
     {
         displayPpq.store(block.ppqStart);
         displayBpm.store(block.bpm);
+    }
+}
+
+void GristoProcessor::handleMidiInput(const juce::MidiBuffer& midi)
+{
+    auto remove = [](std::array<int, gristo::kMaxHeldNotes>& list, int& count, int note) {
+        for (int i = 0; i < count; ++i)
+            if (list[static_cast<size_t>(i)] == note)
+            {
+                std::copy(list.begin() + i + 1, list.begin() + count, list.begin() + i);
+                --count;
+                return;
+            }
+    };
+    auto add = [](std::array<int, gristo::kMaxHeldNotes>& list, int& count, int note) {
+        for (int i = 0; i < count; ++i)
+            if (list[static_cast<size_t>(i)] == note)
+                return;
+        if (count < gristo::kMaxHeldNotes)
+            list[static_cast<size_t>(count++)] = note;
+    };
+
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        if (m.isNoteOn())
+        {
+            // A key pressed after all keys were released starts a new latched chord.
+            if (heldCount_ == 0)
+                latchedCount_ = 0;
+            add(held_, heldCount_, m.getNoteNumber());
+            add(latched_, latchedCount_, m.getNoteNumber());
+        }
+        else if (m.isNoteOff())
+        {
+            remove(held_, heldCount_, m.getNoteNumber());
+        }
+        else if (m.isAllNotesOff() || m.isAllSoundOff())
+        {
+            heldCount_ = 0;
+        }
     }
 }
 

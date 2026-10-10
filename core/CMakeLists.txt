@@ -1,6 +1,7 @@
 # Host-independent engine: no JUCE, no allocations on the audio path beyond the
 # pending-event vector reserved up front.
 add_library(gristo_core STATIC
+    src/Arp.cpp
     src/DrumMap.cpp
     src/Engine.cpp
     src/Groove.cpp

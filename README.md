@@ -19,12 +19,19 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   bars) and drag it onto a knob to modulate Fill, Probability, Velocity, the map,
   Chaos, Shuffle, Flam or Humanize. Rings on the knobs show what is routed where.
 * **Per voice:** Fill, Fill Random, Probability, Probability Random, Humanize,
-  Dynamics, Velocity range (1–127), MIDI note and Mute, laid out as a
-  mixer-style grid. Hover any control for a one-line explanation.
+  Dynamics, Velocity range (1–127), MIDI note, MIDI channel and Mute, laid out
+  as a mixer-style grid. Hover any control for a one-line explanation.
+* **Two drum-clocked arps:** each arp steps forward when the drum voices you
+  pick (kick, snare, any mix) play, and restarts every 1/2/4/8/16 bars. *Arp*
+  mode plays the chord you hold on MIDI in (Up / Down / Up-Down / Random / As
+  Played, 1–4 octaves, Latch). *Generate* mode is a Sting-style sequencer:
+  pattern length, density (rests), accents, slides and Mutate, over the held
+  notes or a scale. Velocity follows the drum hit, mapped into each arp's range,
+  and each arp has its own MIDI channel.
 * **UI size:** 70–125 %, and it picks a size that fits your screen the first time.
-* **Output:** MIDI notes with a selectable note per voice (GM drum map by
-  default) on a chosen channel, plus a built-in preview kit, so it makes sound
-  straight away.
+* **Output:** MIDI notes with a selectable note and channel per voice (GM drum
+  map on channel 10 by default), the arps on channels 1 and 2, plus a built-in
+  preview kit and two little preview synths, so it makes sound straight away.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for how it works and
 [docs/map.md](docs/map.md) for the current map.
@@ -82,6 +89,13 @@ cmake -S . -B build -DGRISTO_BUILD_PLUGIN=OFF && cmake --build build && ./build/
   MIDI out to your drum instrument, or just use the preview kit.
 * **Ableton Live:** load it on a MIDI track. On the drum rack's track, set
   *MIDI From* to the Gristo track and choose "Gristo" as the source.
+  * **Arps in Live:** play or hold notes on the Gristo track itself (arm it, or
+    put a clip with a chord on it); that's the arps' MIDI in. Make one more MIDI
+    track per arp with your synth, set *MIDI From* to the Gristo track /
+    "Gristo", and pick the arp's channel (Arp 1 = Ch 1, Arp 2 = Ch 2 by default)
+    if Live offers a channel chooser. If it doesn't, put a MIDI channel filter
+    in front of the synth, or the synth also hears the drums. Turn *Kit* off
+    once real instruments are connected.
 * **Logic:** use the AU instrument for now. An AU MIDI-FX build is on the
   roadmap.
 * **No transport running?** Enable *Free Run* to audition at the internal
