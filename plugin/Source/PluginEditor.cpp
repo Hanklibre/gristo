@@ -284,7 +284,7 @@ void GristoView::showHelpFor(juce::Component* component)
             {
                 helpTitle_ = title;
                 helpText_ = text;
-                repaint(412, 4, 432, 42);
+                repaint(406, 4, 440, 42);
             }
             return;
         }
@@ -552,6 +552,12 @@ void GristoView::setupPresetBar()
     presetNext_.onClick = [this] { processor_.presets.step(1); presetLoaded(); };
     presetName_.onClick = [this] { showPresetMenu(); };
     presetSave_.onClick = [this] { savePreset(false); };
+    if (kIsMobile)
+    {
+        addAndMakeVisible(presetShare_);
+        presetShare_.onClick = [this] { sharePreset(); };
+        setHelp(presetShare_, "Share preset", "Send the current sound as a .gristo file: Quick Share, email, Drive... Import it on the PC.");
+    }
     presetName_.setButtonText(processor_.presets.currentName());
     setHelp(presetName_, "Preset", "Click for factory and your presets, Save As, Import / Export and Init. * = changed since loading.");
     setHelp(presetPrev_, "Previous preset", "Load the previous preset (factory first, then yours).");
@@ -719,7 +725,12 @@ void GristoView::sharePreset()
     const auto file = processor_.presets.writeTemporary();
     if (!file.existsAsFile())
         return;
-    shareBox_ = juce::ContentSharer::shareFilesScoped({ juce::URL(file) }, [](bool, const juce::String&) {}, this);
+    juce::Component::SafePointer<GristoView> safe(this);
+    shareBox_ = juce::ContentSharer::shareFilesScoped({ juce::URL(file) }, [safe](bool success, const juce::String& error) {
+        if (!success && error.isNotEmpty() && safe != nullptr)
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Share",
+                                                   error + "\nTry Export... in the preset menu instead.", "OK", safe.getComponent());
+    }, this);
 }
 
 void GristoView::showSizeMenu()
@@ -1142,7 +1153,7 @@ void GristoView::paint(juce::Graphics& g)
     g.setFont(juce::FontOptions(11.0f));
 
     // Help box
-    const juce::Rectangle<int> help { 412, 6, 432, 38 };
+    const juce::Rectangle<int> help = kIsMobile ? juce::Rectangle<int> { 466, 6, 378, 38 } : juce::Rectangle<int> { 412, 6, 432, 38 };
     g.setColour(colours::panel);
     g.fillRoundedRectangle(help.toFloat(), 6.0f);
     g.setColour(colours::outline);
@@ -1227,6 +1238,7 @@ void GristoView::resized()
     presetName_.setBounds(168, 12, 160, 26);
     presetNext_.setBounds(330, 12, 26, 26);
     presetSave_.setBounds(358, 12, 46, 26);
+    presetShare_.setBounds(408, 12, 52, 26);
 
     // Left column: map, then the humanize / dynamics masters
     mapPad_.setBounds(28, 78, 320, 320);

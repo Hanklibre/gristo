@@ -96,7 +96,7 @@ arm64, for your own use).
 
 **Presets between tablet and PC:** on the tablet, presets are saved in
 `Documents/Gristo/Presets`. You can copy them to the PC over USB, or use the
-preset menu's **Share...** (Quick Share, email to yourself, ...) or
+**Share** button next to Save (Quick Share, Gmail, Drive, ...) or the menu's
 **Export...**. On the PC, use **Import...** or drop the `.gristo` files into
 `Documents\Gristo\Presets`. To go the other way, use **Import...** on the
 tablet. MIDI notes, channels and Out Shift aren't part of a preset, so each

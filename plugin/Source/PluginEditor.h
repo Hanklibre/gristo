@@ -157,7 +157,7 @@ private:
     juce::String helpTitle_, helpText_;
 
     // Preset bar
-    juce::TextButton presetPrev_ { "<" }, presetName_, presetNext_ { ">" }, presetSave_ { "Save" };
+    juce::TextButton presetPrev_ { "<" }, presetName_, presetNext_ { ">" }, presetSave_ { "Save" }, presetShare_ { "Share" };
     std::unique_ptr<juce::FileChooser> chooser_;
     int presetRefresh_ = 0;
     void setupPresetBar();
