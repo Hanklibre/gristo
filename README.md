@@ -105,7 +105,10 @@ arm64, for your own use).
    default: use the Chords page for chords on touch) and **Settings** (audio
    and MIDI devices; **Done** closes it). A USB MIDI keyboard is picked up
    automatically.
-4. Tap any control to see its help text at the top.
+4. Modulation lanes: the **L1-L4** chips in the top bar reach every page. Drag
+   one onto a knob, or tap the chip and then tap the knob (also works on the
+   PC). Draw the curves on the Groove page.
+5. Tap any control to see its help text at the top.
 
 **Presets between tablet and PC:** on the tablet, presets are saved in
 `Documents/Gristo/Presets`. You can copy them to the PC over USB, or use the

@@ -32,6 +32,12 @@ public:
     juce::String helpTitle() const { return helpTitle_; }
     juce::String helpText() const { return helpText_; }
     std::function<void()> onHelpChanged;
+
+    // Tap-to-route: after a lane chip is tapped, the next tap on a target routes it.
+    void armLane(int lane);
+    void disarmLane();
+    int armedLane() const { return armedLane_; }
+    std::function<void()> onArmChanged;
     static constexpr int kChordsPageIndex = 1 + gristo::kNumArps;
     static constexpr int kSoundsPageIndex = 2 + gristo::kNumArps;
 
@@ -193,6 +199,24 @@ private:
 
     juce::String helpTitle_, helpText_;
     bool headerExternal_ = false;
+    int armedLane_ = -1;
+    struct ArmCatcher : public juce::Component
+    {
+        std::function<void(juce::Point<int>)> onTap;
+        juce::Colour colour;
+        void paint(juce::Graphics& g) override
+        {
+            g.fillAll(colour.withAlpha(0.06f));
+            g.setColour(colour);
+            g.drawRect(getLocalBounds(), 3);
+        }
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            if (onTap)
+                onTap(e.getPosition());
+        }
+    } armCatcher_;
+    std::vector<LaneHandle*> laneHandles();
 
     // Preset bar
     juce::TextButton presetPrev_ { "<" }, presetName_, presetNext_ { ">" }, presetSave_ { "Save" }, presetShare_ { "Share" };
@@ -215,7 +239,7 @@ private:
 // Hosts the view. Desktop: a fixed zoom chosen in the Size menu. Mobile: the view
 // fills the screen width and scrolls vertically. The on-screen keyboard is a strip
 // along the bottom that stays put while the view scrolls.
-class GristoEditor : public juce::AudioProcessorEditor, private juce::ScrollBar::Listener
+class GristoEditor : public juce::AudioProcessorEditor, public juce::DragAndDropContainer, private juce::ScrollBar::Listener
 {
 public:
     explicit GristoEditor(GristoProcessor&);
@@ -232,6 +256,7 @@ private:
     juce::Rectangle<int> mobileRegion() const;
     juce::Component clip_;
     juce::TextButton mobileTabs_[NumMobilePages];
+    LaneHandle barLanes_[gristo::kNumModLanes]; // always visible, so lanes reach targets on any page
     int mobilePage_ = Beat;
     std::unique_ptr<juce::Component> settings_;
     juce::Rectangle<int> helpBox_;

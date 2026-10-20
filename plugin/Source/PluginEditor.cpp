@@ -247,6 +247,27 @@ GristoView::GristoView(GristoProcessor& proc)
     helpText_ = "Hover over any control to see what it does.";
     addMouseListener(this, true);
 
+    addChildComponent(armCatcher_);
+    armCatcher_.setAlwaysOnTop(true);
+    armCatcher_.onTap = [this](juce::Point<int> pos) {
+        // Route the armed lane to whatever target is under the tap.
+        const int lane = armedLane_;
+        disarmLane();
+        for (auto* c = getComponentAt(pos); c != nullptr && c != this; c = c->getParentComponent())
+            if (auto* target = dynamic_cast<ModDropTarget*>(c); target != nullptr && target->onLaneDropped)
+            {
+                target->onLaneDropped(lane);
+                return;
+            }
+    };
+    for (auto* handle : laneHandles())
+        handle->onTap = [this](int lane) {
+            if (armedLane_ == lane)
+                disarmLane();
+            else
+                armLane(lane);
+        };
+
     laneTabs_[0].setToggleState(true, juce::dontSendNotification);
     selectLane(0);
     pageTabs_[0].setToggleState(true, juce::dontSendNotification);
@@ -1500,6 +1521,44 @@ std::vector<juce::Component*> GristoView::headerControls()
     return { &presetPrev_, &presetName_, &presetNext_, &presetSave_, &presetShare_, &keysButton_, &sizeButton_ };
 }
 
+std::vector<LaneHandle*> GristoView::laneHandles()
+{
+    std::vector<LaneHandle*> list { &laneHandle_ };
+    for (auto& h : arpLaneHandles_)
+        list.push_back(&h);
+    for (auto& h : soundLaneHandles_)
+        list.push_back(&h);
+    return list;
+}
+
+void GristoView::armLane(int lane)
+{
+    armedLane_ = lane;
+    armCatcher_.colour = laneColours[lane];
+    armCatcher_.setBounds(getLocalBounds());
+    armCatcher_.setVisible(true);
+    armCatcher_.toFront(false);
+    for (auto* h : laneHandles())
+        h->setArmed(h->lane() == lane);
+    helpTitle_ = "Route lane " + juce::String(lane + 1);
+    helpText_ = "Tap a knob, a Velocity range or the map to route this lane there. Tap anywhere else to cancel.";
+    repaint(406, 4, 440, 42);
+    if (onHelpChanged)
+        onHelpChanged();
+    if (onArmChanged)
+        onArmChanged();
+}
+
+void GristoView::disarmLane()
+{
+    armedLane_ = -1;
+    armCatcher_.setVisible(false);
+    for (auto* h : laneHandles())
+        h->setArmed(false);
+    if (onArmChanged)
+        onArmChanged();
+}
+
 void GristoView::showBottomPage(int page)
 {
     for (int pg = 0; pg <= kSoundsPage; ++pg)
@@ -1741,6 +1800,26 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
             tab.onClick = [this, pg] { showMobilePage(pg); };
             addAndMakeVisible(tab);
         }
+        for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+        {
+            auto& chip = barLanes_[lane];
+            chip.setLane(lane);
+            chip.setCompact(true);
+            chip.onTap = [this](int l) {
+                if (view_.armedLane() == l)
+                    view_.disarmLane();
+                else
+                    view_.armLane(l);
+            };
+            chip.getProperties().set("helpTitle", "Lane " + juce::String(lane + 1));
+            chip.getProperties().set("helpText", "Drag onto a knob on any page, or tap it and then tap the knob. Draw the curve on the Groove page.");
+            chip.addMouseListener(this, false);
+            addAndMakeVisible(chip);
+        }
+        view_.onArmChanged = [this] {
+            for (auto& chip : barLanes_)
+                chip.setArmed(chip.lane() == view_.armedLane());
+        };
         view_.onSettingsRequested = [this] { showSettings(); };
         view_.onHelpChanged = [this] { repaint(helpBox_); };
         mobileTabs_[Beat].setToggleState(true, juce::dontSendNotification);
@@ -1791,13 +1870,15 @@ void GristoEditor::paint(juce::Graphics& g)
     {
         g.setColour(colours::panel);
         g.fillRoundedRectangle(helpBox_.toFloat(), 6.0f);
-        auto r = helpBox_.reduced(10, 2);
+        auto r = helpBox_.reduced(10, 0);
         g.setColour(colours::accent);
-        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-        g.drawText(view_.helpTitle(), r.removeFromTop(15), juce::Justification::centredLeft);
+        g.setFont(juce::FontOptions(12.5f, juce::Font::bold));
+        const auto title = view_.helpTitle();
+        const int titleWidth = juce::GlyphArrangement::getStringWidthInt(juce::FontOptions(12.5f, juce::Font::bold), title) + 12;
+        g.drawText(title, r.removeFromLeft(titleWidth), juce::Justification::centredLeft);
         g.setColour(colours::text);
-        g.setFont(juce::FontOptions(11.0f));
-        g.drawFittedText(view_.helpText(), r, juce::Justification::topLeft, 1, 0.7f);
+        g.setFont(juce::FontOptions(12.0f));
+        g.drawFittedText(view_.helpText(), r, juce::Justification::centredLeft, 1, 0.8f);
     }
 }
 
@@ -1816,29 +1897,34 @@ void GristoEditor::resized()
 
     if (kIsMobile)
     {
-        // One top bar: presets, page buttons, help, Keys, Settings.
-        auto bar = area.removeFromTop(48).reduced(6, 6);
+        // Top bar: presets, lane chips, pages, Keys, Settings; the help line below it.
+        auto bar = area.removeFromTop(46).reduced(6, 6);
         auto headers = view_.headerControls(); // prev, name, next, save, share, keys, settings
-        headers[0]->setBounds(bar.removeFromLeft(36));
+        headers[0]->setBounds(bar.removeFromLeft(34));
         bar.removeFromLeft(4);
-        headers[1]->setBounds(bar.removeFromLeft(170));
+        headers[1]->setBounds(bar.removeFromLeft(150));
         bar.removeFromLeft(4);
-        headers[2]->setBounds(bar.removeFromLeft(36));
+        headers[2]->setBounds(bar.removeFromLeft(34));
         bar.removeFromLeft(6);
-        headers[3]->setBounds(bar.removeFromLeft(58));
+        headers[3]->setBounds(bar.removeFromLeft(56));
         bar.removeFromLeft(4);
-        headers[4]->setBounds(bar.removeFromLeft(62));
-        bar.removeFromLeft(12);
-        headers[6]->setBounds(bar.removeFromRight(88));
+        headers[4]->setBounds(bar.removeFromLeft(60));
+        bar.removeFromLeft(14);
+        for (auto& chip : barLanes_)
+        {
+            chip.setBounds(bar.removeFromLeft(40).reduced(0, 3));
+            bar.removeFromLeft(4);
+        }
+        headers[6]->setBounds(bar.removeFromRight(84));
         bar.removeFromRight(6);
-        headers[5]->setBounds(bar.removeFromRight(60));
+        headers[5]->setBounds(bar.removeFromRight(56));
         bar.removeFromRight(10);
         for (int pg = NumMobilePages - 1; pg >= 0; --pg)
         {
-            mobileTabs_[pg].setBounds(bar.removeFromRight(78));
+            mobileTabs_[pg].setBounds(bar.removeFromRight(74));
             bar.removeFromRight(4);
         }
-        helpBox_ = bar.reduced(6, 0);
+        helpBox_ = area.removeFromTop(26).reduced(8, 2);
         if (settings_ != nullptr)
             settings_->setBounds(getLocalBounds());
 

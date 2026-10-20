@@ -879,7 +879,7 @@ void LaneHandle::paint(juce::Graphics& g)
 {
     const auto area = getLocalBounds().toFloat().reduced(1.0f);
     const auto colour = laneColours[lane_];
-    g.setColour(colour.withAlpha(isMouseOver() ? 0.35f : 0.2f));
+    g.setColour(colour.withAlpha(armed_ ? 0.9f : isMouseOver() ? 0.35f : 0.2f));
     g.fillRoundedRectangle(area, 12.0f);
     g.setColour(colour);
     g.drawRoundedRectangle(area, 12.0f, 1.5f);
@@ -893,6 +893,12 @@ void LaneHandle::paint(juce::Graphics& g)
         return;
     }
     g.drawText("Drag lane " + juce::String(lane_ + 1) + " to a knob", area.withTrimmedLeft(area.getHeight()), juce::Justification::centredLeft);
+}
+
+void LaneHandle::mouseUp(const juce::MouseEvent& e)
+{
+    if (!e.mouseWasDraggedSinceMouseDown() && onTap)
+        onTap(lane_);
 }
 
 void LaneHandle::mouseDrag(const juce::MouseEvent&)

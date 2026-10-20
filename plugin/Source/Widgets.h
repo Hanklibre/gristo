@@ -260,10 +260,17 @@ class LaneHandle : public juce::Component
 public:
     void setLane(int lane);
     void setCompact(bool compact) { compact_ = compact; repaint(); } // small "L1" chip
+    void setArmed(bool armed) { if (armed_ != armed) { armed_ = armed; repaint(); } }
+    int lane() const { return lane_; }
     void paint(juce::Graphics&) override;
     void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+
+    // A tap (no drag): route by tapping a target next instead of dragging.
+    std::function<void(int lane)> onTap;
 
 private:
     int lane_ = 0;
     bool compact_ = false;
+    bool armed_ = false;
 };
