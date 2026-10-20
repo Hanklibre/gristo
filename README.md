@@ -30,11 +30,18 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   pattern length, density (rests), accents, slides and Mutate, over the held
   notes or a scale. Velocity follows the drum hit, mapped into each arp's range,
   and each arp has its own MIDI channel.
+* **Built-in sounds (Sounds tab):** six synthesized drum kits (Classic, 808,
+  Trap, Lo-fi, Minimal, Reggaeton) with Tune / Decay / Tone / Drive and a level
+  per drum, and a synth per arp with 14 sounds (Sub, Acid, Reese and FM bass;
+  E-piano, Bell, Pluck, Organ; Warm, Glass and Dark pads; Square, Sync and Soft
+  leads), each with Cutoff, Resonance, Env, Attack, Release, Glide and Level.
+  A shared reverb and tempo-synced ping-pong delay with sends. Lanes can sweep
+  each synth's Cutoff.
 * **UI size:** 70–125 %, and it picks a size that fits your screen the first time.
 * **Output:** MIDI notes with a selectable note and channel per voice (GM drum
   notes three octaves down on channel 10 by default, so the drums sit below the
-  arps), the arps on channels 1 and 2 with an Out Shift each, plus a built-in
-  preview kit and two little preview synths, so it makes sound straight away.
+  arps), the arps on channels 1 and 2 with an Out Shift each, plus the built-in
+  sounds, so it makes sound straight away.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for how it works and
 [docs/map.md](docs/map.md) for the current map.

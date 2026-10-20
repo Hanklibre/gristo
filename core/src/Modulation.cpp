@@ -14,7 +14,9 @@ std::string targetName(int target)
     if (target >= kFill && target < kFill + kNumVoices) return std::string(voiceName(target - kFill)) + " Fill";
     if (target >= kProbability && target < kProbability + kNumVoices) return std::string(voiceName(target - kProbability)) + " Probability";
     if (target >= kVelocity && target < kVelocity + kNumVoices) return std::string(voiceName(target - kVelocity)) + " Velocity";
-    if (target >= kArpBase && target < kNumTargets)
+    if (target >= kArpCutoffBase && target < kNumTargets)
+        return "Arp " + std::to_string(target - kArpCutoffBase + 1) + " Cutoff";
+    if (target >= kArpBase && target < kArpCutoffBase)
     {
         static const char* const names[kArpTargetsPerArp] = { "Density", "Accent", "Slide", "Gate", "Octaves", "Length", "Transpose", "Velocity" };
         const int arp = (target - kArpBase) / kArpTargetsPerArp;
@@ -34,7 +36,7 @@ std::string targetName(int target)
 
 float targetRange(int target)
 {
-    if (target >= kArpBase && target < kNumTargets)
+    if (target >= kArpBase && target < kArpCutoffBase)
     {
         switch ((target - kArpBase) % kArpTargetsPerArp)
         {

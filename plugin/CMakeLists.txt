@@ -18,7 +18,6 @@ target_sources(Gristo PRIVATE
     Source/Parameters.cpp
     Source/PluginEditor.cpp
     Source/PluginProcessor.cpp
-    Source/PreviewKit.cpp
     Source/Widgets.cpp)
 
 target_compile_definitions(Gristo PUBLIC
@@ -30,6 +29,7 @@ target_compile_definitions(Gristo PUBLIC
 target_link_libraries(Gristo
     PRIVATE
         gristo_core
+        gristo_sound
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags

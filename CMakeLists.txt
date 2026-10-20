@@ -11,6 +11,7 @@ option(GRISTO_BUILD_PLUGIN "Build the JUCE plugin (VST3 / AU / Standalone)" ON)
 set(GRISTO_JUCE_DIR "" CACHE PATH "Local JUCE checkout; fetched from GitHub when empty")
 
 add_subdirectory(core)
+add_subdirectory(sound)
 
 if(GRISTO_BUILD_TESTS)
     enable_testing()

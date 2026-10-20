@@ -21,13 +21,42 @@ DrumMap (X, Y) ─► PatternGenerator (Chaos, Fill, Mutes, Probability, Linear)
                ─► MIDI out  +  PreviewKit audio
 ```
 
+## Built-in sounds
+
+`sound/` is a second JUCE-free library (`gristo::sound`) so the plugin, the
+standalone / Android app and the tests share it.
+
+* **Drums:** each drum is built from layers: a sine body with a pitch sweep, a
+  second partial, filtered noise (with hand-clap bursts), an 808-style metallic
+  layer (six squares through a bandpass), a click, and per-voice drive. A kit is
+  six such patches plus a bus colour (lowpass, bit-crush and drive for Lo-fi).
+  Kit macros: Tune (±12 st), Decay (0.3–2.5×), Tone (darker below 50 %, airier
+  above) and Drive. The closed hat chokes the open hat.
+* **Synths:** six voices per arp. Oscillators: polyBLEP saw/square, supersaw,
+  Reese, sine, 2-op FM (with a decaying index), drawbar organ, hard sync. Then a
+  2- or 4-pole state-variable lowpass with its own envelope, an amp envelope,
+  vibrato and drive. Macros are relative to each sound (50 % = as designed). A
+  note that starts while another is held (a generator slide) glides in the same
+  voice. Otherwise the old note releases while the new one starts, so pads and
+  keys ring out under a monophonic line.
+* **FX:** Freeverb-style reverb and a ping-pong delay synced to the tempo (1/16,
+  1/8, dotted 1/8, 1/4) with a darkening feedback path. Kit and each synth have
+  sends.
+* **Modulation:** lanes can drive each synth's Cutoff, sampled per audio block.
+* Tests render every drum and sound and check that it is audible, finite and
+  dies away, that Tune/Decay/Cutoff do what they say, that the closed hat
+  chokes, that slides glide in one voice, and that the FX at maximum stay
+  stable. The worst case (two six-voice supersaw pads, every drum, both FX)
+  takes about 6 % of one desktop core.
+
 ## Code layout
 
 | Path | What |
 | --- | --- |
 | `core/` | Host-independent C++17 library. No JUCE. All randomness is hashed from (seed, stream, position), so output is deterministic. |
 | `tests/` | Dependency-free unit tests for the core. |
-| `plugin/` | Thin JUCE wrapper: parameters, processor, preview kit, editor. |
+| `sound/` | Host-independent built-in sounds: drum kits, arp synths, reverb, delay. |
+| `plugin/` | Thin JUCE wrapper: parameters, processor, editor. |
 | `tools/mapbuilder/` | Python: corpus → self-organizing map → `core/src/MapData.cpp`. |
 | `tools/render/` | `gristo_render`: renders the engine to a `.mid` file. |
 | `data/corpus/` | Original training patterns (text format, MIDI also accepted). |

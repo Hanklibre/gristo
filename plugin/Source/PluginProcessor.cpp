@@ -30,7 +30,7 @@ void GristoProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     sampleRate_ = sampleRate;
     engine_.reset();
-    kit_.prepare(sampleRate);
+    sound_.prepare(sampleRate);
     events_.clear();
     events_.reserve(static_cast<size_t>(std::max(512, samplesPerBlock)));
     freePpq_ = 0.0;
@@ -114,6 +114,27 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 
     const bool kitOn = state.getRawParameterValue(p::kitOn)->load() > 0.5f;
+    if (kitOn && !soundWasOn_)
+        sound_.reset(); // nothing stale from while the sound was off
+    soundWasOn_ = kitOn;
+    if (block.playing)
+        lastBpm_ = block.bpm;
+    if (kitOn)
+    {
+        sound_.setKit(p::readKitParams(state));
+        // Cutoff lanes: sampled at the block's 16th (lanes move in 16ths anyway).
+        const gristo::EngineParams modulated =
+            engine_.effectiveParams(static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat)));
+        for (int a = 0; a < gristo::kNumArps; ++a)
+        {
+            auto synth = p::readSynthParams(state, a);
+            synth.cutoffMod = block.playing ? modulated.arps[static_cast<size_t>(a)].cutoffOffset : 0.0f;
+            sound_.setSynth(a, synth);
+        }
+        auto fx = p::readFxParams(state);
+        fx.bpm = lastBpm_;
+        sound_.setFx(fx);
+    }
     const float kitGain = state.getRawParameterValue(p::kitGain)->load();
     float* left = buffer.getWritePointer(0);
     float* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
@@ -124,12 +145,12 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             return;
         if (right != nullptr)
         {
-            kit_.render(left + rendered, right + rendered, end - rendered, kitGain);
+            sound_.render(left + rendered, right + rendered, end - rendered, kitGain);
         }
         else
         {
             // Mono output: both sides are summed into the one channel at half level.
-            kit_.render(left + rendered, left + rendered, end - rendered, kitGain * 0.5f);
+            sound_.render(left + rendered, left + rendered, end - rendered, kitGain * 0.5f);
         }
         rendered = end;
     };
@@ -150,17 +171,17 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 {
                     // The kit plays the unshifted pitch, as the synth behind a Pitch device would.
                     const int arp = ev.voice - gristo::kArpVoiceBase;
-                    kit_.arpNoteOn(arp, note, note - shifts[arp], ev.velocity);
+                    sound_.noteOn(arp, note, static_cast<float>(note - shifts[arp]), ev.velocity);
                 }
                 else
-                    kit_.trigger(ev.voice, ev.velocity);
+                    sound_.triggerDrum(ev.voice, ev.velocity);
             }
         }
         else
         {
             midi.addEvent(juce::MidiMessage::noteOff(channel, note), ev.sampleOffset);
             if (isArp)
-                kit_.arpNoteOff(ev.voice - gristo::kArpVoiceBase, note);
+                sound_.noteOff(ev.voice - gristo::kArpVoiceBase, note);
         }
     }
     renderKitTo(numSamples);

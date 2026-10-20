@@ -82,6 +82,7 @@ struct ArpParams
     // Set by modulation only (no knob)
     int transpose = 0;           // semitones added to every note before Shift
     float velocityOffset = 0.0f; // normalized, added to the drum hit's velocity
+    float cutoffOffset = 0.0f;   // built-in synth cutoff (0..1 knob units)
 };
 
 // Raw random values of one generated step. Density / accent / slide amounts are

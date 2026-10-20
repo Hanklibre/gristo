@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <gristo/Engine.h>
+#include <gristo/sound/Sound.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
 namespace gristo::params {
@@ -58,6 +59,29 @@ inline const juce::String arpVelMin = "arpVelMin";
 inline const juce::String arpVelMax = "arpVelMax";
 inline const juce::String arpShift = "arpShift";
 inline const int kResetBarChoices[] = { 1, 2, 4, 8, 16 };
+// Built-in sounds (kitOn / kitGain are the master Sound switch and level)
+inline const juce::String kitType = "kitType";
+inline const juce::String kitTune = "kitTune";
+inline const juce::String kitDecay = "kitDecay";
+inline const juce::String kitTone = "kitTone";
+inline const juce::String kitDrive = "kitDrive";
+inline const juce::String drumLevel = "lvl"; // per voice
+inline const juce::String kitReverb = "kitRev";
+inline const juce::String kitDelay = "kitDly";
+inline const juce::String synthSound = "arpSnd"; // per arp from here on
+inline const juce::String synthCutoff = "arpCut";
+inline const juce::String synthResonance = "arpRes";
+inline const juce::String synthEnv = "arpEnv";
+inline const juce::String synthAttack = "arpAtk";
+inline const juce::String synthRelease = "arpRel";
+inline const juce::String synthGlide = "arpGld";
+inline const juce::String synthLevel = "arpLvl";
+inline const juce::String synthReverb = "arpRev";
+inline const juce::String synthDelay = "arpDly";
+inline const juce::String fxSize = "fxSize";
+inline const juce::String fxTime = "fxTime";
+inline const juce::String fxFeedback = "fxFb";
+inline const float kDelayBeatChoices[] = { 0.25f, 0.5f, 0.75f, 1.0f }; // 1/16, 1/8, dotted 1/8, 1/4
 inline const juce::String kitOn = "kitOn";
 inline const juce::String kitGain = "kitGain";
 inline const juce::String freeRun = "freeRun";
@@ -89,5 +113,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
 // Reads the current parameter values into engine parameters. Lock-free (atomic
 // loads only), so it is safe on both the audio and the message thread.
 EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state, const ModPointStore& lanes);
+
+// Built-in sound settings (also lock-free).
+sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& state);
+sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& state, int arp);
+sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& state);
 
 } // namespace gristo::params

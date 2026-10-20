@@ -43,7 +43,11 @@ constexpr int kArpVelocity = 7;
 constexpr int kArpTargetsPerArp = 8;
 constexpr int arpTarget(int arp, int which) { return kArpBase + arp * kArpTargetsPerArp + which; }
 
-constexpr int kNumTargets = kArpBase + kNumArps * kArpTargetsPerArp;
+// Built-in synth cutoff per arp (added after the arp targets, so saved routings keep their meaning).
+constexpr int kArpCutoffBase = kArpBase + kNumArps * kArpTargetsPerArp;
+constexpr int arpCutoffTarget(int arp) { return kArpCutoffBase + arp; }
+
+constexpr int kNumTargets = kArpCutoffBase + kNumArps;
 
 std::string targetName(int target);
 

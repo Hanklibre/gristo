@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Parameters.h"
-#include "PreviewKit.h"
 
 #include <atomic>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -56,7 +55,9 @@ private:
     gristo::BlockInfo transportFor(int numSamples);
 
     gristo::Engine engine_;
-    gristo::PreviewKit kit_;
+    gristo::sound::SoundEngine sound_;
+    bool soundWasOn_ = true;
+    double lastBpm_ = 120.0;
     std::vector<gristo::OutputEvent> events_;
     double sampleRate_ = 48000.0;
     double freePpq_ = 0.0;

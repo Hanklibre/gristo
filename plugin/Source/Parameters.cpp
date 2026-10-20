@@ -147,8 +147,51 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             juce::AudioParameterIntAttributes().withStringFromValueFunction(
                 [](int v, int) { return (v > 0 ? "+" : "") + juce::String(v) + " st"; })));
     }
-    layout.add(boolParam(kitOn, "Preview Kit", true));
-    layout.add(floatParam(kitGain, "Kit Level", { 0.0f, 1.0f }, 0.7f));
+    layout.add(boolParam(kitOn, "Sound On", true));
+    layout.add(floatParam(kitGain, "Sound Level", { 0.0f, 1.0f }, 0.7f));
+
+    // Built-in sounds
+    {
+        juce::StringArray kits, sounds;
+        for (int k = 0; k < static_cast<int>(sound::Kit::Count); ++k)
+            kits.add(sound::kitName(static_cast<sound::Kit>(k)));
+        for (int s = 0; s < static_cast<int>(sound::SynthSound::Count); ++s)
+            sounds.add(sound::synthSoundName(static_cast<sound::SynthSound>(s)));
+        auto semis = juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) {
+            const int st = juce::roundToInt(v);
+            return (st > 0 ? "+" : "") + juce::String(st) + " st";
+        });
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { kitType, kVersion }, "Drum Kit", kits, 1));
+        layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID { kitTune, kVersion }, "Kit Tune",
+                                                               juce::NormalisableRange<float> { -12.0f, 12.0f, 0.1f }, 0.0f, semis));
+        layout.add(percentParam(kitDecay, "Kit Decay", 0.5f));
+        layout.add(percentParam(kitTone, "Kit Tone", 0.5f));
+        layout.add(percentParam(kitDrive, "Kit Drive", 0.0f));
+        for (int v = 0; v < kNumVoices; ++v)
+            layout.add(percentParam(voiceId(drumLevel, v), juce::String(voiceName(v)) + " Level", 0.8f));
+        layout.add(percentParam(kitReverb, "Kit Reverb", 0.08f));
+        layout.add(percentParam(kitDelay, "Kit Delay", 0.0f));
+        for (int a = 0; a < kNumArps; ++a)
+        {
+            const juce::String name = "Arp " + juce::String(a + 1) + " ";
+            const int defaultSound = static_cast<int>(a == 0 ? sound::SynthSound::AcidBass : sound::SynthSound::Pluck);
+            layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(synthSound, a), kVersion },
+                                                                    name + "Sound", sounds, defaultSound));
+            layout.add(percentParam(laneId(synthCutoff, a), name + "Cutoff", 0.5f));
+            layout.add(percentParam(laneId(synthResonance, a), name + "Resonance", 0.5f));
+            layout.add(percentParam(laneId(synthEnv, a), name + "Env Amount", 0.5f));
+            layout.add(percentParam(laneId(synthAttack, a), name + "Attack", 0.5f));
+            layout.add(percentParam(laneId(synthRelease, a), name + "Release", 0.5f));
+            layout.add(percentParam(laneId(synthGlide, a), name + "Glide", 0.3f));
+            layout.add(percentParam(laneId(synthLevel, a), name + "Level", 0.7f));
+            layout.add(percentParam(laneId(synthReverb, a), name + "Reverb", a == 0 ? 0.1f : 0.25f));
+            layout.add(percentParam(laneId(synthDelay, a), name + "Delay", a == 0 ? 0.0f : 0.2f));
+        }
+        layout.add(percentParam(fxSize, "Reverb Size", 0.5f));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { fxTime, kVersion }, "Delay Time",
+                                                                juce::StringArray { "1/16", "1/8", "1/8D", "1/4" }, 2));
+        layout.add(percentParam(fxFeedback, "Delay Feedback", 0.35f, 0.9f));
+    }
 
     // Free-running clock for standalone use / auditioning without host transport.
     layout.add(boolParam(freeRun, "Free Run", false));
@@ -258,6 +301,47 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         ap.velMax = std::max(lo, hi);
     }
     return p;
+}
+
+sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& s)
+{
+    sound::KitParams k;
+    k.kit = static_cast<sound::Kit>(juce::jlimit(0, static_cast<int>(sound::Kit::Count) - 1, static_cast<int>(load(s, kitType))));
+    k.tune = load(s, kitTune);
+    k.decay = load(s, kitDecay);
+    k.tone = load(s, kitTone);
+    k.drive = load(s, kitDrive);
+    for (int v = 0; v < kNumVoices; ++v)
+        k.level[static_cast<size_t>(v)] = load(s, voiceId(drumLevel, v));
+    k.reverbSend = load(s, kitReverb);
+    k.delaySend = load(s, kitDelay);
+    return k;
+}
+
+sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& s, int arp)
+{
+    sound::SynthParams p;
+    p.sound = static_cast<sound::SynthSound>(
+        juce::jlimit(0, static_cast<int>(sound::SynthSound::Count) - 1, static_cast<int>(load(s, laneId(synthSound, arp)))));
+    p.cutoff = load(s, laneId(synthCutoff, arp));
+    p.resonance = load(s, laneId(synthResonance, arp));
+    p.envAmount = load(s, laneId(synthEnv, arp));
+    p.attack = load(s, laneId(synthAttack, arp));
+    p.release = load(s, laneId(synthRelease, arp));
+    p.glide = load(s, laneId(synthGlide, arp));
+    p.level = load(s, laneId(synthLevel, arp));
+    p.reverbSend = load(s, laneId(synthReverb, arp));
+    p.delaySend = load(s, laneId(synthDelay, arp));
+    return p;
+}
+
+sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& s)
+{
+    sound::FxParams f;
+    f.reverbSize = load(s, fxSize);
+    f.delayBeats = kDelayBeatChoices[juce::jlimit(0, 3, static_cast<int>(load(s, fxTime)))];
+    f.delayFeedback = load(s, fxFeedback);
+    return f;
 }
 
 } // namespace gristo::params

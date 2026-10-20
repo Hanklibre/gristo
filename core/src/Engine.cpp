@@ -262,6 +262,7 @@ EngineParams Engine::effectiveParams(std::int64_t step) const
         ap.length = addInt(ap.length, t(mod::kArpLength), 1, kMaxArpSteps);
         ap.transpose = addInt(ap.transpose, t(mod::kArpTranspose), -12, 12);
         ap.velocityOffset = acc[static_cast<size_t>(t(mod::kArpVelocity))];
+        ap.cutoffOffset = acc[static_cast<size_t>(mod::arpCutoffTarget(a))];
     }
     return e;
 }

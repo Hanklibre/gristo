@@ -97,8 +97,10 @@ private:
     Knob kitGain_, freeTempo_, noteLength_;
     std::unique_ptr<NumberSelector> channels_[gristo::kNumVoices];
 
-    // Bottom panel pages: 0 = modulation, 1.. = arps
-    juce::TextButton pageTabs_[1 + gristo::kNumArps];
+    // Bottom panel pages: 0 = modulation, 1..kNumArps = arps, then the sounds page
+    static constexpr int kSoundsPage = 1 + gristo::kNumArps;
+    juce::TextButton pageTabs_[2 + gristo::kNumArps];
+    bool isArpPage() const { return page_ >= 1 && page_ <= gristo::kNumArps; }
     int page_ = 0;
     void showPage(int page);
     void setupArpPage();
@@ -106,6 +108,23 @@ private:
     void updateArpOutput(const gristo::EngineParams& params, int arp);
     std::vector<juce::Component*> modulationPageComponents();
     std::vector<juce::Component*> arpPageComponents();
+    std::vector<juce::Component*> soundPageComponents();
+    void setupSoundPage();
+    void setupSmallKnob(Knob&, const juce::String& paramId, const juce::String& text);
+    static void placeSmallKnob(Knob&, int x, int y);
+
+    // Sounds page
+    struct SynthRow
+    {
+        juce::ComboBox sound;
+        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> soundAttachment;
+        Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay;
+    };
+    Choice soundKit_, fxTime_;
+    Knob kitTune_, kitDecay_, kitTone_, kitDrive_, kitReverb_, kitDelay_, fxSize_, fxFeedback_;
+    Knob drumLevels_[gristo::kNumVoices];
+    SynthRow synthRows_[gristo::kNumArps];
+    LaneHandle soundLaneHandles_[gristo::kNumModLanes];
 
     // Arp page: one set of controls, bound to the arp being shown
     Toggle arpOn_, arpLatch_;
