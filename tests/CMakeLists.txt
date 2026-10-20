@@ -6,6 +6,7 @@ add_executable(gristo_tests
     EngineTests.cpp
     ArpTests.cpp
     SoundTests.cpp
+    ChordTests.cpp
 )
 target_link_libraries(gristo_tests PRIVATE gristo_core gristo_sound)
 add_test(NAME gristo_tests COMMAND gristo_tests)

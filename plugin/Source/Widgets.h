@@ -119,6 +119,37 @@ private:
     gristo::ArpParams params_;
 };
 
+// The chord progression: 8 slots showing name + roman numeral; the slot playing now
+// glows, the one being edited is outlined. Tap to select.
+class ChordSlotsView : public juce::Component
+{
+public:
+    void update(const gristo::ChordParams& params, int playing, int selected);
+    std::function<void(int slot)> onSelect;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+
+private:
+    gristo::ChordParams params_;
+    int playing_ = -1, selected_ = 0;
+};
+
+// Chord pads: the key's 7 chords on top, the borrowed ones (parallel major / minor)
+// below, shown with the type of the slot being edited. Tap to put one in the slot.
+class ChordPadsView : public juce::Component
+{
+public:
+    void update(const gristo::ChordParams& params, const gristo::ChordSlot& editing);
+    std::function<void(int degree, bool borrowed)> onPad;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+
+private:
+    juce::Rectangle<float> padArea(int row, int degree) const;
+    gristo::ChordParams params_;
+    gristo::ChordSlot editing_;
+};
+
 // Two-handle MIDI velocity range (1..127) for one voice. Accepts lanes (Velocity target).
 class VelocityRange : public juce::Component, public ModDropTarget
 {

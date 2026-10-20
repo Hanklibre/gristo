@@ -54,17 +54,14 @@ public:
 
     // On-screen keyboard (feeds the arps like MIDI in) and whether it's shown.
     juce::MidiKeyboardState keyboardState;
-#if JUCE_ANDROID || JUCE_IOS || GRISTO_SIMULATE_MOBILE
-    std::atomic<bool> showKeys { true };
-#else
-    std::atomic<bool> showKeys { false };
-#endif
+    std::atomic<bool> showKeys { false }; // the chord pads cover chords on touch screens
     std::atomic<float> uiScale { 0.0f }; // 0 = pick a size that fits the screen
 
     // Arp display: advances since the last reset, and the notes feeding each arp.
     std::array<std::atomic<std::int64_t>, gristo::kNumArps> displayArpCount {};
     std::array<std::array<std::atomic<int>, gristo::kMaxHeldNotes>, gristo::kNumArps> displayArpInput {};
     std::array<std::atomic<int>, gristo::kNumArps> displayArpInputCount {};
+    std::atomic<int> displayChordSlot { -1 }; // slot playing now (-1 = none / stopped)
 
 private:
     gristo::BlockInfo transportFor(int numSamples);

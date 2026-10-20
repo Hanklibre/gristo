@@ -336,12 +336,13 @@ void Synth::reset()
 void Synth::noteOn(int id, float pitch, float velocity)
 {
     // A note that starts while another is still held is a slide: glide, no retrigger.
-    for (auto& v : voices_)
-        if (v.gated())
-        {
-            v.legato(id, pitch, velocity);
-            return;
-        }
+    if (!poly_)
+        for (auto& v : voices_)
+            if (v.gated())
+            {
+                v.legato(id, pitch, velocity);
+                return;
+            }
     SynthVoice* target = nullptr;
     for (auto& v : voices_)
         if (!v.active())

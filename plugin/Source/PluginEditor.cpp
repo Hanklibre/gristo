@@ -28,7 +28,7 @@ constexpr int kModY = 868;
 constexpr int kSlotX = 664;
 constexpr int kModRowY = kModY + 34;      // lane tabs / arp first row
 constexpr int kSlotRowY[] = { kModY + 54, kModY + 92, kModY + 130, kModY + 168 };
-constexpr int kSoundRowY[] = { kModY + 36, kModY + 92, kModY + 148 }; // kit, arp 1, arp 2
+constexpr int kSoundRowY[] = { kModY + 32, kModY + 78, kModY + 124, kModY + 170 }; // kit, arp 1, arp 2, chords
 constexpr int kSoundKnobX = 212, kSoundKnobStep = 48;
 const char* const kTriggerNames[] = { "BD", "SD", "H1", "H2", "P1", "P2" };
 
@@ -55,9 +55,9 @@ GristoView::GristoView(GristoProcessor& proc)
     {
         // No title bar on mobile, so the audio / MIDI settings live here instead of a zoom menu.
         sizeButton_.setButtonText("Settings");
-        sizeButton_.onClick = [] {
-            if (auto* holder = juce::StandalonePluginHolder::getInstance())
-                holder->showAudioSettingsDialog();
+        sizeButton_.onClick = [this] {
+            if (onSettingsRequested)
+                onSettingsRequested();
         };
     }
     keysButton_.setClickingTogglesState(true);
@@ -114,19 +114,22 @@ GristoView::GristoView(GristoProcessor& proc)
     }
     setupArpPage();
     setupSoundPage();
+    setupChordPage();
     for (int pg = 0; pg <= kSoundsPage; ++pg)
     {
         auto& tab = pageTabs_[pg];
-        tab.setButtonText(pg == 0 ? "Modulation" : pg == kSoundsPage ? "Sounds" : "Arp " + juce::String(pg));
+        tab.setButtonText(pg == 0 ? "Modulation" : pg == kSoundsPage ? "Sounds" : pg == kChordsPage ? "Chords" : "Arp " + juce::String(pg));
         tab.setClickingTogglesState(true);
         tab.setRadioGroupId(4712);
         tab.setColour(juce::TextButton::buttonOnColourId,
-                      pg == 0 || pg == kSoundsPage ? colours::accent : arpColours[pg - 1]);
+                      pg == 0 || pg >= kChordsPage ? colours::accent : arpColours[pg - 1]);
         tab.setColour(juce::TextButton::textColourOnId, colours::background);
         tab.onClick = [this, pg] { showPage(pg); };
         addAndMakeVisible(tab);
         if (pg == kSoundsPage)
-            setHelp(tab, "Sounds", "The built-in sounds: drum kit, a synth for each arp, reverb and delay.");
+            setHelp(tab, "Sounds", "The built-in sounds: drum kit, a synth for each arp and the chords, reverb and delay.");
+        else if (pg == kChordsPage)
+            setHelp(tab, "Chords", "A Scaler-style chord progression that plays its own part and can feed the arps.");
         else
             setHelp(tab, pg == 0 ? "Modulation" : "Arp " + juce::String(pg),
                     pg == 0 ? "Drawn modulation lanes and their routing."
@@ -285,6 +288,8 @@ void GristoView::showHelpFor(juce::Component* component)
                 helpTitle_ = title;
                 helpText_ = text;
                 repaint(406, 4, 440, 42);
+                if (onHelpChanged)
+                    onHelpChanged();
             }
             return;
         }
@@ -496,6 +501,7 @@ void GristoView::updateModulationDisplay(const gristo::EngineParams& params)
         {
             const auto& ap = ep.arps[static_cast<size_t>(shownArp)];
             show(mod::arpTarget(shownArp, mod::kArpDensity), ap.density);
+            show(mod::arpProbTarget(shownArp), ap.probability);
             show(mod::arpTarget(shownArp, mod::kArpAccent), ap.accent);
             show(mod::arpTarget(shownArp, mod::kArpSlide), ap.slide);
             show(mod::arpTarget(shownArp, mod::kArpGate), ap.gateSteps);
@@ -764,6 +770,8 @@ void GristoView::timerCallback()
         auto& presets = processor_.presets;
         presetName_.setButtonText(presets.currentName() + (presets.isDirty() ? " *" : ""));
     }
+    if (page_ == kChordsPage)
+        updateChordPage(params);
     if (isArpPage())
     {
         const auto& ap = params.arps[static_cast<size_t>(page_ - 1)];
@@ -843,6 +851,22 @@ void GristoView::updateArpOutput(const gristo::EngineParams& params, int arp)
     int otherLo = 0, otherHi = 0;
     if (params.arps[static_cast<size_t>(other)].enabled && outRange(other, otherLo, otherHi) && otherLo <= hi && otherHi >= lo)
         clashes.add("Arp " + juce::String(other + 1));
+    if (params.chords.enabled && params.chords.play != gristo::ChordPlay::Off)
+    {
+        bool chordClash = false;
+        for (const auto& slot : params.chords.slots)
+            if (slot.used)
+            {
+                const auto chord = gristo::Chords::build(params.chords, slot);
+                for (int i = 0; i < chord.count; ++i)
+                {
+                    const int n = gristo::Arp::outputNote(chord.notes[static_cast<size_t>(i)], params.chords.shift);
+                    chordClash = chordClash || (n >= lo && n <= hi);
+                }
+            }
+        if (chordClash)
+            clashes.add("the chords");
+    }
     if (!clashes.isEmpty())
         text << ".  Overlaps " << clashes.joinIntoString(" and ") << ": change Shift";
     arpOutLabel_.setColour(juce::Label::textColourId, clashes.isEmpty() ? colours::dim : colours::hot);
@@ -853,8 +877,13 @@ void GristoView::bindArpTargets(int arp)
 {
     // The arp page has one set of knobs; route drops and rings to the arp shown.
     for (int a = 0; a < gristo::kNumArps; ++a)
+    {
         for (int w = 0; w < mod::kArpTargetsPerArp; ++w)
             targetSliders_[static_cast<size_t>(mod::arpTarget(a, w))] = nullptr;
+        targetSliders_[static_cast<size_t>(mod::arpProbTarget(a))] = nullptr;
+    }
+    makeTarget(arpProb_.slider, arpProb_.slider, mod::arpProbTarget(arp));
+    targetSliders_[static_cast<size_t>(mod::arpProbTarget(arp))] = &arpProb_.slider;
     const std::pair<Knob*, int> knobs[] = { { &arpDensity_, mod::kArpDensity }, { &arpAccent_, mod::kArpAccent },
                                             { &arpSlide_, mod::kArpSlide },     { &arpGate_, mod::kArpGate },
                                             { &arpOctaves_, mod::kArpOctaves }, { &arpLength_, mod::kArpLength } };
@@ -877,8 +906,8 @@ void GristoView::setupSmallKnob(Knob& k, const juce::String& paramId, const juce
 
 void GristoView::placeSmallKnob(Knob& k, int x, int y)
 {
-    k.slider.setBounds(x, y, 44, 36);
-    k.label.setBounds(x - 6, y + 36, 56, 14);
+    k.slider.setBounds(x, y, 44, 32);
+    k.label.setBounds(x - 6, y + 31, 56, 13);
 }
 
 void GristoView::setupSoundPage()
@@ -905,7 +934,7 @@ void GristoView::setupSoundPage()
     setHelp(kitReverb_, "Kit Reverb", "How much of the kit goes to the reverb.");
     setHelp(kitDelay_, "Kit Delay", "How much of the kit goes to the delay.");
 
-    for (int a = 0; a < gristo::kNumArps; ++a)
+    for (int a = 0; a < gristo::sound::kNumSynths; ++a)
     {
         auto& row = synthRows_[a];
         // Sounds grouped by category; item ids stay index + 1 for the attachment.
@@ -922,7 +951,7 @@ void GristoView::setupSoundPage()
         addAndMakeVisible(row.sound);
         row.soundAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
             processor_.state, p::laneId(p::synthSound, a), row.sound);
-        const juce::String name = "Arp " + juce::String(a + 1) + " ";
+        const juce::String name = a == gristo::sound::kChordSynth ? juce::String("Chords ") : "Arp " + juce::String(a + 1) + " ";
         setupSmallKnob(row.cutoff, p::laneId(p::synthCutoff, a), "Cutoff");
         setupSmallKnob(row.resonance, p::laneId(p::synthResonance, a), "Reso");
         setupSmallKnob(row.env, p::laneId(p::synthEnv, a), "Env");
@@ -942,8 +971,11 @@ void GristoView::setupSoundPage()
         setHelp(row.level, name + "Level", "Volume of this arp's synth.");
         setHelp(row.reverb, name + "Reverb", "How much of this synth goes to the reverb.");
         setHelp(row.delay, name + "Delay", "How much of this synth goes to the delay.");
-        makeTarget(row.cutoff.slider, row.cutoff.slider, mod::arpCutoffTarget(a));
-        targetSliders_[static_cast<size_t>(mod::arpCutoffTarget(a))] = &row.cutoff.slider;
+        if (a < gristo::kNumArps)
+        {
+            makeTarget(row.cutoff.slider, row.cutoff.slider, mod::arpCutoffTarget(a));
+            targetSliders_[static_cast<size_t>(mod::arpCutoffTarget(a))] = &row.cutoff.slider;
+        }
     }
 
     setupSmallKnob(fxSize_, p::fxSize, "Size");
@@ -961,6 +993,220 @@ void GristoView::setupSoundPage()
         addAndMakeVisible(soundLaneHandles_[lane]);
         setHelp(soundLaneHandles_[lane], "Lane " + juce::String(lane + 1),
                 "Drag onto an arp's Cutoff knob for filter sweeps. Draw the curve on the Modulation tab.");
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// Chords page
+
+void GristoView::setupChordPage()
+{
+    setupToggle(chordOn_, p::chordOn, "On");
+    setupChoice(chordKey_, p::chordKey, "Key");
+    setupChoice(chordScale_, p::chordScale, "Scale");
+    setupChoice(chordClock_, p::chordClock, "Clock");
+    setupChoice(chordClockVoice_, p::chordClockVoice, "Voice");
+    setupChoice(chordReset_, p::chordReset, "Reset");
+    setupChoice(chordPlay_, p::chordPlay, "Play");
+    setupChoice(chordOctave_, p::chordOctave, "Octave");
+    for (Choice* c : { &chordKey_, &chordScale_, &chordClock_, &chordClockVoice_, &chordReset_, &chordPlay_, &chordOctave_ })
+        c->label.setVisible(false);
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        setupToggle(chordStabs_[v], p::voiceId(p::chordStab, v), kTriggerNames[v]);
+        setHelp(chordStabs_[v].button, juce::String("Stab on ") + gristo::voiceName(v), "Play mode Stabs: the chord plays on hits of this voice.");
+    }
+    auto& st = processor_.state;
+    chordHits_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordHits), "every ", 1, 16, " hits");
+    chordChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordChannel), "Ch ", 1, 16);
+    chordShift_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordShift), "", -60, 60, " st", 12, true);
+    chordVelocity_ = std::make_unique<VelocityRange>(*st.getParameter(p::chordVelMin), *st.getParameter(p::chordVelMax), colours::random);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { chordHits_.get(), chordChannel_.get(), chordShift_.get(), chordVelocity_.get(),
+                                                                        &chordLibrary_, &chordNew_, &chordClear_, &chordSlots_, &chordPads_, &chordOutLabel_ })
+        addAndMakeVisible(c);
+    setupSmallKnob(chordMutate_, p::chordMutate, "Mutate");
+    setupSmallKnob(chordGate_, p::chordGate, "Gate");
+    chordOutLabel_.setFont(juce::FontOptions(11.0f));
+    chordOutLabel_.setColour(juce::Label::textColourId, colours::dim);
+
+    for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
+    {
+        chordTypes_[t].setButtonText(gristo::chordTypeName(static_cast<gristo::ChordType>(t)));
+        chordTypes_[t].onClick = [this, t] { editSelectedChord([t](gristo::ChordSlot& s) { s.type = static_cast<gristo::ChordType>(t); }); };
+        addAndMakeVisible(chordTypes_[t]);
+        setHelp(chordTypes_[t], "Chord type", "Triad, 7th, 9th or suspended, built from the scale. Applies to the selected slot.");
+    }
+    const char* inversionNames[] = { "Root", "1st", "2nd" };
+    const char* lengthNames[] = { "1/2 bar", "1 bar", "2 bars" };
+    for (int i = 0; i < 3; ++i)
+    {
+        chordInversions_[i].setButtonText(inversionNames[i]);
+        chordInversions_[i].onClick = [this, i] { editSelectedChord([i](gristo::ChordSlot& s) { s.inversion = i; }); };
+        chordLengths_[i].setButtonText(lengthNames[i]);
+        chordLengths_[i].onClick = [this, i] { editSelectedChord([i](gristo::ChordSlot& s) { s.lengthSteps = p::kChordLengthSteps[i]; }); };
+        addAndMakeVisible(chordInversions_[i]);
+        addAndMakeVisible(chordLengths_[i]);
+        setHelp(chordInversions_[i], "Inversion", "Which chord note is at the bottom: root, the 3rd (1st inversion) or the 5th (2nd).");
+        setHelp(chordLengths_[i], "Length", "How long the selected chord lasts (Bars clock).");
+    }
+    for (auto* b : { &chordTypes_[0], &chordTypes_[1], &chordTypes_[2], &chordTypes_[3], &chordTypes_[4], &chordInversions_[0],
+                     &chordInversions_[1], &chordInversions_[2], &chordLengths_[0], &chordLengths_[1], &chordLengths_[2] })
+    {
+        b->setColour(juce::TextButton::buttonOnColourId, colours::accent);
+        b->setColour(juce::TextButton::textColourOnId, colours::background);
+    }
+    chordClear_.onClick = [this] { editSelectedChord([](gristo::ChordSlot& s) { s.used = false; }); };
+    chordLibrary_.onClick = [this] { showChordLibrary(); };
+    chordNew_.onClick = [this] { newChordProgression(); };
+    chordSlots_.onSelect = [this](int slot) { selectedChordSlot_ = slot; };
+    chordPads_.onPad = [this](int degree, bool borrowed) {
+        editSelectedChord([degree, borrowed](gristo::ChordSlot& s) {
+            s.used = true;
+            s.degree = degree;
+            s.borrowed = borrowed;
+        });
+        // Filling the progression left to right: move on to the next slot.
+        selectedChordSlot_ = std::min(selectedChordSlot_ + 1, gristo::kMaxChordSlots - 1);
+    };
+
+    setHelp(chordOn_.button, "Chords on", "Switch the chord sequencer on. Arps with Chords on their page follow it.");
+    setHelp(chordKey_.box, "Key", "The key's tonic.");
+    setHelp(chordScale_.box, "Scale", "The scale the chords are built from. Borrowed chords come from the parallel major / minor.");
+    setHelp(chordClock_.box, "Clock", "Bars: each chord lasts its length. Drum hits: the chord changes every N hits of a drum voice.");
+    setHelp(*chordHits_, "Hits per chord", "Drum hits clock: how many hits of the voice before the next chord.");
+    setHelp(chordClockVoice_.box, "Clock voice", "Drum hits clock: the drum voice that is counted.");
+    setHelp(chordReset_.box, "Reset", "Drum hits clock: the progression starts over every N bars.");
+    setHelp(chordPlay_.box, "Play", "Off: only feeds the arps. Held: chords sustain. Stabs: chords hit with the chosen drum voices.");
+    setHelp(chordOctave_.box, "Octave", "Where the chords sit (the lowest tonic).");
+    setHelp(chordLibrary_, "Progression library", "Load a ready-made progression (keeps your key).");
+    setHelp(chordNew_, "New progression", "Write a new progression that fits the scale.");
+    setHelp(chordMutate_, "Mutate", "Chance per chord and loop of swapping in a related chord.");
+    setHelp(chordGate_, "Stab gate", "Stab length in 16ths.");
+    setHelp(chordClear_, "Clear slot", "Empty the selected slot.");
+    setHelp(chordSlots_, "Progression", "Tap a slot to select it, then tap a pad to put a chord there. The slot playing now glows.");
+    setHelp(chordPads_, "Chord pads", "The chords of the key (top) and borrowed from the parallel major / minor (bottom).");
+    setHelp(*chordChannel_, "Chords MIDI channel", "MIDI channel of the chord part, for DAWs that keep channels.");
+    setHelp(*chordShift_, "Chords Out Shift", "Moves the chord part's MIDI out into its own note range (for Live's key zones).");
+    setHelp(*chordVelocity_, "Chords velocity", "Velocity range. Stabs follow the drum hit inside it; held chords sit near the top.");
+    setHelp(chordOutLabel_, "MIDI out range", "Where the chord notes land, and the matching Live setup.");
+}
+
+std::vector<juce::Component*> GristoView::chordPageComponents()
+{
+    std::vector<juce::Component*> list { &chordOn_.button, &chordKey_.box, &chordScale_.box, &chordClock_.box, &chordClockVoice_.box,
+                                         &chordReset_.box, &chordPlay_.box, &chordOctave_.box, chordHits_.get(), chordChannel_.get(),
+                                         chordShift_.get(), chordVelocity_.get(), &chordLibrary_, &chordNew_, &chordClear_,
+                                         &chordSlots_, &chordPads_, &chordOutLabel_, &chordMutate_.slider, &chordMutate_.label,
+                                         &chordGate_.slider, &chordGate_.label };
+    for (auto& t : chordStabs_)
+        list.push_back(&t.button);
+    for (auto& b : chordTypes_)
+        list.push_back(&b);
+    for (auto& b : chordInversions_)
+        list.push_back(&b);
+    for (auto& b : chordLengths_)
+        list.push_back(&b);
+    return list;
+}
+
+void GristoView::writeChordSlot(int index, const gristo::ChordSlot& slot)
+{
+    setParameter(p::voiceId(p::chordSlotUsed, index), slot.used ? 1.0f : 0.0f);
+    setParameter(p::voiceId(p::chordDegree, index), static_cast<float>(slot.degree));
+    setParameter(p::voiceId(p::chordBorrowed, index), slot.borrowed ? 1.0f : 0.0f);
+    setParameter(p::voiceId(p::chordType, index), static_cast<float>(slot.type));
+    setParameter(p::voiceId(p::chordInversion, index), static_cast<float>(slot.inversion));
+    setParameter(p::voiceId(p::chordLength, index), slot.lengthSteps <= 8 ? 0.0f : slot.lengthSteps >= 32 ? 2.0f : 1.0f);
+}
+
+void GristoView::editSelectedChord(const std::function<void(gristo::ChordSlot&)>& edit)
+{
+    const auto params = p::readEngineParams(processor_.state, processor_.modPoints);
+    auto slot = params.chords.slots[static_cast<size_t>(selectedChordSlot_)];
+    edit(slot);
+    writeChordSlot(selectedChordSlot_, slot);
+}
+
+void GristoView::showChordLibrary()
+{
+    juce::PopupMenu menu;
+    const auto& library = gristo::Chords::library();
+    juce::StringArray moods;
+    for (const auto& entry : library)
+        moods.addIfNotAlreadyThere(entry.mood);
+    for (const auto& mood : moods)
+    {
+        juce::PopupMenu sub;
+        for (int i = 0; i < static_cast<int>(library.size()); ++i)
+            if (mood == library[static_cast<size_t>(i)].mood)
+                sub.addItem(i + 1, juce::String(library[static_cast<size_t>(i)].name) + "  (" + gristo::chordScaleName(library[static_cast<size_t>(i)].scale) + ")");
+        menu.addSubMenu(mood, sub);
+    }
+    juce::Component::SafePointer<GristoView> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&chordLibrary_), [safe](int result) {
+        if (safe == nullptr || result <= 0)
+            return;
+        const auto& entry = gristo::Chords::library()[static_cast<size_t>(result - 1)];
+        safe->setParameter(p::chordScale, static_cast<float>(entry.scale));
+        for (int i = 0; i < gristo::kMaxChordSlots; ++i)
+            safe->writeChordSlot(i, i < static_cast<int>(entry.slots.size()) ? entry.slots[static_cast<size_t>(i)] : gristo::ChordSlot {});
+        safe->selectedChordSlot_ = 0;
+    });
+}
+
+void GristoView::newChordProgression()
+{
+    const auto params = p::readEngineParams(processor_.state, processor_.modPoints);
+    const auto seed = static_cast<std::uint32_t>(juce::Random::getSystemRandom().nextInt({ 1, 10000 }));
+    const auto slots = gristo::Chords::generate(seed, params.chords.scale);
+    for (int i = 0; i < gristo::kMaxChordSlots; ++i)
+        writeChordSlot(i, slots[static_cast<size_t>(i)]);
+    setParameter(p::chordSeed, static_cast<float>(seed));
+    selectedChordSlot_ = 0;
+}
+
+void GristoView::updateChordPage(const gristo::EngineParams& params)
+{
+    const auto& c = params.chords;
+    const auto& editing = c.slots[static_cast<size_t>(selectedChordSlot_)];
+    chordSlots_.update(c, processor_.displayChordSlot.load(), selectedChordSlot_);
+    chordPads_.update(c, editing);
+    for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
+        chordTypes_[t].setToggleState(editing.used && static_cast<int>(editing.type) == t, juce::dontSendNotification);
+    for (int i = 0; i < 3; ++i)
+    {
+        chordInversions_[i].setToggleState(editing.used && editing.inversion == i, juce::dontSendNotification);
+        chordLengths_[i].setToggleState(editing.used && editing.lengthSteps == p::kChordLengthSteps[i], juce::dontSendNotification);
+    }
+    const bool drums = c.clock == gristo::ChordClock::Drums;
+    for (juce::Component* comp : std::initializer_list<juce::Component*> { chordHits_.get(), &chordClockVoice_.box, &chordReset_.box })
+        comp->setAlpha(drums ? 1.0f : 0.35f);
+    const bool stabs = c.play == gristo::ChordPlay::Stabs;
+    for (auto& t : chordStabs_)
+        t.button.setAlpha(stabs ? 1.0f : 0.35f);
+    chordGate_.slider.setAlpha(stabs ? 1.0f : 0.35f);
+    // MIDI out range over every chord in the progression.
+    int lo = 128, hi = -1;
+    for (const auto& slot : c.slots)
+        if (slot.used)
+        {
+            const auto chord = gristo::Chords::build(c, slot);
+            for (int i = 0; i < chord.count; ++i)
+            {
+                const int n = gristo::Arp::outputNote(chord.notes[static_cast<size_t>(i)], c.shift);
+                lo = std::min(lo, n);
+                hi = std::max(hi, n);
+            }
+        }
+    if (hi < 0)
+        chordOutLabel_.setText("No chords yet: tap a slot, then a pad", juce::dontSendNotification);
+    else
+    {
+        auto name = [](int note) { return juce::MidiMessage::getMidiNoteName(note, true, true, 3); };
+        juce::String text = "MIDI out " + name(lo) + " - " + name(hi) + ".  Live: key zone " + name(lo) + " - " + name(hi);
+        if (c.shift != 0)
+            text << ", Pitch " << (c.shift > 0 ? "-" : "+") << std::abs(c.shift);
+        chordOutLabel_.setText(text, juce::dontSendNotification);
     }
 }
 
@@ -996,7 +1242,8 @@ std::vector<juce::Component*> GristoView::arpPageComponents()
         list.push_back(&handle);
     for (auto& t : arpTriggers_)
         list.push_back(&t.button);
-    for (Knob* k : { &arpOctaves_, &arpGate_, &arpLength_, &arpDensity_, &arpAccent_, &arpSlide_, &arpMutate_ })
+    list.push_back(&arpFollow_.button);
+    for (Knob* k : { &arpOctaves_, &arpGate_, &arpLength_, &arpDensity_, &arpAccent_, &arpSlide_, &arpMutate_, &arpProb_, &arpProbRandom_ })
     {
         list.push_back(&k->slider);
         list.push_back(&k->label);
@@ -1016,6 +1263,9 @@ void GristoView::showPage(int page)
             c->setVisible(isArpPage());
     for (auto* c : soundPageComponents())
         c->setVisible(page == kSoundsPage);
+    for (auto* c : chordPageComponents())
+        if (c != nullptr)
+            c->setVisible(page == kChordsPage);
     resized();
     repaint();
 }
@@ -1039,6 +1289,9 @@ void GristoView::setupArpPage()
     setupKnob(arpAccent_, p::laneId(p::arpAccent, 0), "Accent");
     setupKnob(arpSlide_, p::laneId(p::arpSlide, 0), "Slide");
     setupKnob(arpMutate_, p::laneId(p::arpMutate, 0), "Mutate");
+    setupKnob(arpProb_, p::laneId(p::arpProbability, 0), "Prob");
+    setupRandomKnob(arpProbRandom_, p::laneId(p::arpProbabilityRandom, 0), "Random");
+    setupToggle(arpFollow_, p::laneId(p::arpFollow, 0), "Chords");
     arpNew_.setButtonText("New");
     arpNew_.onClick = [this] {
         // Roll a new pattern: a different seed for the generator.
@@ -1063,7 +1316,7 @@ void GristoView::setupArpPage()
         arpLaneHandles_[lane].setCompact(true);
         addAndMakeVisible(arpLaneHandles_[lane]);
         setHelp(arpLaneHandles_[lane], "Lane " + juce::String(lane + 1),
-                "Drag onto Density, Accent, Slide, Gate, Octaves, Length, Velocity, or the note view (Transpose). Draw the curve on the Modulation tab.");
+                "Drag onto Prob, Density, Accent, Slide, Gate, Octaves, Length, Velocity, or the note view (Transpose). Draw the curve on the Modulation tab.");
     }
 
     setHelp(arpOn_.button, "Arp on", "Switch this arp on. It plays on its own MIDI channel; the drums keep playing.");
@@ -1086,6 +1339,9 @@ void GristoView::setupArpPage()
     setHelp(arpSlide_, "Slide", "Generate: share of steps that overlap into the next note (glide on a mono synth).");
     setHelp(arpMutate_, "Mutate", "Generate: share of steps re-rolled at every reset, so the pattern slowly evolves.");
     setHelp(arpNew_, "New pattern", "Roll a new generated pattern. It is saved with the project.");
+    setHelp(arpProb_, "Probability", "Chance each step plays. Skipped steps still move the arp on, so the pattern keeps its place.");
+    setHelp(arpProbRandom_, "Probability Random", "Moves Probability up and down from bar to bar (up to +-50%).");
+    setHelp(arpFollow_.button, "Follow chords", "Use the Chords page's progression as this arp's notes, instead of the keys / MIDI in.");
     setHelp(arpView_, "Arp notes", "Bars = pitch, outlines = rests, dots = accents, lines = slides; bright column = current step. Drop a lane here to transpose (up to an octave).");
 }
 
@@ -1119,6 +1375,9 @@ void GristoView::bindArp(int arp)
     bindKnob(arpAccent_, p::laneId(p::arpAccent, arp));
     bindKnob(arpSlide_, p::laneId(p::arpSlide, arp));
     bindKnob(arpMutate_, p::laneId(p::arpMutate, arp));
+    bindKnob(arpProb_, p::laneId(p::arpProbability, arp));
+    bindKnob(arpProbRandom_, p::laneId(p::arpProbabilityRandom, arp));
+    bindToggle(arpFollow_, p::laneId(p::arpFollow, arp));
 
     // Widgets with a ParameterAttachment are rebuilt for the new arp.
     arpChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::laneId(p::arpChannel, arp)), "Ch ", 1, 16);
@@ -1204,20 +1463,26 @@ void GristoView::paint(juce::Graphics& g)
         g.setColour(laneColours[selectedLane_]);
         g.fillRoundedRectangle(juce::Rectangle<float>(static_cast<float>(kSlotX) - 8.0f, static_cast<float>(kSlotRowY[0]), 3.0f, 142.0f), 1.5f);
     }
+    else if (page_ == kChordsPage)
+    {
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(11.0f));
+        g.drawText("Stab on", 28, kModY + 190, 50, 22, juce::Justification::centredLeft);
+    }
     else if (page_ == kSoundsPage)
     {
         g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-        const juce::String names[] = { "KIT", "ARP 1", "ARP 2" };
-        const juce::Colour rowColours[] = { colours::accent, arpColours[0], arpColours[1] };
-        for (int row = 0; row < 3; ++row)
+        const juce::String names[] = { "KIT", "ARP 1", "ARP 2", "CHORDS" };
+        const juce::Colour rowColours[] = { colours::accent, arpColours[0], arpColours[1], colours::random };
+        for (int row = 0; row < 4; ++row)
         {
             g.setColour(rowColours[row]);
-            g.drawText(names[row], 28, kSoundRowY[row] + 10, 50, 16, juce::Justification::centredLeft);
+            g.drawText(names[row], 28, kSoundRowY[row] + 8, 50, 16, juce::Justification::centredLeft);
         }
         g.setColour(colours::dim);
-        g.drawText("FX", 812, kSoundRowY[1] - 4, 60, 12, juce::Justification::centredLeft);
+        g.drawText("FX", 812, kSoundRowY[1] - 2, 60, 12, juce::Justification::centredLeft);
         g.setColour(colours::outline);
-        g.drawVerticalLine(800, static_cast<float>(kSoundRowY[0]), static_cast<float>(kSoundRowY[2] + 50));
+        g.drawVerticalLine(800, static_cast<float>(kSoundRowY[0]), static_cast<float>(kSoundRowY[3] + 44));
     }
     else
     {
@@ -1230,15 +1495,30 @@ void GristoView::paint(juce::Graphics& g)
     }
 }
 
+std::vector<juce::Component*> GristoView::headerControls()
+{
+    return { &presetPrev_, &presetName_, &presetNext_, &presetSave_, &presetShare_, &keysButton_, &sizeButton_ };
+}
+
+void GristoView::showBottomPage(int page)
+{
+    for (int pg = 0; pg <= kSoundsPage; ++pg)
+        pageTabs_[pg].setToggleState(pg == page, juce::dontSendNotification);
+    showPage(page);
+}
+
 void GristoView::resized()
 {
-    sizeButton_.setBounds(904, 12, 80, 26);
-    keysButton_.setBounds(850, 12, 50, 26);
-    presetPrev_.setBounds(140, 12, 26, 26);
-    presetName_.setBounds(168, 12, 160, 26);
-    presetNext_.setBounds(330, 12, 26, 26);
-    presetSave_.setBounds(358, 12, 46, 26);
-    presetShare_.setBounds(408, 12, 52, 26);
+    if (!headerExternal_)
+    {
+        sizeButton_.setBounds(904, 12, 80, 26);
+        keysButton_.setBounds(850, 12, 50, 26);
+        presetPrev_.setBounds(140, 12, 26, 26);
+        presetName_.setBounds(168, 12, 160, 26);
+        presetNext_.setBounds(330, 12, 26, 26);
+        presetSave_.setBounds(358, 12, 46, 26);
+        presetShare_.setBounds(408, 12, 52, 26);
+    }
 
     // Left column: map, then the humanize / dynamics masters
     mapPad_.setBounds(28, 78, 320, 320);
@@ -1300,9 +1580,10 @@ void GristoView::resized()
     for (int v = 0; v < gristo::kNumVoices; ++v)
         arpTriggers_[v].button.setBounds(262 + v * 40, kModRowY, 38, 26);
     arpReset_.box.setBounds(510, kModRowY, 86, 26);
-    arpLatch_.button.setBounds(604, kModRowY, 64, 26);
+    arpLatch_.button.setBounds(604, kModRowY, 60, 26);
+    arpFollow_.button.setBounds(670, kModRowY, 76, 26);
     if (arpChannel_ != nullptr)
-        arpChannel_->setBounds(676, kModRowY + 1, 66, 24);
+        arpChannel_->setBounds(24, kModY + 188, 58, 22);
     const int y1 = kModRowY + 38;
     arpOrder_.label.setBounds(28, y1, 104, 16);
     arpOrder_.box.setBounds(28, y1 + 18, 104, 26);
@@ -1314,24 +1595,60 @@ void GristoView::resized()
     arpShiftLabel_.setBounds(140, y1 + 50, 96, 16);
     if (arpShift_ != nullptr)
         arpShift_->setBounds(140, y1 + 68, 96, 26);
-    arpOutLabel_.setBounds(24, kModY + 188, 790, 22);
+    arpOutLabel_.setBounds(88, kModY + 188, 726, 22);
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
         arpLaneHandles_[lane].setBounds(820 + lane * 38, kModY + 189, 36, 20);
-    placeKnob(arpOctaves_, { 244, y1, 64, 100 });
-    placeKnob(arpGate_, { 308, y1, 64, 100 });
-    placeKnob(arpLength_, { 372, y1, 64, 100 });
-    placeKnob(arpDensity_, { 436, y1, 64, 100 });
-    placeKnob(arpAccent_, { 500, y1, 64, 100 });
-    placeKnob(arpSlide_, { 564, y1, 64, 100 });
-    placeKnob(arpMutate_, { 628, y1, 64, 100 });
-    arpNew_.setBounds(700, y1 + 36, 56, 28);
+    {
+        Knob* knobs[] = { &arpOctaves_, &arpGate_, &arpLength_, &arpDensity_, &arpAccent_, &arpSlide_, &arpMutate_, &arpProb_ };
+        for (int i = 0; i < 8; ++i)
+            placeKnob(*knobs[i], { 244 + i * 56, y1, 56, 100 });
+    }
+    arpNew_.setBounds(700, y1 + 2, 56, 26);
+    placeKnob(arpProbRandom_, { 700, y1 + 34, 56, 66 });
     arpView_.setBounds(764, kModRowY, 208, 116);
     if (arpVelocity_ != nullptr)
         arpVelocity_->setBounds(820, kModRowY + 124, 152, 24);
+    // Chords page
+    {
+        const int y = kModRowY;
+        chordOn_.button.setBounds(28, y, 48, 26);
+        chordKey_.box.setBounds(82, y, 58, 26);
+        chordScale_.box.setBounds(146, y, 118, 26);
+        chordClock_.box.setBounds(270, y, 98, 26);
+        if (chordHits_ != nullptr)
+            chordHits_->setBounds(374, y + 1, 78, 24);
+        chordClockVoice_.box.setBounds(458, y, 84, 26);
+        chordReset_.box.setBounds(548, y, 80, 26);
+        chordPlay_.box.setBounds(634, y, 80, 26);
+        chordOctave_.box.setBounds(720, y, 58, 26);
+        chordLibrary_.setBounds(784, y, 70, 26);
+        chordNew_.setBounds(860, y, 50, 26);
+        chordSlots_.setBounds(24, y + 32, 840, 48);
+        placeSmallKnob(chordMutate_, 874, y + 32);
+        placeSmallKnob(chordGate_, 922, y + 32);
+        chordPads_.setBounds(24, y + 86, 500, 74);
+        for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
+            chordTypes_[t].setBounds(536 + t * 52, y + 86, 48, 34);
+        for (int i = 0; i < 3; ++i)
+        {
+            chordInversions_[i].setBounds(536 + i * 52, y + 126, 48, 34);
+            chordLengths_[i].setBounds(696 + i * 58, y + 126, 54, 34);
+        }
+        chordClear_.setBounds(880, y + 126, 64, 34);
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+            chordStabs_[v].button.setBounds(80 + v * 36, kModY + 190, 34, 22);
+        if (chordVelocity_ != nullptr)
+            chordVelocity_->setBounds(304, kModY + 190, 140, 22);
+        if (chordChannel_ != nullptr)
+            chordChannel_->setBounds(452, kModY + 190, 54, 22);
+        if (chordShift_ != nullptr)
+            chordShift_->setBounds(512, kModY + 190, 66, 22);
+        chordOutLabel_.setBounds(584, kModY + 190, 392, 22);
+    }
     // Sounds page
     {
         const int y0 = kSoundRowY[0];
-        soundKit_.box.setBounds(80, y0 + 6, 120, 26);
+        soundKit_.box.setBounds(80, y0 + 4, 120, 26);
         Knob* kitKnobs[] = { &kitTune_, &kitDecay_, &kitTone_, &kitDrive_ };
         for (int i = 0; i < 4; ++i)
             placeSmallKnob(*kitKnobs[i], kSoundKnobX + i * kSoundKnobStep, y0);
@@ -1341,18 +1658,18 @@ void GristoView::resized()
         placeSmallKnob(kitDelay_, 744, y0);
         for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
             soundLaneHandles_[lane].setBounds(812 + lane * 40, y0 + 8, 36, 20);
-        for (int a = 0; a < gristo::kNumArps; ++a)
+        for (int a = 0; a < gristo::sound::kNumSynths; ++a)
         {
             auto& row = synthRows_[a];
             const int y = kSoundRowY[1 + a];
-            row.sound.setBounds(80, y + 6, 120, 26);
+            row.sound.setBounds(80, y + 4, 120, 26);
             Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level };
             for (int i = 0; i < 7; ++i)
                 placeSmallKnob(*knobs[i], kSoundKnobX + i * kSoundKnobStep, y);
             placeSmallKnob(row.reverb, 696, y);
             placeSmallKnob(row.delay, 744, y);
         }
-        const int fy = kSoundRowY[1] + 10;
+        const int fy = kSoundRowY[1] + 12;
         placeSmallKnob(fxSize_, 812, fy);
         placeSmallKnob(fxFeedback_, 860, fy);
         fxTime_.label.setBounds(908, fy - 2, 64, 14);
@@ -1402,6 +1719,31 @@ GristoEditor::GristoEditor(GristoProcessor& proc)
 
     if (kIsMobile)
     {
+        // Pages instead of one tall window: the header controls move to a top bar here.
+        removeChildComponent(&view_);
+        addAndMakeVisible(clip_);
+        clip_.addAndMakeVisible(view_);
+        view_.setHeaderExternal(true);
+        for (auto* c : view_.headerControls())
+        {
+            addAndMakeVisible(c);
+            c->addMouseListener(this, false);
+        }
+        const char* names[NumMobilePages] = { "Beat", "Groove", "Arps", "Chords", "Sounds" };
+        for (int pg = 0; pg < NumMobilePages; ++pg)
+        {
+            auto& tab = mobileTabs_[pg];
+            tab.setButtonText(names[pg]);
+            tab.setClickingTogglesState(true);
+            tab.setRadioGroupId(5120);
+            tab.setColour(juce::TextButton::buttonOnColourId, colours::accent);
+            tab.setColour(juce::TextButton::textColourOnId, colours::background);
+            tab.onClick = [this, pg] { showMobilePage(pg); };
+            addAndMakeVisible(tab);
+        }
+        view_.onSettingsRequested = [this] { showSettings(); };
+        view_.onHelpChanged = [this] { repaint(helpBox_); };
+        mobileTabs_[Beat].setToggleState(true, juce::dontSendNotification);
         setSize(1200, 752); // a 16:10 tablet in landscape; the standalone window resizes us to the screen
         return;
     }
@@ -1445,6 +1787,18 @@ void GristoEditor::applyScale(float scale)
 void GristoEditor::paint(juce::Graphics& g)
 {
     g.fillAll(colours::background);
+    if (kIsMobile && !helpBox_.isEmpty())
+    {
+        g.setColour(colours::panel);
+        g.fillRoundedRectangle(helpBox_.toFloat(), 6.0f);
+        auto r = helpBox_.reduced(10, 2);
+        g.setColour(colours::accent);
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.drawText(view_.helpTitle(), r.removeFromTop(15), juce::Justification::centredLeft);
+        g.setColour(colours::text);
+        g.setFont(juce::FontOptions(11.0f));
+        g.drawFittedText(view_.helpText(), r, juce::Justification::topLeft, 1, 0.7f);
+    }
 }
 
 void GristoEditor::resized()
@@ -1462,30 +1816,125 @@ void GristoEditor::resized()
 
     if (kIsMobile)
     {
-        // Fill the width (text stays readable on a tablet) and scroll the rest.
-        constexpr int scrollWidth = 28;
-        scale_ = static_cast<float>(area.getWidth() - scrollWidth) / static_cast<float>(GristoView::kWidth);
-        const double viewHeight = GristoView::kHeight * static_cast<double>(scale_);
-        const bool needsScroll = viewHeight > area.getHeight();
-        scrollBar_.setVisible(needsScroll);
-        if (!needsScroll)
+        // One top bar: presets, page buttons, help, Keys, Settings.
+        auto bar = area.removeFromTop(48).reduced(6, 6);
+        auto headers = view_.headerControls(); // prev, name, next, save, share, keys, settings
+        headers[0]->setBounds(bar.removeFromLeft(36));
+        bar.removeFromLeft(4);
+        headers[1]->setBounds(bar.removeFromLeft(170));
+        bar.removeFromLeft(4);
+        headers[2]->setBounds(bar.removeFromLeft(36));
+        bar.removeFromLeft(6);
+        headers[3]->setBounds(bar.removeFromLeft(58));
+        bar.removeFromLeft(4);
+        headers[4]->setBounds(bar.removeFromLeft(62));
+        bar.removeFromLeft(12);
+        headers[6]->setBounds(bar.removeFromRight(88));
+        bar.removeFromRight(6);
+        headers[5]->setBounds(bar.removeFromRight(60));
+        bar.removeFromRight(10);
+        for (int pg = NumMobilePages - 1; pg >= 0; --pg)
         {
-            scale_ = std::min(static_cast<float>(area.getWidth()) / static_cast<float>(GristoView::kWidth),
-                              static_cast<float>(area.getHeight()) / static_cast<float>(GristoView::kHeight));
-            scrollY_ = 0.0;
+            mobileTabs_[pg].setBounds(bar.removeFromRight(78));
+            bar.removeFromRight(4);
         }
-        else
-        {
-            scrollBar_.setBounds(area.removeFromRight(scrollWidth).reduced(2, 4));
-            const double visible = area.getHeight() / static_cast<double>(scale_);
-            scrollBar_.setRangeLimits(0.0, GristoView::kHeight);
-            scrollBar_.setCurrentRange(std::min(scrollY_, GristoView::kHeight - visible), visible, juce::dontSendNotification);
-            scrollBar_.setSingleStepSize(40.0);
-            scrollY_ = scrollBar_.getCurrentRangeStart();
-        }
+        helpBox_ = bar.reduced(6, 0);
+        if (settings_ != nullptr)
+            settings_->setBounds(getLocalBounds());
+
+        clip_.setBounds(area);
+        const auto region = mobileRegion();
+        scale_ = std::min(static_cast<float>(area.getWidth()) / static_cast<float>(region.getWidth()),
+                          static_cast<float>(area.getHeight()) / static_cast<float>(region.getHeight()));
+        const float x = (static_cast<float>(area.getWidth()) - region.getWidth() * scale_) * 0.5f - region.getX() * scale_;
+        const float y = -region.getY() * scale_ + 4.0f;
+        view_.setTransform(juce::AffineTransform::scale(scale_).translated(x, y));
+        scrollBar_.setVisible(false);
+        return;
     }
     viewArea_ = area;
     updateViewTransform();
+}
+
+juce::Rectangle<int> GristoEditor::mobileRegion() const
+{
+    // Regions of the 1000 x 1096 view (see GristoView::paint for the panels).
+    if (mobilePage_ == Beat)
+        return { 10, 50, 980, 670 };   // map, humanize, pattern, voices
+    return { 10, 718, 980, 370 };      // groove + output, and the bottom panel
+}
+
+void GristoEditor::showMobilePage(int page)
+{
+    mobilePage_ = page;
+    const int bottom = page == Arps ? 1 : page == Chords ? GristoView::kChordsPageIndex
+                     : page == Sounds ? GristoView::kSoundsPageIndex : 0;
+    if (page != Beat)
+        view_.showBottomPage(bottom);
+    resized();
+    repaint();
+}
+
+void GristoEditor::mouseEnter(const juce::MouseEvent& e)
+{
+    view_.showHelp(e.originalComponent);
+}
+
+namespace {
+// Full-screen audio / MIDI settings with a big Done button (on mobile the standalone's
+// own dialog has no way to close).
+class SettingsOverlay : public juce::Component
+{
+public:
+    SettingsOverlay(juce::AudioDeviceManager& manager, std::function<void()> onDone)
+        : selector_(manager, 0, 0, 1, 2, true, false, true, false), done_("Done")
+    {
+        addAndMakeVisible(selector_);
+        addAndMakeVisible(done_);
+        done_.setColour(juce::TextButton::buttonColourId, theme::colours::accent);
+        done_.setColour(juce::TextButton::textColourOffId, theme::colours::background);
+        done_.onClick = std::move(onDone);
+        title_.setText("Audio / MIDI settings", juce::dontSendNotification);
+        title_.setFont(juce::FontOptions(18.0f, juce::Font::bold));
+        title_.setColour(juce::Label::textColourId, theme::colours::text);
+        addAndMakeVisible(title_);
+    }
+    void paint(juce::Graphics& g) override { g.fillAll(theme::colours::background.withAlpha(0.97f)); }
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced(16);
+        auto top = r.removeFromTop(48);
+        done_.setBounds(top.removeFromRight(140).reduced(0, 2));
+        title_.setBounds(top);
+        r.removeFromTop(8);
+        selector_.setBounds(r.withWidth(std::min(r.getWidth(), 640)).withX(r.getCentreX() - std::min(r.getWidth(), 640) / 2));
+    }
+
+private:
+    juce::AudioDeviceSelectorComponent selector_;
+    juce::TextButton done_;
+    juce::Label title_;
+};
+} // namespace
+
+void GristoEditor::showSettings()
+{
+    auto* holder = juce::StandalonePluginHolder::getInstance();
+    if (holder == nullptr)
+        return;
+    juce::Component::SafePointer<GristoEditor> safe(this);
+    settings_ = std::make_unique<SettingsOverlay>(holder->deviceManager, [safe] {
+        if (safe == nullptr)
+            return;
+        if (auto* h = juce::StandalonePluginHolder::getInstance())
+            h->saveAudioDeviceState();
+        juce::MessageManager::callAsync([safe] {
+            if (safe != nullptr)
+                safe->settings_.reset();
+        });
+    });
+    addAndMakeVisible(*settings_);
+    settings_->setBounds(getLocalBounds());
 }
 
 void GristoEditor::scrollBarMoved(juce::ScrollBar*, double newRangeStart)

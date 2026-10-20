@@ -74,6 +74,9 @@ struct ArpParams
 
     // Output
     float gateSteps = 2.0f; // note length in 16ths (slides overlap the next note)
+    float probability = 1.0f;       // chance each step plays; skipped steps still advance
+    float probabilityRandom = 0.0f; // Beads-style: moves Probability per bar (+-0.5 at 100 %)
+    bool followChords = false;      // use the chord sequencer's current chord as held notes
     int shift = 0;          // semitones added to the MIDI out, to give the arp its own
                             // note range (undo it with a Pitch device in the DAW)
     float velMin = 40.0f / 127.0f;

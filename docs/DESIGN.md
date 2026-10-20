@@ -49,6 +49,33 @@ standalone / Android app and the tests share it.
   stable. The worst case (two six-voice supersaw pads, every drum, both FX)
   takes about 6 % of one desktop core.
 
+## Chords (Scaler-style sequencer)
+
+`core/src/Chords.cpp`, scheduling in `Engine::processChords`.
+
+* **Chords from the scale:** a slot stores a scale degree, a type (triad, 7th,
+  9th, sus2, sus4), an inversion, a length and "borrowed". Notes are stacked in
+  thirds from the key's scale (sus: 2nd / 4th instead of the 3rd), so quality
+  follows the scale (Am, Bdim, G7, Fmaj7 in C major). Borrowed chords stack in
+  the parallel scale (major <-> minor), e.g. iv and bVI in a major key. Names
+  ("Am7", "F/A") and roman numerals ("vi7", "bVI") are derived from the
+  intervals.
+* **Clock:** *Bars*: used slots in order, each 1/2, 1 or 2 bars, looping (a
+  pure function of the step). *Drum hits*: the chord changes on every Nth hit
+  of a chosen voice, counted from the reset bar (hits are re-counted after a
+  jump, with a small running cache), so it lands in the same place every time.
+* **Mutate:** per loop and slot, a hashed chance of swapping in a related chord
+  (relative, mediant, IV / V side). **New** writes a progression from common
+  shapes for major-ish or minor-ish scales, with occasional 7ths / 9ths / sus,
+  inversions and a borrowed last chord. The library holds named progressions
+  (the key stays yours).
+* **Output:** *Held* plays each chord at its start and releases it at the next
+  change (re-voiced if you edit it while it plays). *Stabs* plays the chord on
+  hits of the chosen voices for the Gate length, velocity following the hit.
+  It has its own MIDI channel and Out Shift (default -36, below the arps) and a
+  polyphonic synth on the Sounds tab. Arps with **Chords** on use the current
+  chord as their held notes (Generate stays on chord tones).
+
 ## Presets
 
 `plugin/Source/Presets.cpp`. A preset is XML (`<GristoPreset version="1">`):

@@ -901,3 +901,115 @@ void LaneHandle::mouseDrag(const juce::MouseEvent&)
         if (!container->isDragAndDropActive())
             container->startDragging(juce::String(ModDropTarget::kDragPrefix) + juce::String(lane_), this);
 }
+
+// ---------------------------------------------------------------------------------
+// Chord slots and pads
+
+void ChordSlotsView::update(const gristo::ChordParams& params, int playing, int selected)
+{
+    params_ = params;
+    playing_ = playing;
+    selected_ = selected;
+    repaint();
+}
+
+void ChordSlotsView::paint(juce::Graphics& g)
+{
+    using namespace gristo;
+    const float w = static_cast<float>(getWidth()) / kMaxChordSlots;
+    for (int i = 0; i < kMaxChordSlots; ++i)
+    {
+        const auto& slot = params_.slots[static_cast<size_t>(i)];
+        const auto cell = juce::Rectangle<float>(i * w, 0.0f, w, static_cast<float>(getHeight())).reduced(3.0f, 1.0f);
+        const bool playing = i == playing_ && slot.used;
+        g.setColour(playing ? colours::accent.withAlpha(0.85f) : slot.used ? colours::background : colours::background.withAlpha(0.5f));
+        g.fillRoundedRectangle(cell, 6.0f);
+        g.setColour(i == selected_ ? colours::text : colours::outline);
+        g.drawRoundedRectangle(cell.reduced(0.5f), 6.0f, i == selected_ ? 2.0f : 1.0f);
+        if (!slot.used)
+        {
+            g.setColour(colours::dim.withAlpha(0.6f));
+            g.setFont(juce::FontOptions(18.0f));
+            g.drawText("+", cell, juce::Justification::centred);
+            continue;
+        }
+        auto text = cell.reduced(4.0f, 2.0f);
+        g.setColour(playing ? colours::background : colours::text);
+        g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+        g.drawFittedText(Chords::name(params_, slot), text.removeFromTop(text.getHeight() * 0.58f).toNearestInt(),
+                         juce::Justification::centredBottom, 1, 0.7f);
+        g.setColour(playing ? colours::background.withAlpha(0.8f) : colours::dim);
+        g.setFont(juce::FontOptions(10.5f));
+        const juce::String length = slot.lengthSteps <= 8 ? "1/2" : slot.lengthSteps >= 32 ? "2 bars" : "1 bar";
+        g.drawFittedText(juce::String(Chords::roman(params_, slot)) + "  " + length, text.toNearestInt(),
+                         juce::Justification::centredTop, 1, 0.7f);
+    }
+}
+
+void ChordSlotsView::mouseDown(const juce::MouseEvent& e)
+{
+    const int i = juce::jlimit(0, gristo::kMaxChordSlots - 1, static_cast<int>(e.position.x / (static_cast<float>(getWidth()) / gristo::kMaxChordSlots)));
+    if (onSelect)
+        onSelect(i);
+}
+
+void ChordPadsView::update(const gristo::ChordParams& params, const gristo::ChordSlot& editing)
+{
+    params_ = params;
+    editing_ = editing;
+    repaint();
+}
+
+juce::Rectangle<float> ChordPadsView::padArea(int row, int degree) const
+{
+    constexpr float labelW = 58.0f;
+    const float w = (static_cast<float>(getWidth()) - labelW) / 7.0f;
+    const float h = static_cast<float>(getHeight()) / 2.0f;
+    return { labelW + degree * w, row * h, w, h };
+}
+
+void ChordPadsView::paint(juce::Graphics& g)
+{
+    using namespace gristo;
+    const float h = static_cast<float>(getHeight()) / 2.0f;
+    g.setFont(juce::FontOptions(10.5f));
+    g.setColour(colours::dim);
+    g.drawText(juce::String(pitchClassName(params_.key)) + " " + juce::String(chordScaleName(params_.scale)).substring(0, 5),
+               juce::Rectangle<float>(0.0f, 0.0f, 56.0f, h),
+               juce::Justification::centredLeft);
+    g.drawText("Borrowed", juce::Rectangle<float>(0.0f, h, 56.0f, h), juce::Justification::centredLeft);
+    for (int row = 0; row < 2; ++row)
+        for (int d = 0; d < 7; ++d)
+        {
+            ChordSlot s = editing_;
+            s.used = true;
+            s.degree = d;
+            s.borrowed = row == 1;
+            s.inversion = 0;
+            const auto pad = padArea(row, d).reduced(2.0f);
+            const bool current = editing_.used && editing_.degree == d && editing_.borrowed == (row == 1);
+            g.setColour(current ? colours::accent : row == 0 ? colours::cool : colours::cool.withAlpha(0.55f));
+            g.fillRoundedRectangle(pad, 5.0f);
+            g.setColour(current ? colours::background : colours::text);
+            g.setFont(juce::FontOptions(12.5f, juce::Font::bold));
+            auto text = pad.reduced(3.0f, 1.0f);
+            g.drawFittedText(Chords::name(params_, s), text.removeFromTop(text.getHeight() * 0.55f).toNearestInt(),
+                             juce::Justification::centredBottom, 1, 0.6f);
+            g.setFont(juce::FontOptions(9.5f));
+            g.setColour(current ? colours::background.withAlpha(0.8f) : colours::dim);
+            g.drawFittedText(Chords::roman(params_, s), text.toNearestInt(), juce::Justification::centredTop, 1, 0.6f);
+        }
+}
+
+void ChordPadsView::mouseDown(const juce::MouseEvent& e)
+{
+    for (int row = 0; row < 2; ++row)
+        for (int d = 0; d < 7; ++d)
+            if (padArea(row, d).contains(e.position))
+            {
+                if (onPad)
+                    onPad(d, row == 1);
+                return;
+            }
+}
+

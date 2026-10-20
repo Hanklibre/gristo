@@ -10,7 +10,8 @@
 namespace gristo::sound {
 
 constexpr int kNumDrumVoices = 6; // kick, snare, hihat 1, hihat 2, perc 1, perc 2
-constexpr int kNumSynths = 2;     // one per arp
+constexpr int kNumSynths = 3;     // one per arp, then the chords (polyphonic)
+constexpr int kChordSynth = 2;
 
 enum class Kit : int { Classic = 0, Eight08, Trap, LoFi, Minimal, Reggaeton, Count };
 const char* kitName(Kit kit);

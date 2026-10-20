@@ -11,6 +11,7 @@
   <MAINGROUP id="gMain" name="Gristo">
     <GROUP id="gcore" name="core">
       <FILE id="f00001" name="Arp.cpp" compile="1" resource="0" file="../core/src/Arp.cpp"/>
+      <FILE id="fchord" name="Chords.cpp" compile="1" resource="0" file="../core/src/Chords.cpp"/>
       <FILE id="f00002" name="DrumMap.cpp" compile="1" resource="0" file="../core/src/DrumMap.cpp"/>
       <FILE id="f00003" name="Engine.cpp" compile="1" resource="0" file="../core/src/Engine.cpp"/>
       <FILE id="f00004" name="Groove.cpp" compile="1" resource="0" file="../core/src/Groove.cpp"/>

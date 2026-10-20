@@ -30,6 +30,17 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   pattern length, density (rests), accents, slides and Mutate, over the held
   notes or a scale. Velocity follows the drum hit, mapped into each arp's range,
   and each arp has its own MIDI channel.
+* **Chords (Chords tab):** a Scaler-style chord sequencer. Pick a key and
+  scale, tap a slot, then tap a chord pad: the key's chords on top, borrowed
+  ones (parallel major / minor) below, as triads, 7ths, 9ths or sus, with
+  inversions. Up to 8 chords of 1/2, 1 or 2 bars, or changing every N hits of
+  a drum voice. There's a progression library (pop, jazz, soul, lo-fi, trap,
+  reggaeton, house, ...), New (generate) and Mutate. The chords can play
+  their own part (held, or stabbing on drum hits, with their own sound, MIDI
+  channel and Shift), and any arp switched to **Chords** plays the current
+  chord's notes.
+* **Arp Probability:** each arp has a Probability knob (plus Random, and it's
+  a lane target). Skipped steps still advance the arp.
 * **Built-in sounds (Sounds tab):** six synthesized drum kits (Classic, 808,
   Trap, Lo-fi, Minimal, Reggaeton) with Tune / Decay / Tone / Drive and a level
   per drum, and a synth per arp with 14 sounds (Sub, Acid, Reese and FM bass;
@@ -88,10 +99,12 @@ arm64, for your own use).
 2. Open it and allow "install unknown apps" for your browser or file manager
    when Android asks. Later builds install over the old one (same signing key),
    so your presets stay.
-3. Hold the tablet sideways: the window fills the width and scrolls with the
-   bar on the right. **Keys** toggles a keyboard strip at the bottom for
-   playing chords into the arps. A USB MIDI keyboard also works (it's picked
-   up automatically). **Settings** has the audio and MIDI device options.
+3. Hold the tablet sideways. The top bar has the presets, the pages (**Beat**:
+   map, pattern and voices; **Groove**: groove, output and the modulation
+   lanes; **Arps**; **Chords**; **Sounds**), **Keys** (a keyboard strip, off by
+   default: use the Chords page for chords on touch) and **Settings** (audio
+   and MIDI devices; **Done** closes it). A USB MIDI keyboard is picked up
+   automatically.
 4. Tap any control to see its help text at the top.
 
 **Presets between tablet and PC:** on the tablet, presets are saved in

@@ -58,6 +58,36 @@ inline const juce::String arpGate = "arpGate";
 inline const juce::String arpVelMin = "arpVelMin";
 inline const juce::String arpVelMax = "arpVelMax";
 inline const juce::String arpShift = "arpShift";
+inline const juce::String arpProbability = "arpProb";
+inline const juce::String arpProbabilityRandom = "arpProbRnd";
+inline const juce::String arpFollow = "arpFollow";
+
+// Chord sequencer (slot parameters: base + slot index)
+inline const juce::String chordOn = "chOn";
+inline const juce::String chordKey = "chKey";
+inline const juce::String chordScale = "chScale";
+inline const juce::String chordClock = "chClock";
+inline const juce::String chordClockVoice = "chClockVoice";
+inline const juce::String chordHits = "chHits";
+inline const juce::String chordReset = "chReset";
+inline const juce::String chordMutate = "chMutate";
+inline const juce::String chordSeed = "chSeed";
+inline const juce::String chordOctave = "chOct";
+inline const juce::String chordPlay = "chPlay";
+inline const juce::String chordStab = "chStab";
+inline const juce::String chordGate = "chGate";
+inline const juce::String chordVelMin = "chVelMin";
+inline const juce::String chordVelMax = "chVelMax";
+inline const juce::String chordChannel = "chChan";
+inline const juce::String chordShift = "chShift";
+inline const juce::String chordSlotUsed = "chSlot";
+inline const juce::String chordDegree = "chDeg";
+inline const juce::String chordBorrowed = "chBor";
+inline const juce::String chordType = "chType";
+inline const juce::String chordInversion = "chInv";
+inline const juce::String chordLength = "chLen";
+inline const int kChordLengthSteps[] = { 8, 16, 32 };
+inline const int kChordLowestNotes[] = { 36, 48, 60, 72 };
 inline const int kResetBarChoices[] = { 1, 2, 4, 8, 16 };
 // Built-in sounds (kitOn / kitGain are the master Sound switch and level)
 inline const juce::String kitType = "kitType";

@@ -14,7 +14,9 @@ std::string targetName(int target)
     if (target >= kFill && target < kFill + kNumVoices) return std::string(voiceName(target - kFill)) + " Fill";
     if (target >= kProbability && target < kProbability + kNumVoices) return std::string(voiceName(target - kProbability)) + " Probability";
     if (target >= kVelocity && target < kVelocity + kNumVoices) return std::string(voiceName(target - kVelocity)) + " Velocity";
-    if (target >= kArpCutoffBase && target < kNumTargets)
+    if (target >= kArpProbBase && target < kNumTargets)
+        return "Arp " + std::to_string(target - kArpProbBase + 1) + " Probability";
+    if (target >= kArpCutoffBase && target < kArpProbBase)
         return "Arp " + std::to_string(target - kArpCutoffBase + 1) + " Cutoff";
     if (target >= kArpBase && target < kArpCutoffBase)
     {

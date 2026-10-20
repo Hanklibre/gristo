@@ -1,6 +1,7 @@
 #pragma once
 
 #include "gristo/Arp.h"
+#include "gristo/Chords.h"
 #include "gristo/Groove.h"
 #include "gristo/Humanizer.h"
 #include "gristo/Modulation.h"
@@ -34,11 +35,13 @@ struct EngineParams
     DynamicsParams dynamics;
     ModulationParams modulation;
     std::array<ArpParams, kNumArps> arps {};
+    ChordParams chords;
     float noteLengthBeats = 0.125f;
 };
 
-// Output "voices" 0..5 are the drums; kArpVoiceBase + a is arp a.
+// Output "voices" 0..5 are the drums; kArpVoiceBase + a is arp a; then the chords.
 constexpr int kArpVoiceBase = kNumVoices;
+constexpr int kChordVoice = kArpVoiceBase + kNumArps;
 
 // Fully resolved description of one voice at one step.
 struct HitInfo
@@ -117,6 +120,11 @@ public:
     // Resolve the arp step counter / pattern without playing (used by tests and UI).
     static int resetSteps(const ArpParams& p);
 
+    // Where the chord progression is at a step (slot -1: chords off or empty).
+    ChordPosition chordPositionAt(std::int64_t step) const;
+    // The chord sounding at a step (Mutate applied), empty if none.
+    Chord chordAt(std::int64_t step) const;
+
     // Largest distance a note can be moved earlier than its straight position.
     static constexpr double kMaxEarlyBeats = 0.5;
     // A block start further than this from the previous block's end is a jump.
@@ -148,7 +156,21 @@ private:
         ArpPattern pattern;
     };
 
+    struct ChordState
+    {
+        std::int64_t nextStep = 0;
+        bool needsResync = true;
+        std::int64_t lastSerial = 0;
+        bool haveChord = false;
+        Chord held;                 // notes of the held chord (MIDI out notes)
+        std::array<bool, 128> sounding {};
+    };
+
     static float normalizedVelocity(const EngineParams& ep, const VoiceHit& hit, int voice);
+    bool chordsActive() const;
+    std::int64_t clockHitsBefore(std::int64_t step) const;
+    void releaseHeldChord(double beats);
+    void processChords(double ppqStart, double ppqEnd, double bpm);
     double gridAt(std::int64_t step) const;
     void schedule(const HitInfo& hit, int voice);
     void flushNoteOffs(std::vector<OutputEvent>& out);
@@ -171,6 +193,9 @@ private:
     std::array<std::int64_t, kNumVoices> nextStep_ {};
     std::array<bool, kNumVoices> sounding_ {};
     std::array<ArpState, kNumArps> arps_ {};
+    ChordState chord_;
+    // Drums-clocked chords: running count of clock hits (a cache, so lookups stay cheap).
+    mutable std::int64_t hitsMemoCycle_ = -1, hitsMemoStep_ = 0, hitsMemoHits_ = 0;
     double expectedPpq_ = 0.0;
     bool needsResync_ = true;
 };

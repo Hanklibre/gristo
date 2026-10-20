@@ -20,7 +20,20 @@ public:
 
     std::function<void(float)> onScaleChosen;
     std::function<void()> onKeysToggled;
+    std::function<void()> onSettingsRequested; // mobile: the editor shows its settings overlay
     void setScaleLabel(float scale);
+
+    // Mobile pages: the editor hosts the header controls itself and shows one region
+    // of the view at a time.
+    std::vector<juce::Component*> headerControls();
+    void setHeaderExternal(bool external) { headerExternal_ = external; resized(); }
+    void showBottomPage(int page);
+    void showHelp(juce::Component* component) { showHelpFor(component); }
+    juce::String helpTitle() const { return helpTitle_; }
+    juce::String helpText() const { return helpText_; }
+    std::function<void()> onHelpChanged;
+    static constexpr int kChordsPageIndex = 1 + gristo::kNumArps;
+    static constexpr int kSoundsPageIndex = 2 + gristo::kNumArps;
 
 private:
     struct Knob
@@ -98,9 +111,10 @@ private:
     Knob kitGain_, freeTempo_, noteLength_;
     std::unique_ptr<NumberSelector> channels_[gristo::kNumVoices];
 
-    // Bottom panel pages: 0 = modulation, 1..kNumArps = arps, then the sounds page
-    static constexpr int kSoundsPage = 1 + gristo::kNumArps;
-    juce::TextButton pageTabs_[2 + gristo::kNumArps];
+    // Bottom panel pages: 0 = modulation, 1..kNumArps = arps, then chords and sounds
+    static constexpr int kChordsPage = 1 + gristo::kNumArps;
+    static constexpr int kSoundsPage = 2 + gristo::kNumArps;
+    juce::TextButton pageTabs_[3 + gristo::kNumArps];
     bool isArpPage() const { return page_ >= 1 && page_ <= gristo::kNumArps; }
     int page_ = 0;
     void showPage(int page);
@@ -124,14 +138,37 @@ private:
     Choice soundKit_, fxTime_;
     Knob kitTune_, kitDecay_, kitTone_, kitDrive_, kitReverb_, kitDelay_, fxSize_, fxFeedback_;
     Knob drumLevels_[gristo::kNumVoices];
-    SynthRow synthRows_[gristo::kNumArps];
+    SynthRow synthRows_[gristo::sound::kNumSynths];
+
+    // Chords page
+    void setupChordPage();
+    std::vector<juce::Component*> chordPageComponents();
+    void updateChordPage(const gristo::EngineParams& params);
+    void writeChordSlot(int index, const gristo::ChordSlot& slot);
+    void editSelectedChord(const std::function<void(gristo::ChordSlot&)>& edit);
+    void showChordLibrary();
+    void newChordProgression();
+    Toggle chordOn_;
+    Toggle chordStabs_[gristo::kNumVoices];
+    Choice chordKey_, chordScale_, chordClock_, chordClockVoice_, chordReset_, chordPlay_, chordOctave_;
+    std::unique_ptr<NumberSelector> chordHits_, chordChannel_, chordShift_;
+    std::unique_ptr<VelocityRange> chordVelocity_;
+    juce::TextButton chordLibrary_ { "Library" }, chordNew_ { "New" }, chordClear_ { "Clear" };
+    juce::TextButton chordTypes_[static_cast<int>(gristo::ChordType::Count)];
+    juce::TextButton chordInversions_[3], chordLengths_[3];
+    Knob chordMutate_, chordGate_;
+    juce::Label chordOutLabel_;
+    ChordSlotsView chordSlots_;
+    ChordPadsView chordPads_;
+    int selectedChordSlot_ = 0;
     LaneHandle soundLaneHandles_[gristo::kNumModLanes];
 
     // Arp page: one set of controls, bound to the arp being shown
     Toggle arpOn_, arpLatch_;
     Toggle arpTriggers_[gristo::kNumVoices];
     Choice arpMode_, arpReset_, arpOrder_, arpScale_;
-    Knob arpOctaves_, arpGate_, arpLength_, arpDensity_, arpAccent_, arpSlide_, arpMutate_;
+    Knob arpOctaves_, arpGate_, arpLength_, arpDensity_, arpAccent_, arpSlide_, arpMutate_, arpProb_, arpProbRandom_;
+    Toggle arpFollow_;
     juce::TextButton arpNew_;
     juce::Label arpRootLabel_, arpShiftLabel_, arpOutLabel_;
     std::unique_ptr<NumberSelector> arpChannel_, arpShift_;
@@ -155,6 +192,7 @@ private:
     std::array<ModSlider*, gristo::mod::kNumTargets> targetSliders_ {};
 
     juce::String helpTitle_, helpText_;
+    bool headerExternal_ = false;
 
     // Preset bar
     juce::TextButton presetPrev_ { "<" }, presetName_, presetNext_ { ">" }, presetSave_ { "Save" }, presetShare_ { "Share" };
@@ -184,8 +222,20 @@ public:
     ~GristoEditor() override;
     void paint(juce::Graphics&) override;
     void resized() override;
+    void mouseEnter(const juce::MouseEvent&) override;
 
 private:
+    // Mobile: pages show one region of the view, scaled to fill the screen.
+    enum MobilePage { Beat = 0, Groove, Arps, Chords, Sounds, NumMobilePages };
+    void showMobilePage(int page);
+    void showSettings();
+    juce::Rectangle<int> mobileRegion() const;
+    juce::Component clip_;
+    juce::TextButton mobileTabs_[NumMobilePages];
+    int mobilePage_ = Beat;
+    std::unique_ptr<juce::Component> settings_;
+    juce::Rectangle<int> helpBox_;
+
     void applyScale(float scale);
     void scrollBarMoved(juce::ScrollBar*, double newRangeStart) override;
     void updateViewTransform();

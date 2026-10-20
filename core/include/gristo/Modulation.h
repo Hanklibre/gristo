@@ -47,7 +47,11 @@ constexpr int arpTarget(int arp, int which) { return kArpBase + arp * kArpTarget
 constexpr int kArpCutoffBase = kArpBase + kNumArps * kArpTargetsPerArp;
 constexpr int arpCutoffTarget(int arp) { return kArpCutoffBase + arp; }
 
-constexpr int kNumTargets = kArpCutoffBase + kNumArps;
+// Arp probability (added later still, for the same reason).
+constexpr int kArpProbBase = kArpCutoffBase + kNumArps;
+constexpr int arpProbTarget(int arp) { return kArpProbBase + arp; }
+
+constexpr int kNumTargets = kArpProbBase + kNumArps;
 
 std::string targetName(int target);
 

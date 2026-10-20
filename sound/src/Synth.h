@@ -60,8 +60,11 @@ private:
 class Synth
 {
 public:
-    static constexpr int kVoices = 6;
+    static constexpr int kVoices = 12;
     void prepare(float sampleRate);
+    // Poly: every note gets its own voice (chords). Otherwise a note that starts while
+    // another is held is a slide (arps).
+    void setPoly(bool poly) { poly_ = poly; }
     void reset();
     void setParams(const SynthParams& params) { params_ = params; }
     void noteOn(int id, float pitch, float velocity);
@@ -74,6 +77,7 @@ private:
     SynthVoice voices_[kVoices];
     SynthParams params_;
     float sampleRate_ = 48000.0f;
+    bool poly_ = false;
 };
 
 } // namespace gristo::sound

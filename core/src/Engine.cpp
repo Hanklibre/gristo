@@ -1,5 +1,7 @@
 #include "gristo/Engine.h"
 
+#include "gristo/Random.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -29,6 +31,8 @@ void Engine::reset()
         st.lastNote = -1;
         st.lastSlide = false;
     }
+    chord_ = ChordState {};
+    hitsMemoCycle_ = -1;
     needsResync_ = true;
 }
 
@@ -113,10 +117,30 @@ void Engine::playArp(int arp, std::int64_t step, std::int64_t k, std::int64_t cy
     // Modulation lanes are read at the drum step that triggered the arp.
     const ArpParams ap = hasModulation_ ? effectiveParams(step).arps[static_cast<size_t>(arp)] : params_.arps[static_cast<size_t>(arp)];
     const int voice = kArpVoiceBase + arp;
-    const ArpPool pool = Arp::pool(ap, st.held.data(), st.heldCount);
+    ArpPool pool;
+    if (ap.followChords && chordsActive())
+    {
+        // The chord sequencer's current chord is this arp's "held" chord.
+        const Chord chord = chordAt(step);
+        pool = Arp::pool(ap, chord.notes.data(), chord.count);
+    }
+    else
+    {
+        pool = Arp::pool(ap, st.held.data(), st.heldCount);
+    }
     static const ArpPattern kNoPattern {};
     const ArpPattern& pattern = ap.mode == ArpMode::Generate ? arpPattern(arp, cycle) : kNoPattern;
-    const ArpNote n = Arp::noteFor(ap, pool, pattern, k, cycle);
+    ArpNote n = Arp::noteFor(ap, pool, pattern, k, cycle);
+    if (n.play && (ap.probability < 1.0f || ap.probabilityRandom > 0.0f))
+    {
+        // Same idea as the drums' Probability: hashed per step, so re-renders match.
+        const auto a = static_cast<std::uint32_t>(arp);
+        float chance = ap.probability;
+        if (ap.probabilityRandom > 0.0f)
+            chance += rnd::bipolar(rnd::hash(params_.pattern.seed, 0xA9B0u + a, floorDiv(step, kStepsPerBar))) * 0.5f * ap.probabilityRandom;
+        if (rnd::unit(rnd::hash(params_.pattern.seed, 0xA9C0u + a, step, k)) >= std::clamp(chance, 0.0f, 1.0f))
+            n.play = false;
+    }
     const int note = Arp::outputNote(n.note + ap.transpose, ap.shift);
 
     // End the previous note: slides overlap into a new pitch (legato), everything
@@ -149,6 +173,159 @@ void Engine::playArp(int arp, std::int64_t step, std::int64_t k, std::int64_t cy
     pending_.push_back({ off, voice, 0.0f, false, note });
     st.lastNote = note;
     st.lastSlide = n.slide;
+}
+
+// ---------------------------------------------------------------------------------
+// Chord sequencer
+
+bool Engine::chordsActive() const
+{
+    return params_.chords.enabled && Chords::usedCount(params_.chords) > 0;
+}
+
+std::int64_t Engine::clockHitsBefore(std::int64_t step) const
+{
+    // Hits of the clock voice from the reset bar up to (not including) `step`.
+    const ChordParams& cp = params_.chords;
+    const int resetLen = std::clamp(cp.resetBars, 1, 16) * kStepsPerBar;
+    const std::int64_t cycle = floorDiv(step, resetLen);
+    const std::int64_t cycleStart = cycle * resetLen;
+    std::int64_t from = cycleStart, hits = 0;
+    if (hitsMemoCycle_ == cycle && hitsMemoStep_ <= step)
+    {
+        from = hitsMemoStep_;
+        hits = hitsMemoHits_;
+    }
+    const int voice = std::clamp(cp.clockVoice, 0, kNumVoices - 1);
+    for (std::int64_t s = from; s < step; ++s)
+        if (evaluateStep(s)[static_cast<size_t>(voice)].on)
+            ++hits;
+    hitsMemoCycle_ = cycle;
+    hitsMemoStep_ = step;
+    hitsMemoHits_ = hits;
+    return hits;
+}
+
+ChordPosition Engine::chordPositionAt(std::int64_t step) const
+{
+    if (!chordsActive())
+        return {};
+    const ChordParams& cp = params_.chords;
+    if (cp.clock == ChordClock::Drums)
+    {
+        const int voice = std::clamp(cp.clockVoice, 0, kNumVoices - 1);
+        const bool hitNow = evaluateStep(step)[static_cast<size_t>(voice)].on;
+        return Chords::drumsPosition(cp, step, clockHitsBefore(step) + (hitNow ? 1 : 0));
+    }
+    return Chords::barsPosition(cp, step);
+}
+
+Chord Engine::chordAt(std::int64_t step) const
+{
+    const ChordPosition pos = chordPositionAt(step);
+    if (pos.slot < 0)
+        return {};
+    return Chords::build(params_.chords, Chords::played(params_.chords, pos));
+}
+
+void Engine::releaseHeldChord(double beats)
+{
+    if (!chord_.haveChord)
+        return;
+    for (int i = 0; i < chord_.held.count; ++i)
+        pending_.push_back({ beats, kChordVoice, 0.0f, false, chord_.held.notes[static_cast<size_t>(i)] });
+    chord_.haveChord = false;
+}
+
+void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
+{
+    const ChordParams& cp = params_.chords;
+    ChordState& st = chord_;
+    if (!chordsActive() || cp.play == ChordPlay::Off)
+    {
+        releaseHeldChord(ppqStart);
+        st.needsResync = true;
+        return;
+    }
+    if (st.needsResync)
+    {
+        st.nextStep = static_cast<std::int64_t>(std::ceil(ppqStart * kStepsPerBeat - 1e-9));
+        st.haveChord = false;
+        st.needsResync = false;
+    }
+    const float lo = std::clamp(cp.velMin, 0.0f, 1.0f);
+    const float hi = std::clamp(cp.velMax, lo, 1.0f);
+    auto outNotes = [&cp](const Chord& c) {
+        Chord out = c;
+        for (int i = 0; i < out.count; ++i)
+            out.notes[static_cast<size_t>(i)] = Arp::outputNote(c.notes[static_cast<size_t>(i)], cp.shift);
+        return out;
+    };
+
+    for (int guard = 0; guard < kMaxStepsPerBlock; ++guard)
+    {
+        const std::int64_t s = st.nextStep;
+        if (static_cast<double>(s) / kStepsPerBeat - kMaxEarlyBeats >= ppqEnd)
+            break;
+
+        if (cp.play == ChordPlay::Held)
+        {
+            const double beats = gridAt(s);
+            if (beats >= ppqEnd)
+                break;
+            const ChordPosition pos = chordPositionAt(s);
+            const Chord chord = pos.slot >= 0 ? outNotes(Chords::build(cp, Chords::played(cp, pos))) : Chord {};
+            const bool edited = st.haveChord && (chord.count != st.held.count
+                                                 || !std::equal(chord.notes.begin(), chord.notes.begin() + chord.count, st.held.notes.begin()));
+            if (!st.haveChord || pos.serial != st.lastSerial || edited)
+            {
+                releaseHeldChord(beats);
+                const float velocity = std::clamp(lo + (hi - lo) * 0.7f, kMinVelocity, 1.0f);
+                for (int i = 0; i < chord.count; ++i)
+                    pending_.push_back({ beats, kChordVoice, velocity, true, chord.notes[static_cast<size_t>(i)] });
+                st.held = chord;
+                st.haveChord = chord.count > 0;
+                st.lastSerial = pos.serial;
+            }
+        }
+        else // Stabs: the chord plays on hits of the stab voices
+        {
+            releaseHeldChord(ppqStart);
+            HitInfo best;
+            bool found = false;
+            double earliest = std::numeric_limits<double>::infinity();
+            for (int v = 0; v < kNumVoices; ++v)
+            {
+                if (!cp.stabTriggers[static_cast<size_t>(v)])
+                    continue;
+                const HitInfo h = describe(s, v, bpm, true);
+                earliest = std::min(earliest, h.timeBeats);
+                if (h.on && (!found || h.velocityNorm > best.velocityNorm))
+                {
+                    best = h;
+                    found = true;
+                }
+            }
+            if (earliest >= ppqEnd)
+                break;
+            if (found)
+            {
+                const Chord chord = outNotes(chordAt(s));
+                // A new stab cuts the previous one.
+                for (Pending& p : pending_)
+                    if (!p.noteOn && p.voice == kChordVoice)
+                        p.beats = std::min(p.beats, best.timeBeats);
+                const float velocity = std::clamp(lo + (hi - lo) * best.velocityNorm, kMinVelocity, 1.0f);
+                const double off = best.timeBeats + std::max(0.02, static_cast<double>(cp.stabGateSteps) / kStepsPerBeat);
+                for (int i = 0; i < chord.count; ++i)
+                {
+                    pending_.push_back({ best.timeBeats, kChordVoice, velocity, true, chord.notes[static_cast<size_t>(i)] });
+                    pending_.push_back({ off, kChordVoice, 0.0f, false, chord.notes[static_cast<size_t>(i)] });
+                }
+            }
+        }
+        ++st.nextStep;
+    }
 }
 
 void Engine::processArp(int arp, double ppqStart, double ppqEnd, double bpm)
@@ -263,6 +440,7 @@ EngineParams Engine::effectiveParams(std::int64_t step) const
         ap.transpose = addInt(ap.transpose, t(mod::kArpTranspose), -12, 12);
         ap.velocityOffset = acc[static_cast<size_t>(t(mod::kArpVelocity))];
         ap.cutoffOffset = acc[static_cast<size_t>(mod::arpCutoffTarget(a))];
+        ap.probability = add(ap.probability, mod::arpProbTarget(a), 0.0f, 1.0f);
     }
     return e;
 }
@@ -382,6 +560,12 @@ void Engine::flushNoteOffs(std::vector<OutputEvent>& out)
         st.lastSlide = false;
         st.needsResync = true;
     }
+    for (int n = 0; n < 128; ++n)
+        if (chord_.sounding[static_cast<size_t>(n)])
+            out.push_back({ 0, kChordVoice, 0.0f, false, n });
+    chord_.sounding.fill(false);
+    chord_.haveChord = false;
+    chord_.needsResync = true;
     pending_.clear();
 }
 
@@ -432,6 +616,7 @@ void Engine::process(const BlockInfo& block, std::vector<OutputEvent>& out)
         }
     }
 
+    processChords(ppqStart, ppqEnd, block.bpm);
     for (int a = 0; a < kNumArps; ++a)
         processArp(a, ppqStart, ppqEnd, block.bpm);
 
@@ -452,8 +637,10 @@ void Engine::process(const BlockInfo& block, std::vector<OutputEvent>& out)
         out.push_back({ sample, p.voice, p.velocity, p.noteOn, p.note });
         if (p.voice < kNumVoices)
             sounding_[static_cast<size_t>(p.voice)] = p.noteOn;
-        else if (p.note >= 0 && p.note < 128)
+        else if (p.note >= 0 && p.note < 128 && p.voice < kChordVoice)
             arps_[static_cast<size_t>(p.voice - kArpVoiceBase)].sounding[static_cast<size_t>(p.note)] = p.noteOn;
+        else if (p.note >= 0 && p.note < 128)
+            chord_.sounding[static_cast<size_t>(p.note)] = p.noteOn;
     }
     pending_.erase(pending_.begin(), pending_.begin() + static_cast<std::ptrdiff_t>(emitted));
 }

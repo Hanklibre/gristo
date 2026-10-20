@@ -182,6 +182,25 @@ TEST("sound: overlapping notes glide in one voice; separate notes let the tail r
     CHECK(e.activeSynthVoices(0) == 0);
 }
 
+TEST("sound: the chord synth is polyphonic")
+{
+    SoundEngine e;
+    dryEngine(e);
+    SynthParams p;
+    p.sound = SynthSound::EPiano;
+    e.setSynth(kChordSynth, p);
+    for (int n : { 48, 52, 55, 59 })
+        e.noteOn(kChordSynth, n, static_cast<float>(n), 0.7f);
+    Rendered out;
+    renderInto(e, out, 0.2);
+    CHECK(e.activeSynthVoices(kChordSynth) == 4);
+    for (int n : { 48, 52, 55, 59 })
+        e.noteOff(kChordSynth, n);
+    renderInto(e, out, 6.0);
+    CHECK(e.activeSynthVoices(kChordSynth) == 0);
+    CHECK(out.finite);
+}
+
 TEST("sound: Cutoff and its modulation brighten the synth")
 {
     auto brightness = [](float cutoff, float mod) {

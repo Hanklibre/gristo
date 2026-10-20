@@ -9,7 +9,7 @@ namespace {
 constexpr int kFormatVersion = 1;
 
 // Each id is matched without its trailing index (note0..note5 -> note).
-const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "kitOn", "kitGain", "freeRun" };
+const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun" };
 
 juce::String withoutIndex(const juce::String& id)
 {

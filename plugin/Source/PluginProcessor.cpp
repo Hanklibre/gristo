@@ -107,13 +107,15 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     events_.clear();
     engine_.process(block, events_);
 
-    int notes[gristo::kNumVoices], channels[gristo::kNumVoices + gristo::kNumArps];
+    int notes[gristo::kNumVoices], channels[gristo::kChordVoice + 1];
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         notes[v] = static_cast<int>(state.getRawParameterValue(p::voiceId(p::note, v))->load());
         channels[v] = static_cast<int>(state.getRawParameterValue(p::voiceId(p::voiceChannel, v))->load());
     }
-    int shifts[gristo::kNumArps];
+    int shifts[gristo::kNumArps + 1]; // arps, then the chords
+    channels[gristo::kChordVoice] = static_cast<int>(state.getRawParameterValue(p::chordChannel)->load());
+    shifts[gristo::kNumArps] = static_cast<int>(state.getRawParameterValue(p::chordShift)->load());
     for (int a = 0; a < gristo::kNumArps; ++a)
     {
         channels[gristo::kArpVoiceBase + a] = static_cast<int>(state.getRawParameterValue(p::laneId(p::arpChannel, a))->load());
@@ -132,10 +134,11 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         // Cutoff lanes: sampled at the block's 16th (lanes move in 16ths anyway).
         const gristo::EngineParams modulated =
             engine_.effectiveParams(static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat)));
-        for (int a = 0; a < gristo::kNumArps; ++a)
+        for (int a = 0; a < gristo::sound::kNumSynths; ++a)
         {
             auto synth = p::readSynthParams(state, a);
-            synth.cutoffMod = block.playing ? modulated.arps[static_cast<size_t>(a)].cutoffOffset : 0.0f;
+            if (a < gristo::kNumArps)
+                synth.cutoffMod = block.playing ? modulated.arps[static_cast<size_t>(a)].cutoffOffset : 0.0f;
             sound_.setSynth(a, synth);
         }
         auto fx = p::readFxParams(state);
@@ -196,6 +199,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     for (int a = 0; a < gristo::kNumArps; ++a)
         displayArpCount[static_cast<size_t>(a)].store(engine_.arpCount(a));
     displayPlaying.store(block.playing);
+    displayChordSlot.store(block.playing ? engine_.chordPositionAt(static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat))).slot : -1);
     if (block.playing)
     {
         displayPpq.store(block.ppqStart);
