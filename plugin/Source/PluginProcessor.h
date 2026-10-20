@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Parameters.h"
+#include "Presets.h"
 
 #include <atomic>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -44,6 +45,11 @@ public:
 
     // Drawn modulation lane curves (see Parameters.h) and the editor's zoom.
     gristo::params::ModPointStore modPoints;
+    void writeLanes(juce::ValueTree& lanes) const;
+    void readLanes(const juce::ValueTree& lanes);
+    void resetLanes(); // the starting curves
+
+    PresetManager presets { *this };
     std::atomic<float> uiScale { 0.0f }; // 0 = pick a size that fits the screen
 
     // Arp display: advances since the last reset, and the notes feeding each arp.

@@ -49,6 +49,19 @@ standalone / Android app and the tests share it.
   stable. The worst case (two six-voice supersaw pads, every drum, both FX)
   takes about 6 % of one desktop core.
 
+## Presets
+
+`plugin/Source/Presets.cpp`. A preset is XML (`<GristoPreset version="1">`):
+one `<PARAM id value>` per parameter (plain values) plus the drawn lanes.
+Loading resets every musical parameter that the file doesn't mention to its
+default, so a preset sounds the same whatever was loaded before, and older
+presets load cleanly after new parameters are added. Routing parameters (MIDI
+notes, channels, Out Shift, Sound on/level, Free Run) are never written or
+touched. Factory presets (`FactoryPresets.cpp`) list only what differs from
+the defaults. The current preset's name and file are saved with the project.
+"Changed" (`*`) compares a hash of the musical state with the one taken at
+load / save.
+
 ## Code layout
 
 | Path | What |

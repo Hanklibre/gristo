@@ -44,6 +44,7 @@ GristoView::GristoView(GristoProcessor& proc)
     addAndMakeVisible(nodeLabel_);
     sizeButton_.onClick = [this] { showSizeMenu(); };
     addAndMakeVisible(sizeButton_);
+    setupPresetBar();
 
     setupKnob(chaos_, p::chaos, "Chaos");
     setupKnob(variation_, p::variation, "Variation");
@@ -256,7 +257,7 @@ void GristoView::showHelpFor(juce::Component* component)
             {
                 helpTitle_ = title;
                 helpText_ = text;
-                repaint(372, 4, 520, 42);
+                repaint(412, 4, 480, 42);
             }
             return;
         }
@@ -513,6 +514,185 @@ void GristoView::setScaleLabel(float scale)
     sizeButton_.setButtonText("Size " + juce::String(juce::roundToInt(scale * 100.0f)) + "%");
 }
 
+// ---------------------------------------------------------------------------------
+// Presets
+
+void GristoView::setupPresetBar()
+{
+    for (auto* b : { &presetPrev_, &presetName_, &presetNext_, &presetSave_ })
+        addAndMakeVisible(*b);
+    presetPrev_.onClick = [this] { processor_.presets.step(-1); presetLoaded(); };
+    presetNext_.onClick = [this] { processor_.presets.step(1); presetLoaded(); };
+    presetName_.onClick = [this] { showPresetMenu(); };
+    presetSave_.onClick = [this] { savePreset(false); };
+    presetName_.setButtonText(processor_.presets.currentName());
+    setHelp(presetName_, "Preset", "Click for factory and your presets, Save As, Import / Export and Init. * = changed since loading.");
+    setHelp(presetPrev_, "Previous preset", "Load the previous preset (factory first, then yours).");
+    setHelp(presetNext_, "Next preset", "Load the next preset (factory first, then yours).");
+    setHelp(presetSave_, "Save preset", "Save over your current preset, or name a new one. MIDI notes, channels and Shift aren't stored.");
+}
+
+void GristoView::presetLoaded()
+{
+    auto& presets = processor_.presets;
+    presetName_.setButtonText(presets.currentName() + (presets.isDirty() ? " *" : ""));
+    laneEditor_.repaint();
+    repaint();
+}
+
+void GristoView::showPresetMenu()
+{
+    auto& presets = processor_.presets;
+    juce::PopupMenu menu;
+    menu.addSectionHeader("Factory");
+    const auto& factory = PresetManager::factoryPresets();
+    for (int i = 0; i < static_cast<int>(factory.size()); ++i)
+        menu.addItem(1000 + i, factory[static_cast<size_t>(i)].name, true,
+                     presets.currentFile() == juce::File() && presets.currentName() == factory[static_cast<size_t>(i)].name);
+    const auto files = presets.userPresets();
+    menu.addSectionHeader("My presets");
+    if (files.isEmpty())
+        menu.addItem(-1, "(none yet: Save As to make one)", false);
+    for (int i = 0; i < files.size(); ++i)
+        menu.addItem(2000 + i, files[i].getFileNameWithoutExtension(), true, files[i] == presets.currentFile());
+    menu.addSeparator();
+    menu.addItem(1, "Save");
+    menu.addItem(2, "Save As...");
+    menu.addItem(3, "Import...");
+    menu.addItem(4, "Export...");
+    menu.addItem(5, "Init (start from scratch)");
+    menu.addItem(6, "Show preset folder");
+
+    juce::Component::SafePointer<GristoView> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetName_), [safe, files](int result) {
+        if (safe == nullptr || result == 0)
+            return;
+        auto& pm = safe->processor_.presets;
+        if (result >= 2000)
+            pm.loadFile(files[result - 2000]);
+        else if (result >= 1000)
+            pm.loadFactory(result - 1000);
+        else if (result == 1)
+            safe->savePreset(false);
+        else if (result == 2)
+            safe->savePreset(true);
+        else if (result == 3)
+            safe->importPreset();
+        else if (result == 4)
+            safe->exportPreset();
+        else if (result == 5)
+            pm.loadInit();
+        else if (result == 6)
+            PresetManager::userFolder().revealToUser();
+        safe->presetLoaded();
+    });
+}
+
+void GristoView::askPresetName(const juce::String& suggestion, std::function<void(juce::String)> done)
+{
+    auto* window = new juce::AlertWindow("Save preset", "Name for the preset:", juce::MessageBoxIconType::NoIcon, this);
+    window->addTextEditor("name", suggestion);
+    window->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    window->enterModalState(true, juce::ModalCallbackFunction::create([window, done](int result) {
+                                if (result == 1)
+                                    done(window->getTextEditorContents("name").trim());
+                            }),
+                            true);
+}
+
+void GristoView::confirm(const juce::String& title, const juce::String& message, const juce::String& yes, std::function<void()> onYes)
+{
+    auto* window = new juce::AlertWindow(title, message, juce::MessageBoxIconType::QuestionIcon, this);
+    window->addButton(yes, 1, juce::KeyPress(juce::KeyPress::returnKey));
+    window->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    window->enterModalState(true, juce::ModalCallbackFunction::create([onYes](int result) {
+                                if (result == 1)
+                                    onYes();
+                            }),
+                            true);
+}
+
+void GristoView::savePreset(bool askForName)
+{
+    auto& presets = processor_.presets;
+    const auto current = presets.currentFile();
+    if (!askForName && current.existsAsFile())
+    {
+        presets.saveFile(current, presets.currentName());
+        presetLoaded();
+        return;
+    }
+    juce::Component::SafePointer<GristoView> safe(this);
+    const auto suggestion = presets.currentName() == "Init" ? juce::String("My groove") : presets.currentName();
+    askPresetName(suggestion, [safe](juce::String name) {
+        if (safe == nullptr || name.isEmpty())
+            return;
+        const auto file = PresetManager::userFolder().getChildFile(juce::File::createLegalFileName(name) + PresetManager::kExtension);
+        auto write = [safe, file, name] {
+            if (safe == nullptr)
+                return;
+            safe->processor_.presets.saveFile(file, name);
+            safe->presetLoaded();
+        };
+        if (file.existsAsFile() && file != safe->processor_.presets.currentFile())
+            safe->confirm("Replace preset?", "\"" + name + "\" already exists.", "Replace", write);
+        else
+            write();
+    });
+}
+
+void GristoView::importPreset()
+{
+    chooser_ = std::make_unique<juce::FileChooser>("Import a Gristo preset", juce::File::getSpecialLocation(juce::File::userHomeDirectory),
+                                                   juce::String("*") + PresetManager::kExtension);
+    juce::Component::SafePointer<GristoView> safe(this);
+    chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [safe](const juce::FileChooser& chooser) {
+                              if (safe == nullptr)
+                                  return;
+                              const auto source = chooser.getResult();
+                              if (!source.existsAsFile())
+                                  return;
+                              auto& presets = safe->processor_.presets;
+                              const auto copy = presets.importFile(source);
+                              if (!presets.loadFile(copy.existsAsFile() ? copy : source))
+                                  juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Import",
+                                                                         "That file isn't a Gristo preset.", "OK", safe.getComponent());
+                              safe->presetLoaded();
+                          });
+}
+
+void GristoView::exportPreset()
+{
+    auto& presets = processor_.presets;
+    const auto name = presets.currentName();
+    const auto start = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+                           .getChildFile(juce::File::createLegalFileName(name) + PresetManager::kExtension);
+    chooser_ = std::make_unique<juce::FileChooser>("Export preset", start, juce::String("*") + PresetManager::kExtension);
+    juce::Component::SafePointer<GristoView> safe(this);
+    chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [safe, name](const juce::FileChooser& chooser) {
+                              if (safe == nullptr)
+                                  return;
+                              auto file = chooser.getResult();
+                              if (file == juce::File())
+                                  return;
+                              if (!file.hasFileExtension(PresetManager::kExtension))
+                                  file = file.withFileExtension(PresetManager::kExtension);
+                              // Export writes a copy; the preset you're working on stays current.
+                              auto& pm = safe->processor_.presets;
+                              const auto keepFile = pm.currentFile();
+                              const auto keepName = pm.currentName();
+                              const bool dirty = pm.isDirty();
+                              pm.saveFile(file, name);
+                              if (keepFile != file)
+                                  pm.restoreIdentity(keepName, keepFile, dirty);
+                              safe->presetLoaded();
+                          });
+}
+
 void GristoView::showSizeMenu()
 {
     juce::PopupMenu menu;
@@ -538,6 +718,12 @@ void GristoView::timerCallback()
     nodeLabel_.setText("Near: " + mapPad_.nearestNodeName(), juce::dontSendNotification);
     patternView_.setPlayhead(processor_.displayPpq.load(), processor_.displayBpm.load(), processor_.displayPlaying.load());
     laneEditor_.repaint();
+    if (++presetRefresh_ >= 8) // a few times a second is plenty
+    {
+        presetRefresh_ = 0;
+        auto& presets = processor_.presets;
+        presetName_.setButtonText(presets.currentName() + (presets.isDirty() ? " *" : ""));
+    }
     if (isArpPage())
     {
         const auto& ap = params.arps[static_cast<size_t>(page_ - 1)];
@@ -925,10 +1111,9 @@ void GristoView::paint(juce::Graphics& g)
     g.drawText("GRISTO", header.removeFromLeft(120), juce::Justification::centredLeft);
     g.setColour(colours::dim);
     g.setFont(juce::FontOptions(11.0f));
-    g.drawFittedText("topographic drums,\ntripping over themselves", header.removeFromLeft(220), juce::Justification::centredLeft, 2);
 
     // Help box
-    const juce::Rectangle<int> help { 372, 6, 520, 38 };
+    const juce::Rectangle<int> help { 412, 6, 480, 38 };
     g.setColour(colours::panel);
     g.fillRoundedRectangle(help.toFloat(), 6.0f);
     g.setColour(colours::outline);
@@ -1008,6 +1193,10 @@ void GristoView::paint(juce::Graphics& g)
 void GristoView::resized()
 {
     sizeButton_.setBounds(904, 12, 80, 26);
+    presetPrev_.setBounds(140, 12, 26, 26);
+    presetName_.setBounds(168, 12, 160, 26);
+    presetNext_.setBounds(330, 12, 26, 26);
+    presetSave_.setBounds(358, 12, 46, 26);
 
     // Left column: map, then the humanize / dynamics masters
     mapPad_.setBounds(28, 78, 320, 320);

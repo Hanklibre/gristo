@@ -37,6 +37,14 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   leads), each with Cutoff, Resonance, Env, Attack, Release, Glide and Level.
   A shared reverb and tempo-synced ping-pong delay with sends. Lanes can sweep
   each synth's Cutoff.
+* **Presets:** a preset bar at the top. There are 8 factory presets (Trap
+  Acid, Boom Bap Keys, Reggaeton Night, 808 House Pads, Minimal Bells, Lazy
+  Organ, Electro Sync, 2-Step Glass), plus your own as `.gristo` files in
+  `Documents/Gristo/Presets`. Use Save / Save As, step through presets with
+  < >, and use Import / Export to move them between computers (or from the
+  tablet). A preset stores everything musical, including the sounds, but not
+  your MIDI notes, channels, Out Shift or Sound on/level, so loading one never
+  breaks your DAW routing. `*` after the name means you've changed it.
 * **UI size:** 70–125 %, and it picks a size that fits your screen the first time.
 * **Output:** MIDI notes with a selectable note and channel per voice (GM drum
   notes three octaves down on channel 10 by default, so the drums sit below the

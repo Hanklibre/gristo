@@ -8,6 +8,12 @@ GristoProcessor::GristoProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
+    resetLanes();
+    presets.markClean();
+}
+
+void GristoProcessor::resetLanes()
+{
     // Starting curves (one bar, repeated), so a lane does something as soon as it is routed.
     const gristo::ModShape defaults[gristo::kNumModLanes] = { gristo::ModShape::RampDown, gristo::ModShape::Sine,
                                                               gristo::ModShape::Square, gristo::ModShape::BeatSaw };
@@ -242,11 +248,8 @@ juce::AudioProcessorEditor* GristoProcessor::createEditor()
     return new GristoEditor(*this);
 }
 
-void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
+void GristoProcessor::writeLanes(juce::ValueTree& lanes) const
 {
-    auto tree = state.copyState();
-    // Drawn lanes and UI size are not parameters: store them in a child tree.
-    auto lanes = tree.getOrCreateChildWithName("MODLANES", nullptr);
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
     {
         juce::StringArray values;
@@ -254,7 +257,27 @@ void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
             values.add(juce::String(p::lanePoint(modPoints, lane, k).load(), 3));
         lanes.setProperty("lane" + juce::String(lane), values.joinIntoString(","), nullptr);
     }
+}
+
+void GristoProcessor::readLanes(const juce::ValueTree& lanes)
+{
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+    {
+        juce::StringArray values;
+        values.addTokens(lanes.getProperty("lane" + juce::String(lane)).toString(), ",", {});
+        for (int k = 0; k < gristo::kMaxModPoints && k < values.size(); ++k)
+            p::lanePoint(modPoints, lane, k).store(juce::jlimit(0.0f, 1.0f, values[k].getFloatValue()));
+    }
+}
+
+void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
+{
+    auto tree = state.copyState();
+    // Drawn lanes, UI size and the preset name are not parameters: store them alongside.
+    auto lanes = tree.getOrCreateChildWithName("MODLANES", nullptr);
+    writeLanes(lanes);
     tree.setProperty("uiScale", uiScale.load(), nullptr);
+    presets.writeTo(tree);
     if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -266,16 +289,12 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
         {
             const auto tree = juce::ValueTree::fromXml(*xml);
             const auto lanes = tree.getChildWithName("MODLANES");
-            for (int lane = 0; lane < gristo::kNumModLanes && lanes.isValid(); ++lane)
-            {
-                juce::StringArray values;
-                values.addTokens(lanes.getProperty("lane" + juce::String(lane)).toString(), ",", {});
-                for (int k = 0; k < gristo::kMaxModPoints && k < values.size(); ++k)
-                    p::lanePoint(modPoints, lane, k).store(juce::jlimit(0.0f, 1.0f, values[k].getFloatValue()));
-            }
+            if (lanes.isValid())
+                readLanes(lanes);
             if (tree.hasProperty("uiScale"))
                 uiScale.store(static_cast<float>(tree.getProperty("uiScale")));
             state.replaceState(tree);
+            presets.readFrom(tree);
         }
 }
 

@@ -155,6 +155,19 @@ private:
 
     juce::String helpTitle_, helpText_;
 
+    // Preset bar
+    juce::TextButton presetPrev_ { "<" }, presetName_, presetNext_ { ">" }, presetSave_ { "Save" };
+    std::unique_ptr<juce::FileChooser> chooser_;
+    int presetRefresh_ = 0;
+    void setupPresetBar();
+    void showPresetMenu();
+    void savePreset(bool askForName);
+    void askPresetName(const juce::String& suggestion, std::function<void(juce::String)> done);
+    void confirm(const juce::String& title, const juce::String& message, const juce::String& yes, std::function<void()> onYes);
+    void importPreset();
+    void exportPreset();
+    void presetLoaded();
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GristoView)
 };
 

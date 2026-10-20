@@ -15,7 +15,9 @@ juce_add_plugin(Gristo
     AU_MAIN_TYPE kAudioUnitType_MusicDevice)
 
 target_sources(Gristo PRIVATE
+    Source/FactoryPresets.cpp
     Source/Parameters.cpp
+    Source/Presets.cpp
     Source/PluginEditor.cpp
     Source/PluginProcessor.cpp
     Source/Widgets.cpp)
