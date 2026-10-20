@@ -31,7 +31,16 @@ bool PresetManager::isRoutingParameter(const juce::String& id)
 
 juce::File PresetManager::userFolder()
 {
-    auto folder = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Gristo").getChildFile("Presets");
+    // Documents/Gristo/Presets: on Android that's the shared Documents folder,
+    // reachable over USB. If the system refuses it, fall back to the app's own data.
+    static const juce::File folder = [] {
+        auto docs = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Gristo").getChildFile("Presets");
+        if (docs.createDirectory() && docs.hasWriteAccess())
+            return docs;
+        auto own = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory).getChildFile("Gristo").getChildFile("Presets");
+        own.createDirectory();
+        return own;
+    }();
     folder.createDirectory();
     return folder;
 }
@@ -164,6 +173,48 @@ juce::File PresetManager::importFile(const juce::File& source)
     if (target.existsAsFile())
         target = target.getNonexistentSibling(false);
     return source.copyFileTo(target) ? target : juce::File();
+}
+
+juce::File PresetManager::importUrl(const juce::URL& source)
+{
+    if (source.isLocalFile())
+        return importFile(source.getLocalFile());
+    std::unique_ptr<juce::InputStream> in(source.createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)));
+    if (in == nullptr)
+        return {};
+    const auto text = in->readEntireStreamAsString();
+    const auto xml = juce::parseXML(text);
+    if (xml == nullptr || !xml->hasTagName("GristoPreset"))
+        return {};
+    auto name = juce::File::createLegalFileName(xml->getStringAttribute("name", "Imported"));
+    auto target = userFolder().getChildFile(name + kExtension);
+    if (target.existsAsFile())
+        target = target.getNonexistentSibling(false);
+    return target.replaceWithText(text) ? target : juce::File();
+}
+
+bool PresetManager::exportUrl(const juce::URL& target) const
+{
+    const auto xml = capture(name_).createXml();
+    if (xml == nullptr)
+        return false;
+    if (target.isLocalFile())
+        return xml->writeTo(target.getLocalFile());
+    std::unique_ptr<juce::OutputStream> out(target.createOutputStream());
+    if (out == nullptr)
+        return false;
+    out->writeText(xml->toString(), false, false, "\n");
+    out->flush();
+    return true;
+}
+
+juce::File PresetManager::writeTemporary() const
+{
+    auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("GristoShare");
+    folder.createDirectory();
+    auto file = folder.getChildFile(juce::File::createLegalFileName(name_) + kExtension);
+    const auto xml = capture(name_).createXml();
+    return xml != nullptr && xml->writeTo(file) ? file : juce::File();
 }
 
 int PresetManager::currentIndex() const

@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<JUCERPROJECT id="GrstAn" name="Gristo" projectType="audioplug" version="0.1.0"
+              bundleIdentifier="com.gristo.gristo" companyName="Gristo" pluginFormats="buildStandalone"
+              pluginName="Gristo" pluginDesc="Topographic drums with a groove engine"
+              pluginManufacturer="Gristo" pluginManufacturerCode="Grst" pluginCode="Grs1"
+              pluginCharacteristicsValue="pluginIsSynth,pluginWantsMidiIn,pluginProducesMidiOut"
+              pluginChannelConfigs="" cppLanguageStandard="17" jucerFormatVersion="1"
+              defines="JUCE_APP_CONFIG_HEADER=&quot;AppConfig.h&quot;&#10;JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_VST3_CAN_REPLACE_VST2=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0&#10;JUCE_CONTENT_SHARING=1"
+              displaySplashScreen="0">
+  <MAINGROUP id="gMain" name="Gristo">
+    <GROUP id="gcore" name="core">
+      <FILE id="f00001" name="Arp.cpp" compile="1" resource="0" file="../core/src/Arp.cpp"/>
+      <FILE id="f00002" name="DrumMap.cpp" compile="1" resource="0" file="../core/src/DrumMap.cpp"/>
+      <FILE id="f00003" name="Engine.cpp" compile="1" resource="0" file="../core/src/Engine.cpp"/>
+      <FILE id="f00004" name="Groove.cpp" compile="1" resource="0" file="../core/src/Groove.cpp"/>
+      <FILE id="f00005" name="Humanizer.cpp" compile="1" resource="0" file="../core/src/Humanizer.cpp"/>
+      <FILE id="f00006" name="MapData.cpp" compile="1" resource="0" file="../core/src/MapData.cpp"/>
+      <FILE id="f00007" name="Modulation.cpp" compile="1" resource="0" file="../core/src/Modulation.cpp"/>
+      <FILE id="f00008" name="PatternGenerator.cpp" compile="1" resource="0"
+            file="../core/src/PatternGenerator.cpp"/>
+    </GROUP>
+    <GROUP id="gsound" name="sound">
+      <FILE id="f00009" name="Drums.cpp" compile="1" resource="0" file="../sound/src/Drums.cpp"/>
+      <FILE id="f00010" name="Fx.cpp" compile="1" resource="0" file="../sound/src/Fx.cpp"/>
+      <FILE id="f00011" name="SoundEngine.cpp" compile="1" resource="0" file="../sound/src/SoundEngine.cpp"/>
+      <FILE id="f00012" name="Synth.cpp" compile="1" resource="0" file="../sound/src/Synth.cpp"/>
+    </GROUP>
+    <GROUP id="gplugin" name="plugin">
+      <FILE id="f00013" name="FactoryPresets.cpp" compile="1" resource="0"
+            file="../plugin/Source/FactoryPresets.cpp"/>
+      <FILE id="f00014" name="Parameters.cpp" compile="1" resource="0" file="../plugin/Source/Parameters.cpp"/>
+      <FILE id="f00015" name="PluginEditor.cpp" compile="1" resource="0"
+            file="../plugin/Source/PluginEditor.cpp"/>
+      <FILE id="f00016" name="PluginProcessor.cpp" compile="1" resource="0"
+            file="../plugin/Source/PluginProcessor.cpp"/>
+      <FILE id="f00017" name="Presets.cpp" compile="1" resource="0" file="../plugin/Source/Presets.cpp"/>
+      <FILE id="f00018" name="Widgets.cpp" compile="1" resource="0" file="../plugin/Source/Widgets.cpp"/>
+    </GROUP>
+  </MAINGROUP>
+  <EXPORTFORMATS>
+    <ANDROIDSTUDIO targetFolder="Builds/Android" androidMinimumSDK="24" androidTargetSDK="34"
+                   androidScreenOrientation="unspecified" androidEnableContentSharing="1"
+                   androidExternalWriteNeeded="0" androidInternetNeeded="0" androidVersionCode="1"
+                   androidKeyStore="${rootDir}/../../gristo-debug.keystore" androidKeyStorePass="android"
+                   androidKeyAlias="androiddebugkey" androidKeyAliasPass="android"
+                   androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
+                   androidReadMediaVideoPermission="0" androidBluetoothScanNeeded="0"
+                   androidBluetoothAdvertiseNeeded="0" androidBluetoothConnectNeeded="0">
+      <CONFIGURATIONS>
+        <CONFIGURATION name="Debug" isDebug="1" targetName="Gristo" headerPath="../../../core/include;../../../sound/include;../../../sound/src"
+                       androidArchitectures="arm64-v8a"/>
+        <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="Gristo"
+                       headerPath="../../../core/include;../../../sound/include;../../../sound/src"
+                       androidArchitectures="arm64-v8a"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+      </MODULEPATHS>
+    </ANDROIDSTUDIO>
+    <LINUX_MAKE targetFolder="Builds/LinuxMakefile">
+      <!-- Local check only (CI builds Android): compiles the same project for Linux. -->
+      <CONFIGURATIONS>
+        <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="Gristo"
+                       headerPath="../../../core/include;../../../sound/include;../../../sound/src"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_audio_basics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_plugin_client" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="JUCE/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="JUCE/modules"/>
+        <MODULEPATH id="juce_core" path="JUCE/modules"/>
+        <MODULEPATH id="juce_data_structures" path="JUCE/modules"/>
+        <MODULEPATH id="juce_events" path="JUCE/modules"/>
+        <MODULEPATH id="juce_graphics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="JUCE/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="JUCE/modules"/>
+      </MODULEPATHS>
+    </LINUX_MAKE>
+  </EXPORTFORMATS>
+  <MODULES>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_plugin_client" showAllCode="1" useLocalCopy="0"
+            useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+  </MODULES>
+  <JUCEOPTIONS/>
+</JUCERPROJECT>

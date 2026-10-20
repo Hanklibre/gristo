@@ -6,3 +6,6 @@ cmake-build-*/
 .DS_Store
 __pycache__/
 dist/
+android/JUCE
+android/Builds/
+android/JuceLibraryCode/

@@ -1,5 +1,7 @@
 #include "PluginEditor.h"
 
+#include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
+
 namespace p = gristo::params;
 namespace mod = gristo::mod;
 using namespace theme;
@@ -17,6 +19,11 @@ constexpr int kMuteRowY = 664;
 const char* const kVoiceRowNames[] = { "Fill", "Random", "Probability", "Random", "Humanize", "Dynamics" };
 
 // Modulation panel geometry
+#if JUCE_ANDROID || JUCE_IOS || GRISTO_SIMULATE_MOBILE
+constexpr bool kIsMobile = true;
+#else
+constexpr bool kIsMobile = false;
+#endif
 constexpr int kModY = 868;
 constexpr int kSlotX = 664;
 constexpr int kModRowY = kModY + 34;      // lane tabs / arp first row
@@ -44,6 +51,26 @@ GristoView::GristoView(GristoProcessor& proc)
     addAndMakeVisible(nodeLabel_);
     sizeButton_.onClick = [this] { showSizeMenu(); };
     addAndMakeVisible(sizeButton_);
+    if (kIsMobile)
+    {
+        // No title bar on mobile, so the audio / MIDI settings live here instead of a zoom menu.
+        sizeButton_.setButtonText("Settings");
+        sizeButton_.onClick = [] {
+            if (auto* holder = juce::StandalonePluginHolder::getInstance())
+                holder->showAudioSettingsDialog();
+        };
+    }
+    keysButton_.setClickingTogglesState(true);
+    keysButton_.setToggleState(proc.showKeys.load(), juce::dontSendNotification);
+    keysButton_.setColour(juce::TextButton::buttonOnColourId, colours::accent);
+    keysButton_.setColour(juce::TextButton::textColourOnId, colours::background);
+    keysButton_.onClick = [this] {
+        processor_.showKeys.store(keysButton_.getToggleState());
+        if (onKeysToggled)
+            onKeysToggled();
+    };
+    addAndMakeVisible(keysButton_);
+    setHelp(keysButton_, "Keys", "Shows a keyboard to play chords into the arps (Arp mode) without a MIDI keyboard.");
     setupPresetBar();
 
     setupKnob(chaos_, p::chaos, "Chaos");
@@ -257,7 +284,7 @@ void GristoView::showHelpFor(juce::Component* component)
             {
                 helpTitle_ = title;
                 helpText_ = text;
-                repaint(412, 4, 480, 42);
+                repaint(412, 4, 432, 42);
             }
             return;
         }
@@ -561,7 +588,10 @@ void GristoView::showPresetMenu()
     menu.addItem(3, "Import...");
     menu.addItem(4, "Export...");
     menu.addItem(5, "Init (start from scratch)");
-    menu.addItem(6, "Show preset folder");
+    if (kIsMobile)
+        menu.addItem(7, "Share...");
+    else
+        menu.addItem(6, "Show preset folder");
 
     juce::Component::SafePointer<GristoView> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&presetName_), [safe, files](int result) {
@@ -584,6 +614,8 @@ void GristoView::showPresetMenu()
             pm.loadInit();
         else if (result == 6)
             PresetManager::userFolder().revealToUser();
+        else if (result == 7)
+            safe->sharePreset();
         safe->presetLoaded();
     });
 }
@@ -645,18 +677,15 @@ void GristoView::savePreset(bool askForName)
 void GristoView::importPreset()
 {
     chooser_ = std::make_unique<juce::FileChooser>("Import a Gristo preset", juce::File::getSpecialLocation(juce::File::userHomeDirectory),
-                                                   juce::String("*") + PresetManager::kExtension);
+                                                   kIsMobile ? juce::String() : juce::String("*") + PresetManager::kExtension);
     juce::Component::SafePointer<GristoView> safe(this);
     chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
                           [safe](const juce::FileChooser& chooser) {
-                              if (safe == nullptr)
-                                  return;
-                              const auto source = chooser.getResult();
-                              if (!source.existsAsFile())
+                              if (safe == nullptr || chooser.getURLResults().isEmpty())
                                   return;
                               auto& presets = safe->processor_.presets;
-                              const auto copy = presets.importFile(source);
-                              if (!presets.loadFile(copy.existsAsFile() ? copy : source))
+                              const auto copy = presets.importUrl(chooser.getURLResult());
+                              if (!copy.existsAsFile() || !presets.loadFile(copy))
                                   juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Import",
                                                                          "That file isn't a Gristo preset.", "OK", safe.getComponent());
                               safe->presetLoaded();
@@ -665,32 +694,32 @@ void GristoView::importPreset()
 
 void GristoView::exportPreset()
 {
-    auto& presets = processor_.presets;
-    const auto name = presets.currentName();
+    const auto name = processor_.presets.currentName();
     const auto start = juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
                            .getChildFile(juce::File::createLegalFileName(name) + PresetManager::kExtension);
     chooser_ = std::make_unique<juce::FileChooser>("Export preset", start, juce::String("*") + PresetManager::kExtension);
     juce::Component::SafePointer<GristoView> safe(this);
     chooser_->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                               | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [safe, name](const juce::FileChooser& chooser) {
-                              if (safe == nullptr)
+                          [safe](const juce::FileChooser& chooser) {
+                              if (safe == nullptr || chooser.getURLResults().isEmpty())
                                   return;
-                              auto file = chooser.getResult();
-                              if (file == juce::File())
-                                  return;
-                              if (!file.hasFileExtension(PresetManager::kExtension))
-                                  file = file.withFileExtension(PresetManager::kExtension);
+                              auto url = chooser.getURLResult();
+                              if (url.isLocalFile() && !url.getLocalFile().hasFileExtension(PresetManager::kExtension))
+                                  url = juce::URL(url.getLocalFile().withFileExtension(PresetManager::kExtension));
                               // Export writes a copy; the preset you're working on stays current.
-                              auto& pm = safe->processor_.presets;
-                              const auto keepFile = pm.currentFile();
-                              const auto keepName = pm.currentName();
-                              const bool dirty = pm.isDirty();
-                              pm.saveFile(file, name);
-                              if (keepFile != file)
-                                  pm.restoreIdentity(keepName, keepFile, dirty);
-                              safe->presetLoaded();
+                              if (!safe->processor_.presets.exportUrl(url))
+                                  juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Export",
+                                                                         "Couldn't write the preset there.", "OK", safe.getComponent());
                           });
+}
+
+void GristoView::sharePreset()
+{
+    const auto file = processor_.presets.writeTemporary();
+    if (!file.existsAsFile())
+        return;
+    shareBox_ = juce::ContentSharer::shareFilesScoped({ juce::URL(file) }, [](bool, const juce::String&) {}, this);
 }
 
 void GristoView::showSizeMenu()
@@ -1113,7 +1142,7 @@ void GristoView::paint(juce::Graphics& g)
     g.setFont(juce::FontOptions(11.0f));
 
     // Help box
-    const juce::Rectangle<int> help { 412, 6, 480, 38 };
+    const juce::Rectangle<int> help { 412, 6, 432, 38 };
     g.setColour(colours::panel);
     g.fillRoundedRectangle(help.toFloat(), 6.0f);
     g.setColour(colours::outline);
@@ -1193,6 +1222,7 @@ void GristoView::paint(juce::Graphics& g)
 void GristoView::resized()
 {
     sizeButton_.setBounds(904, 12, 80, 26);
+    keysButton_.setBounds(850, 12, 50, 26);
     presetPrev_.setBounds(140, 12, 26, 26);
     presetName_.setBounds(168, 12, 160, 26);
     presetNext_.setBounds(330, 12, 26, 26);
@@ -1326,14 +1356,43 @@ void GristoView::resized()
 // ---------------------------------------------------------------------------------
 // Editor: hosts the view and scales it
 
-GristoEditor::GristoEditor(GristoProcessor& proc) : AudioProcessorEditor(proc), processor_(proc), view_(proc)
+GristoEditor::GristoEditor(GristoProcessor& proc)
+    : AudioProcessorEditor(proc), processor_(proc), view_(proc),
+      keyboard_(proc.keyboardState, juce::MidiKeyboardComponent::horizontalKeyboard)
 {
     addAndMakeVisible(view_);
     view_.onScaleChosen = [this](float s) {
         processor_.uiScale.store(s);
         applyScale(s);
     };
+    view_.onKeysToggled = [this] {
+        if (kIsMobile)
+            resized();
+        else
+            applyScale(scale_);
+    };
 
+    keyboard_.setAvailableRange(24, 96);
+    keyboard_.setLowestVisibleKey(36);
+    keyboard_.setColour(juce::MidiKeyboardComponent::whiteNoteColourId, juce::Colour(0xffe9e4d8));
+    keyboard_.setColour(juce::MidiKeyboardComponent::blackNoteColourId, colours::panel);
+    keyboard_.setColour(juce::MidiKeyboardComponent::keyDownOverlayColourId, colours::accent.withAlpha(0.7f));
+    keyboard_.setColour(juce::MidiKeyboardComponent::mouseOverKeyOverlayColourId, colours::accent.withAlpha(0.25f));
+    keyboard_.setColour(juce::MidiKeyboardComponent::keySeparatorLineColourId, colours::outline);
+    keyboard_.setWantsKeyboardFocus(false);
+    addChildComponent(keyboard_);
+
+    scrollBar_.setAutoHide(false);
+    scrollBar_.addListener(this);
+    scrollBar_.setColour(juce::ScrollBar::thumbColourId, colours::accent.withAlpha(0.6f));
+    scrollBar_.setColour(juce::ScrollBar::trackColourId, colours::panel);
+    addChildComponent(scrollBar_);
+
+    if (kIsMobile)
+    {
+        setSize(1200, 752); // a 16:10 tablet in landscape; the standalone window resizes us to the screen
+        return;
+    }
     float scale = processor_.uiScale.load();
     if (scale <= 0.0f)
     {
@@ -1351,9 +1410,81 @@ GristoEditor::GristoEditor(GristoProcessor& proc) : AudioProcessorEditor(proc), 
     applyScale(scale);
 }
 
+GristoEditor::~GristoEditor()
+{
+    scrollBar_.removeListener(this);
+}
+
+int GristoEditor::keysHeight() const
+{
+    if (!processor_.showKeys.load())
+        return 0;
+    return kIsMobile ? 96 : juce::roundToInt(84.0f * scale_);
+}
+
 void GristoEditor::applyScale(float scale)
 {
-    view_.setTransform(juce::AffineTransform::scale(scale));
+    scale_ = scale;
     view_.setScaleLabel(scale);
-    setSize(juce::roundToInt(GristoView::kWidth * scale), juce::roundToInt(GristoView::kHeight * scale));
+    setSize(juce::roundToInt(GristoView::kWidth * scale), juce::roundToInt(GristoView::kHeight * scale) + keysHeight());
+    resized();
+}
+
+void GristoEditor::paint(juce::Graphics& g)
+{
+    g.fillAll(colours::background);
+}
+
+void GristoEditor::resized()
+{
+    const int keys = keysHeight();
+    keyboard_.setVisible(keys > 0);
+    auto area = getLocalBounds();
+    if (keys > 0)
+    {
+        auto strip = area.removeFromBottom(keys).reduced(4, 2);
+        keyboard_.setBounds(strip);
+        // Four octaves across the strip.
+        keyboard_.setKeyWidth(static_cast<float>(strip.getWidth()) / 29.0f);
+    }
+
+    if (kIsMobile)
+    {
+        // Fill the width (text stays readable on a tablet) and scroll the rest.
+        constexpr int scrollWidth = 28;
+        scale_ = static_cast<float>(area.getWidth() - scrollWidth) / static_cast<float>(GristoView::kWidth);
+        const double viewHeight = GristoView::kHeight * static_cast<double>(scale_);
+        const bool needsScroll = viewHeight > area.getHeight();
+        scrollBar_.setVisible(needsScroll);
+        if (!needsScroll)
+        {
+            scale_ = std::min(static_cast<float>(area.getWidth()) / static_cast<float>(GristoView::kWidth),
+                              static_cast<float>(area.getHeight()) / static_cast<float>(GristoView::kHeight));
+            scrollY_ = 0.0;
+        }
+        else
+        {
+            scrollBar_.setBounds(area.removeFromRight(scrollWidth).reduced(2, 4));
+            const double visible = area.getHeight() / static_cast<double>(scale_);
+            scrollBar_.setRangeLimits(0.0, GristoView::kHeight);
+            scrollBar_.setCurrentRange(std::min(scrollY_, GristoView::kHeight - visible), visible, juce::dontSendNotification);
+            scrollBar_.setSingleStepSize(40.0);
+            scrollY_ = scrollBar_.getCurrentRangeStart();
+        }
+    }
+    viewArea_ = area;
+    updateViewTransform();
+}
+
+void GristoEditor::scrollBarMoved(juce::ScrollBar*, double newRangeStart)
+{
+    scrollY_ = newRangeStart;
+    updateViewTransform();
+}
+
+void GristoEditor::updateViewTransform()
+{
+    const float x = static_cast<float>(viewArea_.getX())
+                    + std::max(0.0f, (static_cast<float>(viewArea_.getWidth()) - GristoView::kWidth * scale_) * 0.5f);
+    view_.setTransform(juce::AffineTransform::scale(scale_).translated(x, static_cast<float>(-scrollY_ * scale_)));
 }

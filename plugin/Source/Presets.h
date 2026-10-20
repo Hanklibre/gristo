@@ -33,6 +33,10 @@ public:
     bool loadFile(const juce::File& file);
     bool saveFile(const juce::File& file, const juce::String& name);
     juce::File importFile(const juce::File& source); // copies into the user folder; returns the copy
+    // URL versions (also Android content:// links from the system file picker).
+    juce::File importUrl(const juce::URL& source); // returns the stored copy, or {} if not a preset
+    bool exportUrl(const juce::URL& target) const; // writes the current state under the current name
+    juce::File writeTemporary() const;             // the current state as a temp file, for sharing
 
     // Steps through factory presets then user presets.
     void step(int direction);

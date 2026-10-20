@@ -93,3 +93,57 @@ jobs:
           name: ${{ matrix.artifact }}
           path: dist/
           retention-days: 30
+
+  android:
+    # Android app (standalone). JUCE's CMake API doesn't target Android, so Projucer
+    # generates an Android Studio project from android/Gristo.jucer, built with Gradle.
+    name: Android
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install "ndk;26.2.11394342" "cmake;3.22.1" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - name: Fetch JUCE 8.0.4 (with Projucer)
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libfreetype6 libfontconfig1
+          curl -sSL -o "$RUNNER_TEMP/juce.zip" https://github.com/juce-framework/JUCE/releases/download/8.0.4/juce-8.0.4-linux.zip
+          unzip -q "$RUNNER_TEMP/juce.zip" -d "$RUNNER_TEMP/juce"
+          mv "$RUNNER_TEMP/juce/JUCE" android/JUCE
+
+      - name: Generate the Android Studio project
+        shell: bash
+        run: xvfb-run -a android/JUCE/Projucer --resave android/Gristo.jucer
+
+      - name: Build the APK
+        shell: bash
+        working-directory: android/Builds/Android
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleRelease_Release
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp android/Builds/Android/app/build/outputs/apk/release_/release/*.apk dist/Gristo.apk
+          cp README.md dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Gristo-Android-apk
+          path: dist/
+          retention-days: 30

@@ -19,6 +19,7 @@ public:
     void resized() override;
 
     std::function<void(float)> onScaleChosen;
+    std::function<void()> onKeysToggled;
     void setScaleLabel(float scale);
 
 private:
@@ -76,7 +77,7 @@ private:
     MapPad mapPad_;
     PatternView patternView_;
     juce::Label nodeLabel_;
-    juce::TextButton sizeButton_;
+    juce::TextButton sizeButton_, keysButton_ { "Keys" };
 
     Knob chaos_, variation_, mapRandom_;
     Knob fills_[gristo::kNumVoices];
@@ -166,22 +167,37 @@ private:
     void confirm(const juce::String& title, const juce::String& message, const juce::String& yes, std::function<void()> onYes);
     void importPreset();
     void exportPreset();
+    void sharePreset(); // Android / iOS share sheet
+    juce::ScopedMessageBox shareBox_;
     void presetLoaded();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GristoView)
 };
 
-class GristoEditor : public juce::AudioProcessorEditor
+// Hosts the view. Desktop: a fixed zoom chosen in the Size menu. Mobile: the view
+// fills the screen width and scrolls vertically. The on-screen keyboard is a strip
+// along the bottom that stays put while the view scrolls.
+class GristoEditor : public juce::AudioProcessorEditor, private juce::ScrollBar::Listener
 {
 public:
     explicit GristoEditor(GristoProcessor&);
-    void resized() override {}
+    ~GristoEditor() override;
+    void paint(juce::Graphics&) override;
+    void resized() override;
 
 private:
     void applyScale(float scale);
+    void scrollBarMoved(juce::ScrollBar*, double newRangeStart) override;
+    void updateViewTransform();
+    int keysHeight() const;
 
     GristoProcessor& processor_;
     GristoView view_;
+    juce::MidiKeyboardComponent keyboard_;
+    juce::ScrollBar scrollBar_ { true };
+    float scale_ = 1.0f;
+    double scrollY_ = 0.0; // view units
+    juce::Rectangle<int> viewArea_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GristoEditor)
 };

@@ -87,6 +87,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     juce::ScopedNoDenormals noDenormals;
     const int numSamples = buffer.getNumSamples();
     buffer.clear();
+    keyboardState.processNextMidiBuffer(midi, 0, numSamples, true); // on-screen keys join MIDI in
     handleMidiInput(midi);
     midi.clear(); // MIDI in is consumed (it feeds the arps); the output is Gristo's own
 
@@ -277,6 +278,7 @@ void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
     auto lanes = tree.getOrCreateChildWithName("MODLANES", nullptr);
     writeLanes(lanes);
     tree.setProperty("uiScale", uiScale.load(), nullptr);
+    tree.setProperty("showKeys", showKeys.load(), nullptr);
     presets.writeTo(tree);
     if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
@@ -293,6 +295,8 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
                 readLanes(lanes);
             if (tree.hasProperty("uiScale"))
                 uiScale.store(static_cast<float>(tree.getProperty("uiScale")));
+            if (tree.hasProperty("showKeys"))
+                showKeys.store(static_cast<bool>(tree.getProperty("showKeys")));
             state.replaceState(tree);
             presets.readFrom(tree);
         }

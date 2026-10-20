@@ -79,6 +79,35 @@ xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Gristo.compon
 **Windows:** SmartScreen may warn about the unsigned standalone `.exe`. The
 VST3 loads in your DAW without a prompt.
 
+## Android (tablet)
+
+Every push also builds an Android app (`Gristo-Android-apk` in the Actions run,
+arm64, for your own use).
+
+1. Download and unzip the artifact on the tablet (or copy `Gristo.apk` over USB).
+2. Open it and allow "install unknown apps" for your browser or file manager
+   when Android asks. Later builds install over the old one (same signing key),
+   so your presets stay.
+3. Hold the tablet sideways: the window fills the width and scrolls with the
+   bar on the right. **Keys** toggles a keyboard strip at the bottom for
+   playing chords into the arps. A USB MIDI keyboard also works (it's picked
+   up automatically). **Settings** has the audio and MIDI device options.
+4. Tap any control to see its help text at the top.
+
+**Presets between tablet and PC:** on the tablet, presets are saved in
+`Documents/Gristo/Presets`. You can copy them to the PC over USB, or use the
+preset menu's **Share...** (Quick Share, email to yourself, ...) or
+**Export...**. On the PC, use **Import...** or drop the `.gristo` files into
+`Documents\Gristo\Presets`. To go the other way, use **Import...** on the
+tablet. MIDI notes, channels and Out Shift aren't part of a preset, so each
+device keeps its own routing.
+
+How it's built: JUCE's CMake API doesn't target Android, so CI unpacks JUCE
+8.0.4, runs Projucer on `android/Gristo.jucer` (the same sources as the
+desktop build) and builds the generated project with Gradle and NDK 26.2.
+`android/gristo-debug.keystore` is a throwaway signing key for personal
+sideloading, not a secret.
+
 ## Build
 
 Requirements: CMake ≥ 3.22, a C++17 compiler. JUCE 8 is fetched automatically,
