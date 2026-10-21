@@ -99,13 +99,20 @@ ArpPattern Arp::pattern(std::uint32_t seed, float mutate, std::int64_t cycle)
         pat.steps[static_cast<size_t>(i)] = s;
     }
 
-    // Mutations accumulate: cycle c has been mutated c times.
+    // Mutations accumulate: a step plays its most recent mutation (cycle c mutates
+    // step i when its hash falls under Mutate). Searching back from the current
+    // cycle keeps this cheap however long the song runs; with a tiny Mutate the
+    // search stops after kMaxLookBack cycles (the odds of missing one are negligible).
+    constexpr std::int64_t kMaxLookBack = 4096;
     const float m = std::clamp(mutate, 0.0f, 1.0f);
     if (m > 0.0f)
-        for (std::int64_t c = 1; c <= cycle; ++c)
-            for (int i = 0; i < kMaxArpSteps; ++i)
+        for (int i = 0; i < kMaxArpSteps; ++i)
+            for (std::int64_t c = cycle; c >= 1 && c > cycle - kMaxLookBack; --c)
                 if (rnd::unit(rnd::hash(seed, kMutateStream, c, i)) < m)
+                {
                     pat.steps[static_cast<size_t>(i)] = randomStep(seed, c, i);
+                    break;
+                }
     return pat;
 }
 

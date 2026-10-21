@@ -150,6 +150,7 @@ private:
         std::int64_t count = 0;
         bool needsResync = true;
         int lastNote = -1;
+        double lastOnset = 0.0; // beat of lastNote's note-on
         bool lastSlide = false;
         std::array<bool, 128> sounding {};
         std::array<int, kMaxHeldNotes> held {};

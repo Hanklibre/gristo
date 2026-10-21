@@ -7,6 +7,9 @@ namespace p = gristo::params;
 namespace {
 
 constexpr int kFormatVersion = 1;
+// Presets are a few kB; anything far bigger is the wrong file (a photo or video picked
+// by mistake) and reading it whole on the message thread could stall or kill the app.
+constexpr juce::int64 kMaxPresetBytes = 1 << 20;
 
 // Each id is matched without its trailing index (note0..note5 -> note).
 const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun" };
@@ -113,9 +116,7 @@ void PresetManager::apply(const juce::ValueTree& preset)
 void PresetManager::loadInit()
 {
     apply(juce::ValueTree("GristoPreset"));
-    name_ = "Init";
-    file_ = juce::File();
-    factoryIndex_ = -1;
+    setIdentity("Init", {}, -1);
     markClean();
 }
 
@@ -133,22 +134,20 @@ void PresetManager::loadFactory(int index)
         preset.appendChild(child, nullptr);
     }
     apply(preset);
-    name_ = list[static_cast<size_t>(index)].name;
-    file_ = juce::File();
-    factoryIndex_ = index;
+    setIdentity(list[static_cast<size_t>(index)].name, {}, index);
     markClean();
 }
 
 bool PresetManager::loadFile(const juce::File& file)
 {
+    if (file.getSize() > kMaxPresetBytes)
+        return false;
     const auto xml = juce::XmlDocument::parse(file);
     if (xml == nullptr || !xml->hasTagName("GristoPreset"))
         return false;
     const auto preset = juce::ValueTree::fromXml(*xml);
     apply(preset);
-    name_ = preset.getProperty("name", file.getFileNameWithoutExtension()).toString();
-    file_ = file;
-    factoryIndex_ = -1;
+    setIdentity(preset.getProperty("name", file.getFileNameWithoutExtension()).toString(), file, -1);
     markClean();
     return true;
 }
@@ -158,9 +157,7 @@ bool PresetManager::saveFile(const juce::File& file, const juce::String& name)
     const auto xml = capture(name).createXml();
     if (xml == nullptr || !xml->writeTo(file))
         return false;
-    name_ = name;
-    file_ = file;
-    factoryIndex_ = -1;
+    setIdentity(name, file, -1);
     markClean();
     return true;
 }
@@ -169,6 +166,8 @@ juce::File PresetManager::importFile(const juce::File& source)
 {
     if (source.isAChildOf(userFolder()))
         return source;
+    if (source.getSize() > kMaxPresetBytes)
+        return {};
     auto target = userFolder().getChildFile(source.getFileName());
     if (target.existsAsFile())
         target = target.getNonexistentSibling(false);
@@ -182,7 +181,14 @@ juce::File PresetManager::importUrl(const juce::URL& source)
     std::unique_ptr<juce::InputStream> in(source.createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)));
     if (in == nullptr)
         return {};
-    const auto text = in->readEntireStreamAsString();
+    const auto length = in->getTotalLength(); // -1 when unknown
+    if (length > kMaxPresetBytes)
+        return {};
+    juce::MemoryBlock data;
+    in->readIntoMemoryBlock(data, kMaxPresetBytes + 1);
+    if (static_cast<juce::int64>(data.getSize()) > kMaxPresetBytes)
+        return {};
+    const auto text = data.toString();
     const auto xml = juce::parseXML(text);
     if (xml == nullptr || !xml->hasTagName("GristoPreset"))
         return {};
@@ -195,7 +201,7 @@ juce::File PresetManager::importUrl(const juce::URL& source)
 
 bool PresetManager::exportUrl(const juce::URL& target) const
 {
-    const auto xml = capture(name_).createXml();
+    const auto xml = capture(currentName()).createXml();
     if (xml == nullptr)
         return false;
     if (target.isLocalFile())
@@ -212,17 +218,25 @@ juce::File PresetManager::writeTemporary() const
 {
     auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("GristoShare");
     folder.createDirectory();
-    auto file = folder.getChildFile(juce::File::createLegalFileName(name_) + kExtension);
-    const auto xml = capture(name_).createXml();
+    const auto name = currentName();
+    auto file = folder.getChildFile(juce::File::createLegalFileName(name) + kExtension);
+    const auto xml = capture(name).createXml();
     return xml != nullptr && xml->writeTo(file) ? file : juce::File();
 }
 
 int PresetManager::currentIndex() const
 {
-    if (factoryIndex_ >= 0)
-        return factoryIndex_;
+    int factory = -1;
+    juce::File file;
+    {
+        const juce::SpinLock::ScopedLockType lock(identityLock_);
+        factory = factoryIndex_;
+        file = file_;
+    }
+    if (factory >= 0)
+        return factory;
     const auto files = userPresets();
-    const int i = files.indexOf(file_);
+    const int i = files.indexOf(file);
     return i >= 0 ? static_cast<int>(factoryPresets().size()) + i : -1;
 }
 
@@ -258,19 +272,27 @@ std::int64_t PresetManager::stateHash() const
     return static_cast<std::int64_t>(hash);
 }
 
+void PresetManager::setIdentity(const juce::String& name, const juce::File& file, int factoryIndex)
+{
+    const juce::SpinLock::ScopedLockType lock(identityLock_);
+    name_ = name;
+    file_ = file;
+    factoryIndex_ = factoryIndex;
+}
+
 bool PresetManager::isDirty() const { return stateHash() != cleanHash_; }
 void PresetManager::markClean() { cleanHash_ = stateHash(); }
 
 void PresetManager::restoreIdentity(const juce::String& name, const juce::File& file, bool dirty)
 {
-    name_ = name;
-    file_ = file;
+    setIdentity(name, file, -1);
     if (dirty)
         cleanHash_ = 0; // still shows as changed
 }
 
 void PresetManager::writeTo(juce::ValueTree& state) const
 {
+    const juce::SpinLock::ScopedLockType lock(identityLock_);
     state.setProperty("presetName", name_, nullptr);
     state.setProperty("presetFile", file_.getFullPathName(), nullptr);
     state.setProperty("presetFactory", factoryIndex_, nullptr);
@@ -278,10 +300,10 @@ void PresetManager::writeTo(juce::ValueTree& state) const
 
 void PresetManager::readFrom(const juce::ValueTree& state)
 {
-    name_ = state.getProperty("presetName", "Init").toString();
+    const auto name = state.getProperty("presetName", "Init").toString();
     const auto path = state.getProperty("presetFile", "").toString();
-    file_ = path.isNotEmpty() && juce::File::isAbsolutePath(path) ? juce::File(path) : juce::File();
-    factoryIndex_ = static_cast<int>(state.getProperty("presetFactory", -1));
+    setIdentity(name, path.isNotEmpty() && juce::File::isAbsolutePath(path) ? juce::File(path) : juce::File(),
+                static_cast<int>(state.getProperty("presetFactory", -1)));
     // The restored project is the reference: unchanged until the user edits it.
     markClean();
 }

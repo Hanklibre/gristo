@@ -105,7 +105,12 @@ std::vector<int> intervals(const ChordParams& p, const ChordSlot& slot)
         case ChordType::Sixth: return { 0, t.third, t.fifth, t.sixth };
         case ChordType::SixNine: return { 0, t.third, t.fifth, t.sixth, t.ninth };
         case ChordType::Add9: return { 0, t.third, t.fifth, t.ninth };
-        case ChordType::Eleventh: return { 0, t.third, t.seventh, t.ninth, t.eleventh };
+        case ChordType::Eleventh:
+            // Dim, half-dim and aug chords need their altered 5th to be themselves: it
+            // takes the 9th's place.
+            if (quality == ChordQuality::Diminished || quality == ChordQuality::HalfDiminished || quality == ChordQuality::Augmented)
+                return { 0, t.third, t.fifth, t.seventh, t.eleventh };
+            return { 0, t.third, t.seventh, t.ninth, t.eleventh };
         default: return { 0, t.third, t.fifth };
     }
 }
@@ -260,6 +265,8 @@ std::string Chords::name(const ChordParams& p, const ChordSlot& s)
         if (q7 == "m7") return "m9";
         if (q7 == "mMaj7") return "mMaj9";
         if (q7 == "m7b5") return "m9b5";
+        if (q7 == "7#5") return "9#5";
+        if (q7 == "maj7#5") return "maj9#5";
         return q7 + "add9";
     };
     std::string quality;
@@ -268,7 +275,8 @@ std::string Chords::name(const ChordParams& p, const ChordSlot& s)
         case ChordType::Triad: quality = triad; break;
         case ChordType::Sus2:
         case ChordType::Sus4:
-            quality = std::string(has(iv, 10) ? "7" : has(iv, 11) ? "maj7" : "") + (s.type == ChordType::Sus2 ? "sus2" : "sus4") + (dim5 ? "b5" : "");
+            quality = std::string(has(iv, 10) ? "7" : has(iv, 11) ? "maj7" : "") + (s.type == ChordType::Sus2 ? "sus2" : "sus4")
+                    + (dim5 ? "b5" : aug5 ? "#5" : "");
             break;
         case ChordType::Seventh: quality = seventh(); break;
         case ChordType::Ninth:
@@ -278,7 +286,9 @@ std::string Chords::name(const ChordParams& p, const ChordSlot& s)
         {
             const auto q7 = seventh();
             const bool sharp11 = has(iv, 18);
-            if (has(iv, 13))
+            if (!has(iv, 13) && !has(iv, 14))
+                quality = q7 + (sharp11 ? "#11" : "add11"); // no 9th (dim / half-dim / aug 11ths)
+            else if (has(iv, 13))
                 quality = q7 + "(b9" + (sharp11 ? ",#11)" : ",11)");
             else if (sharp11)
                 quality = ninth(q7) + "#11";
@@ -321,13 +331,23 @@ std::string Chords::roman(const ChordParams& p, const ChordSlot& s)
     {
         case ChordType::Triad: sfx = dimTriad ? "o" : augTriad ? "+" : ""; break;
         case ChordType::Seventh: sfx = dimTriad ? (has(iv, 10) ? "m7b5" : "o7") : augTriad ? "+7" : has(iv, 11) ? "maj7" : "7"; break;
-        case ChordType::Ninth: sfx = dimTriad ? "o9" : augTriad ? "+9" : has(iv, 11) ? "maj9" : "9"; break;
-        case ChordType::Eleventh: sfx = std::string(dimTriad ? "o" : has(iv, 11) ? "maj" : "") + (has(iv, 18) ? "9#11" : "11"); break;
-        case ChordType::Sixth: sfx = has(iv, 9) ? "6" : "b6"; break;
-        case ChordType::SixNine: sfx = "6/9"; break;
-        case ChordType::Add9: sfx = "add9"; break;
-        case ChordType::Sus2: sfx = std::string(has(iv, 10) ? "7" : "") + "sus2"; break;
-        case ChordType::Sus4: sfx = std::string(has(iv, 10) ? "7" : "") + "sus4"; break;
+        case ChordType::Ninth: sfx = dimTriad ? (has(iv, 10) ? "m9b5" : "o9") : augTriad ? "+9" : has(iv, 11) ? "maj9" : "9"; break;
+        case ChordType::Eleventh:
+            if (dimTriad)
+                sfx = std::string(has(iv, 10) ? "m7b5" : "o7") + "add11";
+            else if (augTriad)
+                sfx = "+7#11";
+            else
+                sfx = std::string(has(iv, 11) ? "maj" : "") + (has(iv, 18) ? "9#11" : "11");
+            break;
+        case ChordType::Sixth: sfx = std::string(dimTriad ? "o" : augTriad ? "+" : "") + (has(iv, 9) ? "6" : "b6"); break;
+        case ChordType::SixNine: sfx = std::string(dimTriad ? "o" : augTriad ? "+" : "") + "6/9"; break;
+        case ChordType::Add9: sfx = std::string(dimTriad ? "o" : augTriad ? "+" : "") + "add9"; break;
+        case ChordType::Sus2:
+        case ChordType::Sus4:
+            sfx = std::string(has(iv, 10) ? "7" : "") + (s.type == ChordType::Sus2 ? "sus2" : "sus4")
+                + (dim5 ? "b5" : has(iv, 8) && !has(iv, 7) ? "#5" : "");
+            break;
         case ChordType::Count: break;
     }
 

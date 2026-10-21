@@ -155,8 +155,10 @@ void Engine::playArp(int arp, std::int64_t step, std::int64_t k, std::int64_t cy
     auto endPrevious = [&](bool slideInto) {
         if (st.lastNote < 0)
             return;
+        // Only the last note's own note-off: an earlier one of the same pitch was
+        // already cut at that note's onset and must stay before it.
         for (Pending& p : pending_)
-            if (!p.noteOn && p.voice == voice && p.note == st.lastNote)
+            if (!p.noteOn && p.voice == voice && p.note == st.lastNote && p.beats > st.lastOnset)
                 p.beats = slideInto ? beats + kSlideOverlapBeats : std::min(p.beats, beats);
     };
 
@@ -179,6 +181,7 @@ void Engine::playArp(int arp, std::int64_t step, std::int64_t k, std::int64_t cy
     pending_.push_back({ beats, voice, velocity, true, note });
     pending_.push_back({ off, voice, 0.0f, false, note });
     st.lastNote = note;
+    st.lastOnset = beats;
     st.lastSlide = n.slide;
 }
 
@@ -298,6 +301,11 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
             if (!st.haveChord || pos.serial != st.lastSerial || edited)
             {
                 releaseHeldChord(beats);
+                // Stabs still sounding (Play switched from Stabs): end them here, so the
+                // held chord doesn't double their notes and their offs don't cut it.
+                for (Pending& p : pending_)
+                    if (!p.noteOn && p.voice == kChordVoice && p.beats > beats)
+                        p.beats = beats;
                 const float velocity = std::clamp(lo + (hi - lo) * 0.7f, kMinVelocity, 1.0f);
                 for (int i = 0; i < chord.count; ++i)
                     pending_.push_back({ beats, kChordVoice, velocity, true, chord.notes[static_cast<size_t>(i)] });
@@ -384,8 +392,37 @@ void Engine::processArp(int arp, double ppqStart, double ppqEnd, double bpm)
     }
 }
 
+namespace {
+
+// What the drum hits counted by the chords' Drum hits clock depend on.
+bool sameClockInputs(const EngineParams& a, const EngineParams& b)
+{
+    const PatternParams &p = a.pattern, &q = b.pattern;
+    if (p.mapX != q.mapX || p.mapY != q.mapY || p.chaos != q.chaos || p.mapRandom != q.mapRandom || p.fill != q.fill
+        || p.fillRandom != q.fillRandom || p.probability != q.probability || p.probabilityRandom != q.probabilityRandom
+        || p.mute != q.mute || p.linear != q.linear || p.seed != q.seed)
+        return false;
+    if (a.chords.clockVoice != b.chords.clockVoice || a.chords.resetBars != b.chords.resetBars)
+        return false;
+    for (int l = 0; l < kNumModLanes; ++l)
+    {
+        const ModLane &x = a.modulation.lanes[static_cast<size_t>(l)], &y = b.modulation.lanes[static_cast<size_t>(l)];
+        if (x.bars != y.bars || x.points != y.points)
+            return false;
+        for (int s = 0; s < kModSlotsPerLane; ++s)
+            if (x.slots[static_cast<size_t>(s)].target != y.slots[static_cast<size_t>(s)].target
+                || x.slots[static_cast<size_t>(s)].amount != y.slots[static_cast<size_t>(s)].amount)
+                return false;
+    }
+    return true;
+}
+
+} // namespace
+
 void Engine::setParams(const EngineParams& p)
 {
+    if (!sameClockInputs(params_, p))
+        hitsMemoCycle_ = -1; // the running hit count no longer matches a fresh count
     params_ = p;
     hasModulation_ = false;
     shuffleModulated_ = false;

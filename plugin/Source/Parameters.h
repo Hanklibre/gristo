@@ -123,9 +123,11 @@ inline const juce::String mapRandom = "mapRnd";
 inline const juce::String shuffleRandom = "shuffleRnd";
 inline const juce::String feelRandom = "feelRnd";
 
-inline juce::String voiceId(const juce::String& base, int voice) { return base + juce::String(voice); }
-inline juce::String laneId(const juce::String& base, int lane) { return base + juce::String(lane); }
-inline juce::String slotId(const juce::String& base, int lane, int slot) { return base + juce::String(lane) + "_" + juce::String(slot); }
+// Indexed ids ("fill2", "modTgt1_3"). Built once per thread and cached, so the audio
+// thread doesn't allocate a string for every parameter it reads each block.
+juce::String voiceId(const juce::String& base, int voice);
+juce::String laneId(const juce::String& base, int lane);
+juce::String slotId(const juce::String& base, int lane, int slot);
 
 // Drawn lane curves live outside the parameter tree (they are not automatable):
 // written by the editor, read lock-free by the audio thread.

@@ -449,3 +449,127 @@ TEST("modulation: saved target numbers keep their meaning, arp 3 is appended")
     }
 }
 
+
+namespace {
+
+// Every note-on is followed by its note-off before the same note starts again, and no
+// note-off arrives for a note that isn't on.
+struct PairCheck
+{
+    std::map<std::pair<int, int>, int> on;
+    int violations = 0;
+    void add(const OutputEvent& ev)
+    {
+        int& n = on[{ ev.voice, ev.note }];
+        if (ev.noteOn ? n > 0 : n == 0)
+            ++violations;
+        n = ev.noteOn ? 1 : 0;
+    }
+};
+
+} // namespace
+
+TEST("arps: slides never re-open a note that is still sounding (rolls, slides)")
+{
+    int violations = 0;
+    for (std::uint32_t seed = 1; seed < 80; ++seed)
+    {
+        EngineParams p;
+        p.pattern.fill = { 0, 0, 0, 1, 0, 0 }; // open hat on every 16th...
+        p.groove.feeling = Feeling::Rolls;     // ...played as rolls
+        ArpParams& a = p.arps[0];
+        a.enabled = true;
+        a.triggers[HiHat2] = true;
+        a.mode = ArpMode::Generate;
+        a.density = 1.0f;
+        a.slide = 0.6f;
+        a.seed = seed;
+        Engine e;
+        e.setParams(p);
+        const int held[] = { 60, 67 };
+        e.setArpInput(0, held, 2);
+        PairCheck check;
+        std::vector<OutputEvent> out;
+        double ppq = 0.0;
+        for (int b = 0; b < 300; ++b)
+        {
+            out.clear();
+            e.process({ true, ppq, 120.0, 48000.0, 256 }, out);
+            for (const auto& ev : out)
+                if (ev.voice == kArpVoiceBase)
+                    check.add(ev);
+            ppq += 256 * 120.0 / (60.0 * 48000.0);
+        }
+        violations += check.violations;
+    }
+    CHECK_MSG(violations == 0, violations << " unpaired arp notes");
+}
+
+TEST("chords: switching Stabs to Held while a stab rings keeps notes paired")
+{
+    EngineParams p;
+    p.pattern.fill = { 0, 1, 0, 0, 0, 0 }; // snare on every 16th
+    ChordParams& c = p.chords;
+    c.enabled = true;
+    for (int i = 0; i < 2; ++i)
+        c.slots[static_cast<size_t>(i)] = slot(i * 3);
+    c.play = ChordPlay::Stabs;
+    c.stabTriggers = { false, true, false, false, false, false };
+    c.stabGateSteps = 8.0f;
+    Engine e;
+    PairCheck check;
+    std::vector<OutputEvent> out;
+    double ppq = 0.0;
+    while (ppq < 8.0)
+    {
+        if (ppq >= 3.6)
+            c.play = ChordPlay::Held;
+        e.setParams(p);
+        out.clear();
+        e.process({ true, ppq, 120.0, 48000.0, 256 }, out);
+        for (const auto& ev : out)
+            if (ev.voice == kChordVoice)
+                check.add(ev);
+        ppq += 256 * 120.0 / (60.0 * 48000.0);
+    }
+    CHECK_MSG(check.violations == 0, check.violations << " unpaired chord notes");
+}
+
+TEST("chords: the drum-hit clock matches a fresh render after a mid-cycle change")
+{
+    EngineParams p;
+    p.pattern.fill = { 0.8f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f };
+    ChordParams& c = p.chords;
+    c.enabled = true;
+    for (int i = 0; i < 4; ++i)
+        c.slots[static_cast<size_t>(i)] = slot(i);
+    c.clock = ChordClock::Drums;
+    c.clockVoice = 0;
+    c.hitsPerChord = 2;
+    c.resetBars = 16;
+    Engine running;
+    running.setParams(p);
+    for (std::int64_t s = 0; s < 100; ++s)
+        running.chordPositionAt(s); // counts hits up to here with the old settings
+    p.pattern.fill[0] = 0.3f;       // fewer kicks from now on
+    running.setParams(p);
+    Engine fresh;
+    fresh.setParams(p);
+    int differ = 0;
+    for (std::int64_t s = 100; s < 256; ++s)
+        differ += running.chordPositionAt(s).slot != fresh.chordPositionAt(s).slot ? 1 : 0;
+    CHECK_MSG(differ == 0, differ << " steps differ");
+}
+
+TEST("arps: Mutate stays cheap however far into the song")
+{
+    // Used to replay every cycle since the start: hours at this position.
+    const auto pattern = Arp::pattern(7, 0.3f, 1'000'000'000);
+    CHECK(pattern.steps[0].pitch >= 0.0f && pattern.steps[0].pitch <= 1.0f);
+    // Mutations still accumulate: a later cycle differs from the first somewhere.
+    const auto a = Arp::pattern(7, 0.3f, 1), b = Arp::pattern(7, 0.3f, 50);
+    bool differs = false;
+    for (int i = 0; i < kMaxArpSteps; ++i)
+        differs = differs || a.steps[static_cast<size_t>(i)].pitch != b.steps[static_cast<size_t>(i)].pitch;
+    CHECK(differs);
+}

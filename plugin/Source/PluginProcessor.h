@@ -71,6 +71,10 @@ private:
     bool soundWasOn_ = true;
     double lastBpm_ = 120.0;
     std::vector<gristo::OutputEvent> events_;
+    // What each note-on was actually sent as, so its note-off matches even if the
+    // note or channel setting changed in between (no hanging notes in the host).
+    std::array<std::pair<int, int>, gristo::kNumVoices> drumSent_ {}; // note, channel
+    std::array<std::array<juce::int8, 128>, gristo::kChordVoice + 1> sentChannel_ {};
     double sampleRate_ = 48000.0;
     double freePpq_ = 0.0;
 

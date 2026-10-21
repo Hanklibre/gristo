@@ -41,8 +41,16 @@ public:
     // Steps through factory presets then user presets.
     void step(int direction);
 
-    juce::String currentName() const { return name_; }
-    juce::File currentFile() const { return file_; } // empty for factory / init
+    juce::String currentName() const
+    {
+        const juce::SpinLock::ScopedLockType lock(identityLock_);
+        return name_;
+    }
+    juce::File currentFile() const // empty for factory / init
+    {
+        const juce::SpinLock::ScopedLockType lock(identityLock_);
+        return file_;
+    }
     bool isDirty() const;
     void markClean();
     // After exporting a copy: keep working on the previous preset identity.
@@ -59,8 +67,11 @@ private:
     void apply(const juce::ValueTree& preset);
     std::int64_t stateHash() const;
     int currentIndex() const; // in the combined factory + user list, -1 if none
+    void setIdentity(const juce::String& name, const juce::File& file, int factoryIndex);
 
     GristoProcessor& processor_;
+    // The identity is read when a host saves state, possibly from another thread.
+    mutable juce::SpinLock identityLock_;
     juce::String name_ { "Init" };
     juce::File file_;
     int factoryIndex_ = -1;

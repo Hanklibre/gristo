@@ -515,9 +515,19 @@ void MapPad::refreshHeat(const gristo::EngineParams& params)
     key << (params.pattern.linear ? "L" : "");
     if (key == heatKey_ && heat_.isValid())
         return;
+    // It takes a while (tens of ms on a tablet): while Fill knobs are being dragged or
+    // a preset loads, redraw at most a few times a second instead of every frame.
+    const auto now = juce::Time::getMillisecondCounter();
+    if (heat_.isValid() && now - heatTime_ < 350)
+        return;
+    heatTime_ = now;
     heatKey_ = key;
 
+#if JUCE_ANDROID || JUCE_IOS
+    constexpr int res = 40;
+#else
     constexpr int res = 64;
+#endif
     gristo::PatternGenerator gen(map_);
     gristo::PatternParams pp = params.pattern;
     pp.chaos = 0.0f;

@@ -1,6 +1,40 @@
 #include "Parameters.h"
 
+#include <map>
+
 namespace gristo::params {
+
+namespace {
+
+struct IdKey
+{
+    juce::String base;
+    int a, b;
+    bool operator<(const IdKey& o) const
+    {
+        if (a != o.a)
+            return a < o.a;
+        if (b != o.b)
+            return b < o.b;
+        return base.compare(o.base) < 0;
+    }
+};
+
+juce::String cachedId(const juce::String& base, int a, int b)
+{
+    thread_local std::map<IdKey, juce::String> cache;
+    IdKey key { base, a, b };
+    auto it = cache.find(key);
+    if (it == cache.end())
+        it = cache.emplace(key, b < 0 ? base + juce::String(a) : base + juce::String(a) + "_" + juce::String(b)).first;
+    return it->second; // a reference-counted copy: no allocation
+}
+
+} // namespace
+
+juce::String voiceId(const juce::String& base, int voice) { return cachedId(base, voice, -1); }
+juce::String laneId(const juce::String& base, int lane) { return cachedId(base, lane, -1); }
+juce::String slotId(const juce::String& base, int lane, int slot) { return cachedId(base, lane, slot); }
 
 namespace {
 

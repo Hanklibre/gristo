@@ -20,6 +20,7 @@ struct SoundEngine::Impl
     Reverb reverb;
     Delay delay;
     Chorus chorus[kNumSynths];
+    bool chorusOn[kNumSynths] {};
     Glue glue;
     // Sends glide to new settings so lanes don't zipper: kit, then each synth.
     float revSend[1 + kNumSynths] {}, dlySend[1 + kNumSynths] {};
@@ -217,6 +218,9 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
             glide(m.dlySend[1 + s], m.synthParams[s].delaySend);
             const float y = m.synths[s].tick();
             const float amount = m.synths[s].chorus();
+            if (amount > 0.0f && !m.chorusOn[s])
+                m.chorus[s].reset(); // back to an ensemble sound: no stale audio from before
+            m.chorusOn[s] = amount > 0.0f;
             if (y == 0.0f && amount <= 0.0f)
                 continue;
             float yl = y, yr = y;

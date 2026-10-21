@@ -2,6 +2,8 @@
 
 #include "PluginEditor.h"
 
+#include <tuple>
+
 namespace p = gristo::params;
 
 GristoProcessor::GristoProcessor()
@@ -196,8 +198,22 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     for (const auto& ev : events_)
     {
         const bool isArp = ev.voice >= gristo::kArpVoiceBase;
-        const int note = isArp ? ev.note : notes[ev.voice];
-        const int channel = channels[ev.voice];
+        int note = isArp ? ev.note : notes[ev.voice];
+        int channel = channels[ev.voice];
+        if (ev.noteOn)
+        {
+            if (isArp)
+                sentChannel_[static_cast<size_t>(ev.voice)][static_cast<size_t>(note & 127)] = static_cast<juce::int8>(channel);
+            else
+                drumSent_[static_cast<size_t>(ev.voice)] = { note, channel };
+        }
+        else if (isArp)
+        {
+            const int sent = sentChannel_[static_cast<size_t>(ev.voice)][static_cast<size_t>(note & 127)];
+            channel = sent > 0 ? sent : channel;
+        }
+        else if (drumSent_[static_cast<size_t>(ev.voice)].second > 0)
+            std::tie(note, channel) = drumSent_[static_cast<size_t>(ev.voice)];
         renderKitTo(ev.sampleOffset);
         if (ev.noteOn)
         {

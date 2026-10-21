@@ -229,6 +229,7 @@ private:
     const gristo::DrumMap& map_;
     juce::Image heat_;
     juce::String heatKey_;
+    juce::uint32 heatTime_ = 0;
     float randomRadius_ = 0.0f;
     std::optional<juce::Point<float>> livePosition_;
     bool dropHover_ = false;
