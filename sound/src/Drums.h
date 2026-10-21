@@ -57,6 +57,7 @@ private:
     float chokeGain_ = 1.0f;
     float velocity_ = 0.0f;
     float t_ = 0.0f; // seconds since trigger
+    float lastOut_ = 0.0f, declick_ = 0.0f, declickCoef_ = 0.0f; // a retrigger fades the old tail out
 
     float phase_ = 0.0f, phase2_ = 0.0f, freq_ = 0.0f;
     float bodyEnv_ = 0.0f, bodyCoef_ = 0.0f, pitchCoef_ = 0.0f;
@@ -68,7 +69,8 @@ private:
     float nextClap_ = 0.0f;
     dsp::Noise noiseGen_ { 0x1234567u };
     dsp::Svf noiseFilter_, metalFilter_;
-    dsp::OnePole metalHp_, clickLp_;
+    dsp::OnePole metalHp_, clickLp_, velocityTone_;
+    bool velocityToneOn_ = false;
 };
 
 } // namespace gristo::sound

@@ -27,6 +27,27 @@ public:
 };
 
 // Accepts a modulation lane dragged from a LaneHandle (Massive-style assignment).
+// Like APVTS::ComboBoxAttachment, but matched by item id (id = choice index + 1)
+// instead of position, so the menu can be ordered and grouped freely.
+class ComboIdAttachment
+{
+public:
+    ComboIdAttachment(juce::RangedAudioParameter& param, juce::ComboBox& box)
+        : box_(box), attachment_(param, [this](float value) { box_.setSelectedId(juce::roundToInt(value) + 1, juce::dontSendNotification); })
+    {
+        box_.onChange = [this] {
+            if (const int id = box_.getSelectedId(); id > 0)
+                attachment_.setValueAsCompleteGesture(static_cast<float>(id - 1));
+        };
+        attachment_.sendInitialUpdate();
+    }
+    ~ComboIdAttachment() { box_.onChange = nullptr; }
+
+private:
+    juce::ComboBox& box_;
+    juce::ParameterAttachment attachment_;
+};
+
 class ModDropTarget : public juce::DragAndDropTarget
 {
 public:

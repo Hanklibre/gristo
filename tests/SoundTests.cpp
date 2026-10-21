@@ -263,3 +263,71 @@ TEST("sound: names cover every kit and synth sound")
         CHECK(std::string(synthCategoryName(static_cast<SynthSound>(s))).size() > 1);
     }
 }
+
+TEST("sound: ensemble sounds are stereo, basses stay mono")
+{
+    auto width = [](SynthSound sound) {
+        SoundEngine e;
+        dryEngine(e);
+        SynthParams p;
+        p.sound = sound;
+        p.reverbSend = 0.0f;
+        e.setSynth(kChordSynth, p); // the centre-panned synth
+        e.noteOn(kChordSynth, 60, 60.0f, 0.8f);
+        Rendered out;
+        renderInto(e, out, 1.0);
+        double diff = 0.0, sum = 0.0;
+        for (size_t i = 0; i < out.left.size(); ++i)
+        {
+            diff += std::abs(out.left[i] - out.right[i]);
+            sum += std::abs(out.left[i]) + std::abs(out.right[i]);
+        }
+        return diff / std::max(sum, 1e-9);
+    };
+    CHECK(width(SynthSound::PolyStrings) > 0.05);
+    CHECK(width(SynthSound::SubBass) < 1e-6);
+}
+
+TEST("sound: a level jump glides instead of clicking")
+{
+    SoundEngine e;
+    dryEngine(e);
+    SynthParams p;
+    p.sound = SynthSound::SubBass;
+    p.reverbSend = 0.0f;
+    p.level = 0.1f;
+    e.setSynth(kChordSynth, p);
+    e.noteOn(kChordSynth, 45, 45.0f, 0.9f);
+    Rendered out;
+    renderInto(e, out, 0.5);
+    p.level = 1.0f;
+    e.setSynth(kChordSynth, p);
+    Rendered after;
+    renderInto(e, after, 0.002); // 2 ms: still on the way up
+    renderInto(e, after, 0.3);
+    const size_t twoMs = static_cast<size_t>(0.002 * kRate);
+    CHECK(after.rms(0, twoMs) < after.rms(static_cast<size_t>(0.2 * kRate), after.left.size()) * 0.6f);
+}
+
+TEST("sound: harder drum hits are brighter, not only louder")
+{
+    auto brightness = [](float velocity) {
+        SoundEngine e;
+        dryEngine(e);
+        KitParams kit;
+        kit.kit = Kit::Eight08;
+        kit.reverbSend = 0.0f;
+        e.setKit(kit);
+        e.triggerDrum(1, velocity); // snare
+        Rendered out;
+        renderInto(e, out, 0.2);
+        double diff = 0.0, level = 0.0;
+        for (size_t i = 1; i < out.left.size(); ++i)
+        {
+            diff += std::abs(out.left[i] - out.left[i - 1]);
+            level += std::abs(out.left[i]);
+        }
+        return diff / std::max(level, 1e-9);
+    };
+    CHECK(brightness(1.0f) > brightness(0.3f) * 1.1);
+}

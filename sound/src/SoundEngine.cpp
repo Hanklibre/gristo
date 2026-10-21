@@ -5,7 +5,7 @@
 namespace gristo::sound {
 
 namespace {
-constexpr float kSynthPan[kNumSynths] = { -0.15f, 0.2f, 0.0f };
+constexpr float kSynthPan[kNumSynths] = { -0.15f, 0.2f, 0.0f, -0.3f };
 constexpr int kOpenHat = 3, kClosedHat = 2;
 } // namespace
 
@@ -19,6 +19,11 @@ struct SoundEngine::Impl
     Synth synths[kNumSynths];
     Reverb reverb;
     Delay delay;
+    Chorus chorus[kNumSynths];
+    Glue glue;
+    // Sends glide to new settings so lanes don't zipper: kit, then each synth.
+    float revSend[1 + kNumSynths] {}, dlySend[1 + kNumSynths] {};
+    float sendCoef = 0.0017f;
     dsp::OnePole busToneL, busToneR, busAirL, busAirR, busColourL, busColourR;
     float crushL = 0.0f, crushR = 0.0f;
     int crushCount = 0;
@@ -60,6 +65,10 @@ void SoundEngine::prepare(double sampleRate)
     m.synths[kChordSynth].setPoly(true);
     m.reverb.prepare(m.sampleRate);
     m.delay.prepare(m.sampleRate);
+    for (int s = 0; s < kNumSynths; ++s)
+        m.chorus[s].prepare(m.sampleRate, 0.25f * static_cast<float>(s)); // staggered LFOs
+    m.glue.prepare(m.sampleRate);
+    m.sendCoef = 1.0f - std::exp(-1.0f / (0.012f * m.sampleRate));
     m.configuredTone = m.configuredLowpass = -1.0f;
     reset();
 }
@@ -76,6 +85,9 @@ void SoundEngine::reset()
         s.reset();
     m.reverb.reset();
     m.delay.reset();
+    for (auto& c : m.chorus)
+        c.reset();
+    m.glue.reset();
     for (auto* f : { &m.busToneL, &m.busToneR, &m.busAirL, &m.busAirR, &m.busColourL, &m.busColourR })
         f->reset();
     m.configureBus();
@@ -191,20 +203,29 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
         kl = dsp::drive(kl, busDrive) * patch.gain;
         kr = dsp::drive(kr, busDrive) * patch.gain;
 
-        float revIn = (kl + kr) * 0.5f * m.kit.reverbSend;
-        float dlyIn = (kl + kr) * 0.5f * m.kit.delaySend;
+        auto glide = [&m](float& value, float target) { value += (target - value) * m.sendCoef; };
+        glide(m.revSend[0], m.kit.reverbSend);
+        glide(m.dlySend[0], m.kit.delaySend);
+        float revIn = (kl + kr) * 0.5f * m.revSend[0];
+        float dlyIn = (kl + kr) * 0.5f * m.dlySend[0];
         float l = kl, r = kr;
 
-        // Synths
+        // Synths, each through its ensemble when the sound has one
         for (int s = 0; s < kNumSynths; ++s)
         {
+            glide(m.revSend[1 + s], m.synthParams[s].reverbSend);
+            glide(m.dlySend[1 + s], m.synthParams[s].delaySend);
             const float y = m.synths[s].tick();
-            if (y == 0.0f)
+            const float amount = m.synths[s].chorus();
+            if (y == 0.0f && amount <= 0.0f)
                 continue;
-            l += y * (1.0f - kSynthPan[s]);
-            r += y * (1.0f + kSynthPan[s]);
-            revIn += y * m.synthParams[s].reverbSend;
-            dlyIn += y * m.synthParams[s].delaySend;
+            float yl = y, yr = y;
+            if (amount > 0.0f)
+                m.chorus[s].process(y, amount, yl, yr); // keeps running so its line never holds stale audio
+            l += yl * (1.0f - kSynthPan[s]);
+            r += yr * (1.0f + kSynthPan[s]);
+            revIn += y * m.revSend[1 + s];
+            dlyIn += y * m.dlySend[1 + s];
         }
 
         float dl = 0.0f, dr = 0.0f, rl = 0.0f, rr = 0.0f;
@@ -213,8 +234,11 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
         l += dl + rl;
         r += dr + rr;
 
-        left[i] += std::tanh(l * gain) * 0.8f;
-        right[i] += std::tanh(r * gain) * 0.8f;
+        l *= gain;
+        r *= gain;
+        m.glue.process(l, r);
+        left[i] += std::tanh(l) * 0.8f;
+        right[i] += std::tanh(r) * 0.8f;
     }
 }
 

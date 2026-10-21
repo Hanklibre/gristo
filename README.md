@@ -23,7 +23,7 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
 * **Per voice:** Fill, Fill Random, Probability, Probability Random, Humanize,
   Dynamics, Velocity range (1–127), MIDI note, MIDI channel and Mute, laid out
   as a mixer-style grid. Hover any control for a one-line explanation.
-* **Two drum-clocked arps:** each arp steps forward when the drum voices you
+* **Three drum-clocked arps:** each arp steps forward when the drum voices you
   pick (kick, snare, any mix) play, and restarts every 1/2/4/8/16 bars. *Arp*
   mode plays the chord you hold on MIDI in (Up / Down / Up-Down / Random / As
   Played, 1–4 octaves, Latch). *Generate* mode is a Sting-style sequencer:
@@ -58,7 +58,13 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   Keys, Felt Piano, Bell, Celesta, Vibraphone, Pluck, Organ, Jazz Organ, Poly
   Synth), pads (Warm, Glass, Dark, Breath, Slow Strings, Poly Strings), leads
   (Square, Sync, Soft) and Synth Brass, each with Cutoff, Resonance, Env,
-  Attack, Release, Glide and Level.
+  Attack, Release, Glide and Level. Pads, strings, keys and brass run
+  through a stereo ensemble chorus, the analog-style patches drift a few
+  cents per note, FM keys and mallets get brighter the harder you hit, and
+  drums get darker on soft hits, with a little variation on every hit and no
+  clicks on fast re-hits. Lanes glide the levels, filters and sends smoothly.
+  The reverb has a short pre-delay and keeps low end out of the tail, and a
+  gentle glue compressor sits before the final soft clip.
   A shared reverb and tempo-synced ping-pong delay with sends. Lanes can drive
   the sound knobs too: the kit's Tune, Decay, Tone, Drive and sends; each
   synth's Cutoff, Resonance, Env, Attack, Release, Level and sends; Reverb
@@ -75,7 +81,7 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
 * **UI size:** 70–125 %, and it picks a size that fits your screen the first time.
 * **Output:** MIDI notes with a selectable note and channel per voice (GM drum
   notes three octaves down on channel 10 by default, so the drums sit below the
-  arps), the arps on channels 1 and 2 with an Out Shift each, plus the built-in
+  arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for how it works and
@@ -171,8 +177,9 @@ cmake -S . -B build -DGRISTO_BUILD_PLUGIN=OFF && cmake --build build && ./build/
   * **Splitting drums and arps in Live (by note):** Live merges a plugin's
     MIDI output to channel 1, so Gristo keeps each part in its own note range
     instead. Drums default to the GM notes three octaves down (C-2 to A#-2), and
-    each arp has an Out **Shift** (Arp 1: 0, Arp 2: +36 semitones). The arp page
-    shows the exact range and the setting to use.
+    each arp has an Out **Shift** (Arp 1: 0 from C2, Arp 2: +36 from C4, Arp 3:
+    0 from C5, which lands between them). The arp page shows the exact range,
+    the setting to use and any overlap.
     1. Hold or clip the arps' chord on the Gristo track itself (its MIDI in).
     2. Make one MIDI track with *MIDI From* = the Gristo track / "Gristo", and
        put an Instrument Rack on it. Show the Key zone editor and add one chain
@@ -182,6 +189,7 @@ cmake -S . -B build -DGRISTO_BUILD_PLUGIN=OFF && cmake --build build && ./build/
        * **Arp 1:** key zone as shown on the Arp 1 page, then the synth.
        * **Arp 2:** key zone as shown on the Arp 2 page, a Pitch device at -36
          (the opposite of its Shift), then the synth.
+       * **Arp 3:** key zone as shown on the Arp 3 page, then the synth.
 
        For separate mixer tracks, use one listening track per part instead,
        each with an Instrument Rack holding just that part's chain.

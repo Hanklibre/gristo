@@ -151,8 +151,9 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         for (int a = 0; a < gristo::sound::kNumSynths; ++a)
         {
             auto synth = p::readSynthParams(state, a);
-            if (a < gristo::kNumArps)
-                synth.cutoffMod = block.playing ? modulated.arps[static_cast<size_t>(a)].cutoffOffset : 0.0f;
+            const int arp = mod::arpOfSynth(a);
+            if (arp >= 0)
+                synth.cutoffMod = block.playing ? modulated.arps[static_cast<size_t>(arp)].cutoffOffset : 0.0f;
             else
                 synth.cutoffMod = lane(mod::kChordCutoffTarget);
             synth.resonance = unit(synth.resonance + lane(mod::synthTarget(a, mod::kSynthReso)));
@@ -190,6 +191,8 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         rendered = end;
     };
 
+    // Arp / chord part (0..kNumArps, the chords last) -> its synth.
+    auto synthOf = [](int part) { return part == gristo::kNumArps ? gristo::sound::kChordSynth : gristo::mod::synthOfArp(part); };
     for (const auto& ev : events_)
     {
         const bool isArp = ev.voice >= gristo::kArpVoiceBase;
@@ -205,8 +208,8 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 if (isArp)
                 {
                     // The kit plays the unshifted pitch, as the synth behind a Pitch device would.
-                    const int arp = ev.voice - gristo::kArpVoiceBase;
-                    sound_.noteOn(arp, note, static_cast<float>(note - shifts[arp]), ev.velocity);
+                    const int part = ev.voice - gristo::kArpVoiceBase;
+                    sound_.noteOn(synthOf(part), note, static_cast<float>(note - shifts[part]), ev.velocity);
                 }
                 else
                     sound_.triggerDrum(ev.voice, ev.velocity);
@@ -216,7 +219,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         {
             midi.addEvent(juce::MidiMessage::noteOff(channel, note), ev.sampleOffset);
             if (isArp)
-                sound_.noteOff(ev.voice - gristo::kArpVoiceBase, note);
+                sound_.noteOff(synthOf(ev.voice - gristo::kArpVoiceBase), note);
         }
     }
     renderKitTo(numSamples);

@@ -9,34 +9,81 @@ namespace gristo {
 
 namespace mod {
 
+bool decodeArpTarget(int target, int& arp, int& which)
+{
+    if (target >= kArpBase && target < kArpCutoffBase)
+    {
+        arp = (target - kArpBase) / kArpTargetsPerArp;
+        which = (target - kArpBase) % kArpTargetsPerArp;
+        return true;
+    }
+    if (target >= kArpCutoffBase && target < kArpProbBase)
+    {
+        arp = target - kArpCutoffBase;
+        which = kExtraCutoff;
+        return true;
+    }
+    if (target >= kArpProbBase && target < kSoundBase)
+    {
+        arp = target - kArpProbBase;
+        which = kExtraProb;
+        return true;
+    }
+    if (target >= kExtraArpBase && target < kNumTargets)
+    {
+        const int w = (target - kExtraArpBase) % kExtraArpTargets;
+        if (w >= kExtraSynth)
+            return false;
+        arp = kLegacyArps + (target - kExtraArpBase) / kExtraArpTargets;
+        which = w;
+        return true;
+    }
+    return false;
+}
+
+bool decodeSynthTarget(int target, int& synth, int& which)
+{
+    const int legacy = target - kSoundBase - kKitTargets;
+    if (target >= kSoundBase + kKitTargets && target < kChordCutoffTarget)
+    {
+        synth = legacy / kSynthTargets;
+        which = legacy % kSynthTargets;
+        return true;
+    }
+    if (target >= kExtraArpBase && target < kNumTargets)
+    {
+        const int w = (target - kExtraArpBase) % kExtraArpTargets;
+        if (w < kExtraSynth)
+            return false;
+        synth = synthOfArp(kLegacyArps + (target - kExtraArpBase) / kExtraArpTargets);
+        which = w - kExtraSynth;
+        return true;
+    }
+    return false;
+}
+
 std::string targetName(int target)
 {
     if (target >= kFill && target < kFill + kNumVoices) return std::string(voiceName(target - kFill)) + " Fill";
     if (target >= kProbability && target < kProbability + kNumVoices) return std::string(voiceName(target - kProbability)) + " Probability";
     if (target >= kVelocity && target < kVelocity + kNumVoices) return std::string(voiceName(target - kVelocity)) + " Velocity";
-    if (target >= kSoundBase && target < kNumTargets)
+    int arp = 0, synth = 0, which = 0;
+    if (decodeArpTarget(target, arp, which))
+    {
+        static const char* const names[kArpTargetsPerArp + 2] = { "Density", "Accent", "Slide", "Gate", "Octaves",
+                                                                  "Length", "Transpose", "Velocity", "Cutoff", "Probability" };
+        return "Arp " + std::to_string(arp + 1) + " " + names[which];
+    }
+    if (decodeSynthTarget(target, synth, which))
+    {
+        static const char* const names[kSynthTargets] = { "Resonance", "Env", "Attack", "Release", "Level", "Reverb", "Delay" };
+        const int owner = arpOfSynth(synth);
+        return (owner < 0 ? std::string("Chords") : "Arp " + std::to_string(owner + 1)) + " " + names[which];
+    }
+    if (target >= kSoundBase && target < kSoundBase + kKitTargets)
     {
         static const char* const kit[kKitTargets] = { "Tune", "Decay", "Tone", "Drive", "Reverb", "Delay" };
-        static const char* const synth[kSynthTargets] = { "Resonance", "Env", "Attack", "Release", "Level", "Reverb", "Delay" };
-        const int i = target - kSoundBase;
-        if (i < kKitTargets)
-            return std::string("Kit ") + kit[i];
-        if (target == kChordCutoffTarget) return "Chords Cutoff";
-        if (target == kFxSizeTarget) return "Reverb Size";
-        if (target == kFxFeedbackTarget) return "Delay Feedback";
-        const int s = (i - kKitTargets) / kSynthTargets;
-        const std::string owner = s == 2 ? std::string("Chords") : "Arp " + std::to_string(s + 1);
-        return owner + " " + synth[(i - kKitTargets) % kSynthTargets];
-    }
-    if (target >= kArpProbBase && target < kSoundBase)
-        return "Arp " + std::to_string(target - kArpProbBase + 1) + " Probability";
-    if (target >= kArpCutoffBase && target < kArpProbBase)
-        return "Arp " + std::to_string(target - kArpCutoffBase + 1) + " Cutoff";
-    if (target >= kArpBase && target < kArpCutoffBase)
-    {
-        static const char* const names[kArpTargetsPerArp] = { "Density", "Accent", "Slide", "Gate", "Octaves", "Length", "Transpose", "Velocity" };
-        const int arp = (target - kArpBase) / kArpTargetsPerArp;
-        return "Arp " + std::to_string(arp + 1) + " " + names[(target - kArpBase) % kArpTargetsPerArp];
+        return std::string("Kit ") + kit[target - kSoundBase];
     }
     switch (target)
     {
@@ -46,6 +93,9 @@ std::string targetName(int target)
         case kShuffle: return "Shuffle";
         case kFlamMs: return "Flam ms";
         case kHumanize: return "Humanize";
+        case kChordCutoffTarget: return "Chords Cutoff";
+        case kFxSizeTarget: return "Reverb Size";
+        case kFxFeedbackTarget: return "Delay Feedback";
         default: return "None";
     }
 }
@@ -56,9 +106,10 @@ float targetRange(int target)
         return 24.0f; // the Tune knob: -12..12 semitones
     if (target == kFxFeedbackTarget)
         return 0.9f;
-    if (target >= kArpBase && target < kArpCutoffBase)
+    int arp = 0, which = 0;
+    if (decodeArpTarget(target, arp, which))
     {
-        switch ((target - kArpBase) % kArpTargetsPerArp)
+        switch (which)
         {
             case kArpGate: return 7.75f;              // the Gate knob: 0.25 .. 8 16ths
             case kArpOctaves: return 3.0f;            // 1 .. 4

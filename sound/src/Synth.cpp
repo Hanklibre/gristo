@@ -157,6 +157,28 @@ const SynthPatch* buildPatches()
         x.a = 0.003f; x.d = 0.1f; x.s = 1.0f; x.r = 0.05f; x.vibratoHz = 6.8f; x.vibratoSemis = 0.1f;
         x.drive = 1.8f; x.level = 0.45f;
     }
+    // Stereo ensemble and analog drift, by sound (basses stay mono and in tune).
+    struct Colour
+    {
+        SynthSound sound;
+        float chorus, drift;
+    };
+    const Colour colours[] = {
+        { SynthSound::EPiano, 0.35f, 0.0f },      { SynthSound::Bell, 0.2f, 0.0f },         { SynthSound::Pluck, 0.25f, 2.0f },
+        { SynthSound::Organ, 0.2f, 0.0f },        { SynthSound::WarmPad, 0.6f, 4.0f },      { SynthSound::GlassPad, 0.4f, 0.0f },
+        { SynthSound::DarkPad, 0.5f, 3.0f },      { SynthSound::SoftLead, 0.15f, 0.0f },    { SynthSound::FeltPiano, 0.15f, 0.0f },
+        { SynthSound::Celesta, 0.25f, 0.0f },     { SynthSound::BreathPad, 0.5f, 0.0f },    { SynthSound::SlowStrings, 0.7f, 4.0f },
+        { SynthSound::PolyStrings, 0.8f, 3.0f },  { SynthSound::SynthBrass, 0.35f, 4.0f },  { SynthSound::PolySynth, 0.5f, 3.0f },
+        { SynthSound::TapeKeys, 0.3f, 0.0f },     { SynthSound::SuitcaseKeys, 0.45f, 0.0f }, { SynthSound::Vibraphone, 0.15f, 0.0f },
+        { SynthSound::JazzOrgan, 0.3f, 0.0f },
+    };
+    for (const auto& c : colours)
+    {
+        set(c.sound).chorus = c.chorus;
+        set(c.sound).driftCents = c.drift;
+    }
+    set(SynthSound::GlassPad).velocityToFm = 0.2f; // pads keep their tone
+    set(SynthSound::BreathPad).velocityToFm = 0.2f;
     return p;
 }
 
@@ -242,6 +264,7 @@ void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int i
     id_ = id;
     pitch_ = targetPitch_ = pitch;
     velocity_ = dsp::clamp01(velocity);
+    detune_ = patch_.driftCents * drift_.next() / 100.0f; // semitones
     amp_.set(attackTime(patch_, macros), patch_.d, patch_.s, releaseTime(patch_, macros), sampleRate_);
     filterEnv_.set(patch_.fa, patch_.fd, patch_.fs, patch_.fr, sampleRate_);
     amp_.gateOn();
@@ -322,7 +345,9 @@ float SynthVoice::oscillator(float hz)
         {
             advance(phase_[0], dt);
             advance(modPhase_, dt * patch_.fmRatio);
-            const float index = patch_.fmIndexEnd + (patch_.fmIndex - patch_.fmIndexEnd) * fmEnv_;
+            // Harder notes are brighter, like a real e-piano or mallet.
+            const float index = (patch_.fmIndexEnd + (patch_.fmIndex - patch_.fmIndexEnd) * fmEnv_)
+                              * (1.0f - patch_.velocityToFm * (1.0f - velocity_));
             out = std::sin(dsp::kTwoPi * phase_[0] + index * std::sin(dsp::kTwoPi * modPhase_));
             break;
         }
@@ -389,14 +414,19 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
     if (!amp_.active())
         return 0.0f;
     pitch_ = targetPitch_ + (pitch_ - targetPitch_) * glideCoef;
-    float pitch = pitch_;
+    float pitch = pitch_ + detune_;
     if (patch_.vibratoHz > 0.0f)
     {
         vibPhase_ += patch_.vibratoHz / sampleRate_;
         vibPhase_ -= std::floor(vibPhase_);
         pitch += patch_.vibratoSemis * std::sin(dsp::kTwoPi * vibPhase_);
     }
-    const float hz = dsp::midiToHz(pitch);
+    if (pitch != hzPitch_)
+    {
+        hzPitch_ = pitch;
+        hz_ = dsp::midiToHz(pitch);
+    }
+    const float hz = hz_;
 
     filterEnv_.tick();
     if (--controlCounter_ <= 0)
@@ -418,9 +448,31 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
 void Synth::prepare(float sampleRate)
 {
     sampleRate_ = sampleRate;
+    std::uint32_t seed = 0x51ed27u;
     for (auto& v : voices_)
-        v.prepare(sampleRate);
+        v.prepare(sampleRate, seed += 0x9e3779b9u);
+    smoothCoef_ = 1.0f - std::exp(-1.0f / (0.012f * sampleRate)); // ~12 ms
+    started_ = false;
+    setParams(params_);
     reset();
+}
+
+void Synth::setParams(const SynthParams& params)
+{
+    const SynthParams previous = live_;
+    params_ = params;
+    live_ = params;
+    if (started_)
+    {
+        live_.level = previous.level;
+        live_.cutoff = previous.cutoff;
+        live_.cutoffMod = previous.cutoffMod;
+        live_.resonance = previous.resonance;
+    }
+    started_ = true;
+    const float glideSeconds = 0.5f * params_.glide * params_.glide;
+    glideCoef_ = glideSeconds < 0.001f ? 0.0f : std::exp(-1.0f / (glideSeconds * sampleRate_ / 3.0f));
+    chorus_ = synthPatch(params_.sound).chorus;
 }
 
 void Synth::reset()
@@ -453,31 +505,34 @@ void Synth::noteOn(int id, float pitch, float velocity)
             if (v.level() < target->level())
                 target = &v;
     }
-    target->start(synthPatch(params_.sound), params_, id, pitch, velocity);
+    target->start(synthPatch(params_.sound), live_, id, pitch, velocity);
 }
 
 void Synth::noteOff(int id)
 {
     for (auto& v : voices_)
         if (v.gated() && v.id() == id)
-            v.release(params_);
+            v.release(live_);
 }
 
 void Synth::allNotesOff()
 {
     for (auto& v : voices_)
         if (v.gated())
-            v.release(params_);
+            v.release(live_);
 }
 
 float Synth::tick()
 {
-    const float glideSeconds = 0.5f * params_.glide * params_.glide;
-    const float glideCoef = glideSeconds < 0.001f ? 0.0f : std::exp(-1.0f / (glideSeconds * sampleRate_ / 3.0f));
+    auto glide = [this](float& value, float target) { value += (target - value) * smoothCoef_; };
+    glide(live_.level, params_.level);
+    glide(live_.cutoff, params_.cutoff);
+    glide(live_.cutoffMod, params_.cutoffMod);
+    glide(live_.resonance, params_.resonance);
     float out = 0.0f;
     for (auto& v : voices_)
-        out += v.tick(params_, glideCoef);
-    return out * params_.level;
+        out += v.tick(live_, glideCoef_);
+    return out * live_.level;
 }
 
 int Synth::activeVoices() const

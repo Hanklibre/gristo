@@ -124,14 +124,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpMode), name + " Mode", juce::StringArray { "Arp", "Generate" }, 0));
         for (int v = 0; v < kNumVoices; ++v)
             layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID { slotId(arpTrigger, a, v), kVersion },
-                                                                  name + " Trigger " + voiceName(v), v == (a == 0 ? Kick : HiHat1)));
+                                                                  name + " Trigger " + voiceName(v), v == (a == 0 ? Kick : a == 1 ? HiHat1 : Snare)));
         layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpReset), name + " Reset",
                                                                 juce::StringArray { "1 bar", "2 bars", "4 bars", "8 bars", "16 bars" }, 2));
-        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpChannel), name + " MIDI Channel", 1, 16, a + 1));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpChannel), name + " MIDI Channel", 1, 16, a < 2 ? a + 1 : a + 2)); // 3 = chords
         layout.add(std::make_unique<juce::AudioParameterBool>(id(arpLatch), name + " Latch", true));
         layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpOrder), name + " Order", orders, 0));
         layout.add(std::make_unique<juce::AudioParameterInt>(id(arpOctaves), name + " Octaves", 1, 4, 1));
-        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpRoot), name + " Root", 24, 96, a == 0 ? 36 : 60, noteAttributes));
+        layout.add(std::make_unique<juce::AudioParameterInt>(id(arpRoot), name + " Root", 24, 96, a == 0 ? 36 : a == 1 ? 60 : 72, noteAttributes));
         layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpScale), name + " Scale", scales, 1));
         layout.add(std::make_unique<juce::AudioParameterInt>(id(arpLength), name + " Length", 1, kMaxArpSteps, 8));
         layout.add(percentParam(laneId(arpDensity, a), name + " Density", 0.8f));
@@ -146,7 +146,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(percentParam(laneId(arpProbabilityRandom, a), name + " Probability Random", 0.0f));
         layout.add(std::make_unique<juce::AudioParameterBool>(id(arpFollow), name + " Follow Chords", false));
         layout.add(std::make_unique<juce::AudioParameterInt>(
-            id(arpShift), name + " Out Shift", -60, 60, a == 0 ? 0 : 36,
+            id(arpShift), name + " Out Shift", -60, 60, a == 1 ? 36 : 0, // arp 3 (from C4) sits between arps 1 and 2
             juce::AudioParameterIntAttributes().withStringFromValueFunction(
                 [](int v, int) { return (v > 0 ? "+" : "") + juce::String(v) + " st"; })));
     }
@@ -176,9 +176,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(percentParam(kitDelay, "Kit Delay", 0.0f));
         for (int a = 0; a < sound::kNumSynths; ++a)
         {
-            const juce::String name = a == sound::kChordSynth ? juce::String("Chords ") : "Arp " + juce::String(a + 1) + " ";
+            const int arp = mod::arpOfSynth(a);
+            const juce::String name = arp < 0 ? juce::String("Chords ") : "Arp " + juce::String(arp + 1) + " ";
             const int defaultSound = static_cast<int>(a == 0 ? sound::SynthSound::AcidBass
-                                                      : a == 1 ? sound::SynthSound::Pluck : sound::SynthSound::WarmPad);
+                                                      : a == 1 ? sound::SynthSound::Pluck
+                                                      : a == sound::kChordSynth ? sound::SynthSound::WarmPad : sound::SynthSound::SoftLead);
             layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(synthSound, a), kVersion },
                                                                     name + "Sound", sounds, defaultSound));
             layout.add(percentParam(laneId(synthCutoff, a), name + "Cutoff", 0.5f));
@@ -189,7 +191,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             layout.add(percentParam(laneId(synthGlide, a), name + "Glide", 0.3f));
             layout.add(percentParam(laneId(synthLevel, a), name + "Level", 0.7f));
             layout.add(percentParam(laneId(synthReverb, a), name + "Reverb", a == 0 ? 0.1f : a == 1 ? 0.25f : 0.3f));
-            layout.add(percentParam(laneId(synthDelay, a), name + "Delay", a == 1 ? 0.2f : 0.0f));
+            layout.add(percentParam(laneId(synthDelay, a), name + "Delay", a == 1 || a == 3 ? 0.2f : 0.0f));
         }
         // Chord sequencer
         {

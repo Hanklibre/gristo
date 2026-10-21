@@ -196,7 +196,9 @@ const KitPatch& kitPatch(Kit kit)
 void DrumVoice::trigger(const DrumPatch& patch, float velocity, float tuneSemis, float decayScale)
 {
     patch_ = patch;
-    const float tune = std::exp2(tuneSemis / 12.0f);
+    // No two hits quite alike: a few cents and a touch of brightness, as a real drum.
+    const float wobble = noiseGen_.next(), shimmer = noiseGen_.next();
+    const float tune = std::exp2(tuneSemis / 12.0f + wobble * 0.008f);
     patch_.f0 *= tune;
     patch_.f1 *= tune;
     patch_.noiseHz = std::min(patch_.noiseHz * std::sqrt(tune), sampleRate_ * 0.45f);
@@ -204,6 +206,18 @@ void DrumVoice::trigger(const DrumPatch& patch, float velocity, float tuneSemis,
 
     const float sr = sampleRate_;
     velocity_ = 0.1f + 0.9f * velocity * velocity;
+    // Harder hits are brighter and punchier, soft ones darker: not only louder.
+    const float v = std::clamp(velocity, 0.0f, 1.0f);
+    patch_.noiseHz = std::min(patch_.noiseHz * (0.85f + 0.3f * v) * (1.0f + 0.04f * shimmer), sr * 0.45f);
+    const float toneHz = 1800.0f * std::exp2(v * 3.6f); // ~4 kHz at 0.3, open at full
+    velocityToneOn_ = toneHz < 16000.0f;
+    velocityTone_.reset();
+    velocityTone_.setLowpass(toneHz, sr);
+    patch_.click *= 0.5f + 0.8f * v;
+    if (patch_.f0 > patch_.f1)
+        patch_.f0 = patch_.f1 + (patch_.f0 - patch_.f1) * (0.6f + 0.6f * v);
+    declick_ = active_ ? lastOut_ : 0.0f;
+    declickCoef_ = dsp::decayCoef(0.003f, sr);
     t_ = 0.0f;
     active_ = true;
     choke_ = false;
@@ -301,11 +315,19 @@ float DrumVoice::tick()
         clickEnv_ *= clickCoef_;
     }
 
+    if (velocityToneOn_)
+        out = velocityTone_.lowpass(out);
     out = dsp::drive(out, patch_.drive) * velocity_ * patch_.gain;
     if (choke_)
     {
         chokeGain_ *= 0.995f;
         out *= chokeGain_;
+    }
+    lastOut_ = out;
+    if (std::abs(declick_) > 1e-6f)
+    {
+        out += declick_;
+        declick_ *= declickCoef_;
     }
     t_ += 1.0f / sr;
 

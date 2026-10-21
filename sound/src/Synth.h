@@ -23,6 +23,9 @@ struct SynthPatch
     float vibratoHz = 0.0f, vibratoSemis = 0.0f;
     float drive = 1.0f;
     float level = 1.0f;
+    float chorus = 0.0f;   // stereo ensemble amount (applied per synth by the engine)
+    float driftCents = 0.0f; // random detune per note, for analog warmth
+    float velocityToFm = 0.45f; // how much soft notes darken an FM tone
 };
 
 const SynthPatch& synthPatch(SynthSound sound);
@@ -30,7 +33,11 @@ const SynthPatch& synthPatch(SynthSound sound);
 class SynthVoice
 {
 public:
-    void prepare(float sampleRate) { sampleRate_ = sampleRate; }
+    void prepare(float sampleRate, std::uint32_t seed)
+    {
+        sampleRate_ = sampleRate;
+        drift_ = dsp::Noise(seed);
+    }
     void start(const SynthPatch& patch, const SynthParams& macros, int id, float pitch, float velocity);
     void legato(int id, float pitch, float velocity); // glide to a new pitch, no retrigger
     void release(const SynthParams& macros);
@@ -48,12 +55,14 @@ private:
     SynthPatch patch_;
     float sampleRate_ = 48000.0f;
     int id_ = -1;
-    float pitch_ = 60.0f, targetPitch_ = 60.0f;
+    float pitch_ = 60.0f, targetPitch_ = 60.0f, detune_ = 0.0f;
+    float hzPitch_ = -1000.0f, hz_ = 0.0f; // midiToHz cache: only glides and vibrato recompute it
     float velocity_ = 1.0f;
     float phase_[5] {}, subPhase_ = 0.0f, modPhase_ = 0.0f, tinePhase_ = 0.0f, syncPhase_ = 0.0f;
     float vibPhase_ = 0.0f, fmEnv_ = 1.0f, fmCoef_ = 0.0f, tineEnv_ = 0.0f, tineCoef_ = 0.0f;
     dsp::Adsr amp_, filterEnv_;
     dsp::Svf filter1_, filter2_;
+    dsp::Noise drift_;
     int controlCounter_ = 0;
 };
 
@@ -66,7 +75,10 @@ public:
     // another is held is a slide (arps).
     void setPoly(bool poly) { poly_ = poly; }
     void reset();
-    void setParams(const SynthParams& params) { params_ = params; }
+    // Level, cutoff and resonance glide to new settings (no zipper noise when lanes
+    // move them block by block); the rest applies at once.
+    void setParams(const SynthParams& params);
+    float chorus() const { return chorus_; }
     void noteOn(int id, float pitch, float velocity);
     void noteOff(int id);
     void allNotesOff();
@@ -75,9 +87,10 @@ public:
 
 private:
     SynthVoice voices_[kVoices];
-    SynthParams params_;
+    SynthParams params_, live_;
     float sampleRate_ = 48000.0f;
-    bool poly_ = false;
+    float smoothCoef_ = 0.0017f, glideCoef_ = 0.0f, chorus_ = 0.0f; // smoothing: ~12 ms at 48 kHz until prepare()
+    bool poly_ = false, started_ = false;
 };
 
 } // namespace gristo::sound

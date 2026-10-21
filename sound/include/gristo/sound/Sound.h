@@ -10,7 +10,7 @@
 namespace gristo::sound {
 
 constexpr int kNumDrumVoices = 6; // kick, snare, hihat 1, hihat 2, perc 1, perc 2
-constexpr int kNumSynths = 3;     // one per arp, then the chords (polyphonic)
+constexpr int kNumSynths = 4;     // arp 1, arp 2, the chords (polyphonic), arp 3
 constexpr int kChordSynth = 2;
 
 // New kits and sounds are appended so saved choices keep their meaning.

@@ -11,7 +11,7 @@ namespace gristo {
 // probability of those voices. The step counter restarts every N bars, counted from
 // song position, so jumps, loops and bounces always line up.
 
-constexpr int kNumArps = 2;
+constexpr int kNumArps = 3;
 constexpr int kMaxArpSteps = 16;    // generator pattern length
 constexpr int kMaxArpPool = 64;     // notes available to pick from (incl. octaves)
 constexpr int kMaxHeldNotes = 32;

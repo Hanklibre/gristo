@@ -11,6 +11,8 @@ constexpr int kStereoSpread = 23;
 void Reverb::prepare(float sampleRate)
 {
     const float scale = sampleRate / 44100.0f;
+    preDelay_.assign(static_cast<size_t>(0.018f * sampleRate) + 1, 0.0f); // 18 ms
+    lowCut_.setLowpass(180.0f, sampleRate);
     for (int side = 0; side < 2; ++side)
     {
         const int spread = side == 0 ? 0 : kStereoSpread;
@@ -24,6 +26,9 @@ void Reverb::prepare(float sampleRate)
 
 void Reverb::reset()
 {
+    std::fill(preDelay_.begin(), preDelay_.end(), 0.0f);
+    preIndex_ = 0;
+    lowCut_.reset();
     for (auto& side : combs_)
         for (auto& c : side)
         {
@@ -47,7 +52,15 @@ void Reverb::setSize(float size)
 
 void Reverb::process(float in, float& outL, float& outR)
 {
-    const float input = in * 0.015f;
+    float input = lowCut_.highpass(in) * 0.015f;
+    if (!preDelay_.empty())
+    {
+        const float delayed = preDelay_[preIndex_];
+        preDelay_[preIndex_] = input;
+        if (++preIndex_ >= preDelay_.size())
+            preIndex_ = 0;
+        input = delayed;
+    }
     float out[2] = { 0.0f, 0.0f };
     for (int side = 0; side < 2; ++side)
     {
@@ -146,6 +159,93 @@ void Delay::process(float in, float& outL, float& outR)
         write_ = 0;
     outL = l;
     outR = r;
+}
+
+// ---------------------------------------------------------------------------------
+
+void Chorus::prepare(float sampleRate, float lfoPhase)
+{
+    sampleRate_ = sampleRate;
+    line_.assign(static_cast<size_t>(0.02f * sampleRate) + 4, 0.0f); // up to 20 ms
+    startPhase_ = lfoPhase;
+    reset();
+}
+
+void Chorus::reset()
+{
+    std::fill(line_.begin(), line_.end(), 0.0f);
+    write_ = 0;
+    phase_ = startPhase_;
+}
+
+float Chorus::read(float delaySamples) const
+{
+    const auto size = static_cast<float>(line_.size());
+    float pos = static_cast<float>(write_) - delaySamples;
+    if (pos < 0.0f)
+        pos += size;
+    const auto i0 = static_cast<size_t>(pos) % line_.size();
+    const size_t i1 = (i0 + 1) % line_.size();
+    const float frac = pos - std::floor(pos);
+    return line_[i0] * (1.0f - frac) + line_[i1] * frac;
+}
+
+void Chorus::process(float in, float amount, float& outL, float& outR)
+{
+    if (line_.empty())
+    {
+        outL = outR = in;
+        return;
+    }
+    line_[write_] = in;
+    phase_ += 0.55f / sampleRate_; // ~0.55 Hz, like Juno mode I
+    phase_ -= std::floor(phase_);
+    const float tri = 4.0f * std::abs(phase_ - 0.5f) - 1.0f; // -1..1
+    const float centre = 0.0065f * sampleRate_, depth = 0.0028f * sampleRate_;
+    const float wetL = read(centre + depth * tri);
+    const float wetR = read(centre - depth * tri);
+    if (++write_ >= line_.size())
+        write_ = 0;
+    const float dry = 1.0f - 0.3f * amount, wet = 0.75f * amount;
+    outL = in * dry + wetL * wet;
+    outR = in * dry + wetR * wet;
+}
+
+// ---------------------------------------------------------------------------------
+
+void Glue::prepare(float sampleRate)
+{
+    attack_ = 1.0f - std::exp(-1.0f / (0.004f * sampleRate));  // 4 ms
+    release_ = 1.0f - std::exp(-1.0f / (0.15f * sampleRate));  // 150 ms
+    dcL_.setLowpass(8.0f, sampleRate);
+    dcR_.setLowpass(8.0f, sampleRate);
+    reset();
+}
+
+void Glue::reset()
+{
+    env_ = 0.0f;
+    gain_ = target_ = 1.0f;
+    counter_ = 0;
+    dcL_.reset();
+    dcR_.reset();
+}
+
+void Glue::process(float& l, float& r)
+{
+    l = dcL_.highpass(l);
+    r = dcR_.highpass(r);
+    const float peak = std::max(std::abs(l), std::abs(r));
+    env_ += (peak - env_) * (peak > env_ ? attack_ : release_);
+    if (--counter_ <= 0) // the gain curve is computed every 8 samples and glided in between
+    {
+        constexpr float threshold = 0.6f, ratio = 3.0f;
+        target_ = env_ > threshold ? std::pow(env_ / threshold, 1.0f / ratio - 1.0f) : 1.0f;
+        counter_ = 8;
+    }
+    gain_ += (target_ - gain_) * 0.125f;
+    l *= gain_;
+    r *= gain_;
 }
 
 } // namespace gristo::sound

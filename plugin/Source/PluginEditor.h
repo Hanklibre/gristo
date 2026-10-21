@@ -10,7 +10,7 @@ class GristoView : public juce::Component, public juce::DragAndDropContainer, pr
 {
 public:
     static constexpr int kWidth = 1000;
-    static constexpr int kHeight = 1096;
+    static constexpr int kHeight = 1142;
 
     explicit GristoView(GristoProcessor&);
     ~GristoView() override;
@@ -138,7 +138,7 @@ private:
     struct SynthRow
     {
         juce::ComboBox sound;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> soundAttachment;
+        std::unique_ptr<ComboIdAttachment> soundAttachment; // the menu is grouped by category
         Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay;
     };
     Choice soundKit_, fxTime_;

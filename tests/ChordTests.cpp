@@ -1,6 +1,7 @@
 #include "TestFramework.h"
 
 #include "gristo/Engine.h"
+#include "gristo/sound/Sound.h"
 
 #include <algorithm>
 #include <map>
@@ -405,8 +406,46 @@ TEST("modulation: sound targets have names and ranges")
     CHECK(mod::targetName(mod::synthTarget(0, mod::kSynthReso)) == "Arp 1 Resonance");
     CHECK(mod::targetName(mod::kChordCutoffTarget) == "Chords Cutoff");
     CHECK(mod::targetName(mod::kFxFeedbackTarget) == "Delay Feedback");
-    CHECK(mod::kNumTargets == mod::kFxFeedbackTarget + 1);
     for (int t = 1; t < mod::kNumTargets; ++t)
         CHECK_MSG(mod::targetName(t) != "None", "target " << t);
+}
+
+TEST("modulation: saved target numbers keep their meaning, arp 3 is appended")
+{
+    // Indices as saved by earlier versions.
+    CHECK(mod::arpTarget(0, mod::kArpDensity) == 25);
+    CHECK(mod::arpTarget(1, mod::kArpVelocity) == 40);
+    CHECK(mod::arpCutoffTarget(1) == 42);
+    CHECK(mod::arpProbTarget(0) == 43);
+    CHECK(mod::kitTarget(mod::kKitTune) == 45);
+    CHECK(mod::kChordCutoffTarget == 72);
+    CHECK(mod::kFxFeedbackTarget == 74);
+    // Arp 3 after them.
+    CHECK(mod::arpTarget(2, mod::kArpDensity) == 75);
+    CHECK(mod::targetName(mod::arpTarget(2, mod::kArpTranspose)) == "Arp 3 Transpose");
+    CHECK(mod::targetName(mod::arpCutoffTarget(2)) == "Arp 3 Cutoff");
+    CHECK(mod::targetName(mod::arpProbTarget(2)) == "Arp 3 Probability");
+    CHECK(mod::targetName(mod::synthTarget(mod::synthOfArp(2), mod::kSynthLevel)) == "Arp 3 Level");
+    CHECK(mod::targetRange(mod::arpTarget(2, mod::kArpGate)) == 7.75f);
+    // Every target is reachable exactly once.
+    std::vector<int> seen(static_cast<size_t>(mod::kNumTargets), 0);
+    for (int a = 0; a < kNumArps; ++a)
+    {
+        for (int w = 0; w < mod::kArpTargetsPerArp; ++w)
+            ++seen[static_cast<size_t>(mod::arpTarget(a, w))];
+        ++seen[static_cast<size_t>(mod::arpCutoffTarget(a))];
+        ++seen[static_cast<size_t>(mod::arpProbTarget(a))];
+    }
+    for (int s = 0; s < gristo::sound::kNumSynths; ++s)
+        for (int w = 0; w < mod::kSynthTargets; ++w)
+            ++seen[static_cast<size_t>(mod::synthTarget(s, w))];
+    for (int t = mod::kArpBase; t < mod::kNumTargets; ++t)
+    {
+        int arp = 0, synth = 0, which = 0;
+        const bool isArp = mod::decodeArpTarget(t, arp, which), isSynth = mod::decodeSynthTarget(t, synth, which);
+        CHECK(!(isArp && isSynth));
+        if (isArp || isSynth)
+            CHECK_MSG(seen[static_cast<size_t>(t)] == 1, "target " << t);
+    }
 }
 

@@ -177,9 +177,12 @@ knob range.
   Length are rounded to whole values. Arp targets are read at the drum step
   that triggers the arp, so a lane can, say, thin the sequence out at the end
   of a bar or move it up a fifth every other bar.
+* **Arp 3** was added later: its targets (arp, cutoff, probability and its
+  synth's) form one block after Delay Feedback, so the first two arps' target
+  numbers are unchanged. Its synth is sound-engine synth 3 (the chords keep 2).
 * **Sound targets** (appended after the arp targets, so saved routings stay
   valid): kit Tune (±24 semitones of travel, clamped to ±12), Decay, Tone,
-  Drive and sends; per synth (Arp 1, Arp 2, Chords) Resonance, Env, Attack,
+  Drive and sends; per synth (Arps 1-3, Chords) Resonance, Env, Attack,
   Release, Level and sends; Chords Cutoff; Reverb Size and Delay Feedback. The
   processor reads them once per audio block at the block's step and adds them
   to the knob values before handing them to the sound engine, so they follow
@@ -261,8 +264,8 @@ scheduling in `Engine::processArp`).
   slightly (legato, for synths with glide) and hold until it arrives. Accents play
   at the top of the velocity range; otherwise velocity follows the drum hit that clocked the step, mapped
   into the arp's velocity range.
-* **Out Shift:** semitones added to the arp's MIDI out (Arp 1: 0, Arp 2: +36 by
-  default), folded back by octaves at the ends of the MIDI range, so each arp
+* **Out Shift:** semitones added to the arp's MIDI out (Arp 1: 0, Arp 2: +36,
+  Arp 3: 0 from a C5 root by default), folded back by octaves at the ends of the MIDI range, so each arp
   gets its own note range in hosts that can't split by channel. The DAW undoes
   it with a Pitch device; the preview synth plays the unshifted pitch. The arp
   page shows the resulting range, the key zone and Pitch value to use in Live,
