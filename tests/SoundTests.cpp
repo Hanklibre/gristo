@@ -12,6 +12,7 @@ using namespace gristo::sound;
 namespace {
 
 constexpr double kRate = 48000.0;
+constexpr double kPi = 3.14159265358979323846; // M_PI isn't standard (MSVC lacks it)
 
 struct Rendered
 {
@@ -400,8 +401,8 @@ TEST("sound: hard sync is band-limited (little energy between the harmonics)")
         double re = 0.0, im = 0.0;
         for (size_t i = 0; i < n; ++i)
         {
-            const double w = 0.5 - 0.5 * std::cos(2.0 * M_PI * static_cast<double>(i) / static_cast<double>(n));
-            const double a = 2.0 * M_PI * static_cast<double>(k * i) / static_cast<double>(n);
+            const double w = 0.5 - 0.5 * std::cos(2.0 * kPi * static_cast<double>(i) / static_cast<double>(n));
+            const double a = 2.0 * kPi * static_cast<double>(k * i) / static_cast<double>(n);
             re += out.left[start + i] * w * std::cos(a);
             im -= out.left[start + i] * w * std::sin(a);
         }
