@@ -1,5 +1,7 @@
 #include "Presets.h"
 
+#include "gristo/Chords.h"
+
 // Starting points that pair a groove with sounds. Each lists only what differs
 // from the defaults. Map positions follow docs/map.md (node i sits at i / 5).
 // Choice parameters take their index; percent parameters 0..1.
@@ -10,8 +12,11 @@ using V = std::vector<std::pair<juce::String, float>>;
 
 enum Timing { Trip = 0, Shake, Push, Clave };
 enum Feeling { Tight = 0, Rolls, Flam, Slop };
-enum KitIndex { Classic = 0, K808, Trap, LoFi, Minimal, Reggaeton };
-enum Sound { Sub = 0, Acid, Reese, FmBass, EPiano, Bell, Pluck, Organ, WarmPad, GlassPad, DarkPad, SquareLead, SyncLead, SoftLead };
+enum KitIndex { Classic = 0, K808, Trap, LoFi, Minimal, Reggaeton, House, Techno, Breakbeat, Jungle, Amapiano, Dancehall };
+enum Sound { Sub = 0, Acid, Reese, FmBass, EPiano, Bell, Pluck, Organ, WarmPad, GlassPad, DarkPad, SquareLead, SyncLead, SoftLead,
+             FeltPiano, Celesta, BreathPad, SlowStrings, PolyStrings, SynthBrass, PolySynth, TapeKeys,
+             SuitcaseKeys, Vibraphone, UprightBass, JazzOrgan };
+enum ChordPlay { Off = 0, Held, Stabs };
 enum Scale { Major = 0, Minor, Dorian, Phrygian, Lydian, Mixolydian, HarmonicMinor, MinorPenta, MajorPenta, Blues, Chromatic };
 
 // Generate-mode arp: index, sound, root note, scale, the voices that step it.
@@ -28,6 +33,43 @@ V arp(int a, Sound sound, int root, Scale scale, std::initializer_list<int> trig
             on = on || t == voice;
         v.push_back({ "arpTrig" + n + "_" + juce::String(voice), on ? 1.0f : 0.0f });
     }
+    return v;
+}
+
+// The chord sequencer playing a progression from the library, in `key`, on the chord synth.
+V chords(const char* progression, int key, ChordPlay play, Sound sound, std::initializer_list<int> stabs = {})
+{
+    V v { { "chOn", 1.0f }, { "chKey", static_cast<float>(key) }, { "chPlay", static_cast<float>(play) },
+          { "arpSnd2", static_cast<float>(sound) } };
+    for (int voice = 0; voice < 6; ++voice)
+    {
+        bool on = false;
+        for (int t : stabs)
+            on = on || t == voice;
+        v.push_back({ "chStab" + juce::String(voice), on ? 1.0f : 0.0f });
+    }
+    for (const auto& entry : gristo::Chords::library())
+        if (juce::String(entry.name) == progression)
+        {
+            v.push_back({ "chScale", static_cast<float>(entry.scale) });
+            for (int i = 0; i < gristo::kMaxChordSlots; ++i)
+            {
+                const auto n = juce::String(i);
+                const bool used = i < static_cast<int>(entry.slots.size());
+                v.push_back({ "chSlot" + n, used ? 1.0f : 0.0f });
+                if (!used)
+                    continue;
+                const auto& s = entry.slots[static_cast<size_t>(i)];
+                v.push_back({ "chDeg" + n, static_cast<float>(s.degree) });
+                v.push_back({ "chBor" + n, s.borrowed ? 1.0f : 0.0f });
+                v.push_back({ "chType" + n, static_cast<float>(s.type) });
+                v.push_back({ "chInv" + n, static_cast<float>(s.inversion) });
+                v.push_back({ "chLen" + n, s.lengthSteps <= 8 ? 0.0f : s.lengthSteps >= 32 ? 2.0f : 1.0f });
+                v.push_back({ "chQual" + n, static_cast<float>(s.quality) });
+                v.push_back({ "chAlt" + n, static_cast<float>(s.alter) });
+            }
+        }
+    jassert(v.size() > 10); // the progression exists
     return v;
 }
 
@@ -81,6 +123,34 @@ const std::vector<PresetManager::Factory>& PresetManager::factoryPresets()
           join({ { { "mapX", 1.0f }, { "mapY", 0.8f }, { "timing", Shake }, { "shuffle", 4.0f }, { "kitType", K808 } },
                  arp(0, Reese, 36, Minor, { Kick }, 0.85f), { { "arpSlide0", 0.25f } },
                  arp(1, GlassPad, 60, Minor, { Snare }, 0.6f, 8.0f), { { "arpRev1", 0.45f } } }) },
+        { "Pavilion Haze",
+          join({ { { "mapX", 0.2f }, { "mapY", 0.2f }, { "fill0", 0.2f }, { "fill1", 0.0f }, { "fill4", 0.15f },
+                   { "kitType", Minimal }, { "kitTone", 0.3f }, { "kitRev", 0.35f }, { "fxSize", 0.9f }, { "fxTime", 2.0f },
+                   { "fxFb", 0.45f } },
+                 chords("Pavilion Haze", 2, Held, FeltPiano), { { "arpRev2", 0.6f }, { "arpRel2", 0.75f } },
+                 arp(1, Celesta, 72, MajorPenta, { Hat, Perc2 }, 0.4f, 4.0f),
+                 { { "arpFollow1", 1.0f }, { "arpRev1", 0.6f }, { "arpDly1", 0.35f } } }) },
+        { "Jazz Blues Walk",
+          join({ { { "mapX", 0.6f }, { "mapY", 0.4f }, { "timing", Shake }, { "shuffle", 5.0f }, { "humanize", 0.5f },
+                   { "kitType", LoFi } },
+                 chords("Jazz Blues (12 bars)", 5, Stabs, SuitcaseKeys, { Snare, OpenHat }), { { "arpRev2", 0.2f } },
+                 arp(0, UprightBass, 36, Major, { Kick, Hat }, 0.85f, 3.0f), { { "arpFollow0", 1.0f } } }) },
+        { "Jungle Reese",
+          join({ { { "mapX", 0.8f }, { "mapY", 0.8f }, { "timing", Shake }, { "shuffle", 0.5f }, { "kitType", Jungle } },
+                 chords("So What (modal)", 2, Held, SlowStrings), { { "arpRev2", 0.45f } },
+                 arp(0, Reese, 36, Dorian, { Kick, Perc1 }, 0.8f), { { "arpFollow0", 1.0f } } }) },
+        { "Amapiano Logs",
+          join({ { { "mapX", 0.4f }, { "mapY", 0.4f }, { "timing", Shake }, { "shuffle", 2.0f }, { "kitType", Amapiano } },
+                 chords("Neo Soul Dorian", 5, Held, SuitcaseKeys), { { "arpRev2", 0.3f } },
+                 arp(1, Vibraphone, 72, Dorian, { Perc2 }, 0.6f), { { "arpFollow1", 1.0f }, { "arpDly1", 0.3f } } }) },
+        { "Techno Brass",
+          join({ { { "mapX", 0.0f }, { "mapY", 0.0f }, { "kitType", Techno } },
+                 chords("Deep House", 9, Stabs, SynthBrass, { OpenHat }), { { "arpDly2", 0.25f } },
+                 arp(0, Sub, 36, Minor, { Kick }, 0.9f), { { "arpFollow0", 1.0f } } }) },
+        { "House Organ",
+          join({ { { "mapX", 0.2f }, { "mapY", 0.0f }, { "timing", Shake }, { "shuffle", 1.5f }, { "kitType", House } },
+                 chords("Deep House", 0, Stabs, JazzOrgan, { OpenHat }),
+                 arp(0, Sub, 36, Minor, { Kick }, 0.9f), { { "arpFollow0", 1.0f } } }) },
     };
     return presets;
 }

@@ -87,6 +87,76 @@ const SynthPatch* buildPatches()
         x.osc = Osc::Fm; x.fmRatio = 1.0f; x.fmIndex = 0.35f; x.fmIndexEnd = 0.35f; x.cutoffHz = 3500.0f;
         x.vibratoHz = 5.0f; x.vibratoSemis = 0.1f; x.a = 0.03f; x.d = 0.3f; x.s = 0.9f; x.r = 0.25f; x.level = 0.7f;
     }
+    // Ambient (Harold Budd territory: soft attacks, long tails, lots of reverb).
+    { // Felt piano: a muted, rounded piano-like tone with a soft hammer.
+        auto& x = set(SynthSound::FeltPiano);
+        x.osc = Osc::Fm; x.fmRatio = 1.0f; x.fmIndex = 1.1f; x.fmIndexEnd = 0.08f; x.fmIndexTime = 0.45f; x.tine = 0.05f;
+        x.cutoffHz = 2200.0f; x.keyTrack = 0.4f; x.a = 0.006f; x.d = 3.5f; x.s = 0.0f; x.r = 0.9f; x.level = 0.85f;
+    }
+    { // Celesta: soft, glassy bell with a quick shimmer.
+        auto& x = set(SynthSound::Celesta);
+        x.osc = Osc::Fm; x.fmRatio = 4.0f; x.fmIndex = 1.4f; x.fmIndexEnd = 0.15f; x.fmIndexTime = 0.5f;
+        x.cutoffHz = 8000.0f; x.keyTrack = 0.0f; x.a = 0.002f; x.d = 2.2f; x.s = 0.0f; x.r = 1.2f; x.level = 0.6f;
+    }
+    { // Breath pad: airy, choir-ish swell with a slow vibrato.
+        auto& x = set(SynthSound::BreathPad);
+        x.osc = Osc::Fm; x.fmRatio = 2.0f; x.fmIndex = 0.55f; x.fmIndexEnd = 0.55f; x.cutoffHz = 2000.0f; x.resonance = 0.1f;
+        x.keyTrack = 0.3f; x.vibratoHz = 4.5f; x.vibratoSemis = 0.08f;
+        x.a = 1.5f; x.d = 1.0f; x.s = 0.9f; x.r = 2.2f; x.level = 0.55f;
+    }
+    { // Slow strings: gentle ensemble that swells in.
+        auto& x = set(SynthSound::SlowStrings);
+        x.osc = Osc::Supersaw; x.detuneCents = 12.0f; x.cutoffHz = 2600.0f; x.resonance = 0.1f; x.fourPole = true;
+        x.envOctaves = 0.5f; x.fa = 1.2f; x.fd = 2.0f; x.fs = 0.7f; x.fr = 2.0f; x.vibratoHz = 5.5f; x.vibratoSemis = 0.05f;
+        x.a = 1.2f; x.d = 1.0f; x.s = 0.9f; x.r = 2.0f; x.level = 0.45f;
+    }
+    // Vintage analog.
+    { // Poly strings: bright chorused string machine.
+        auto& x = set(SynthSound::PolyStrings);
+        x.osc = Osc::Supersaw; x.detuneCents = 8.0f; x.cutoffHz = 3500.0f; x.resonance = 0.05f;
+        x.a = 0.25f; x.d = 1.0f; x.s = 0.9f; x.r = 0.8f; x.vibratoHz = 5.8f; x.vibratoSemis = 0.04f; x.level = 0.45f;
+    }
+    { // Synth brass: saw with a filter that blooms on the attack.
+        auto& x = set(SynthSound::SynthBrass);
+        x.osc = Osc::Reese; x.detuneCents = 6.0f; x.cutoffHz = 600.0f; x.resonance = 0.15f; x.envOctaves = 3.0f; x.keyTrack = 0.5f;
+        x.fa = 0.03f; x.fd = 0.35f; x.fs = 0.4f; x.fr = 0.15f;
+        x.a = 0.02f; x.d = 0.4f; x.s = 0.8f; x.r = 0.15f; x.drive = 1.3f; x.level = 0.55f;
+    }
+    { // Poly synth: two detuned saws, a little filter movement, medium decay.
+        auto& x = set(SynthSound::PolySynth);
+        x.osc = Osc::Reese; x.detuneCents = 9.0f; x.cutoffHz = 1800.0f; x.resonance = 0.2f; x.envOctaves = 1.5f;
+        x.fa = 0.005f; x.fd = 0.6f; x.fs = 0.3f; x.fr = 0.4f;
+        x.a = 0.005f; x.d = 1.0f; x.s = 0.6f; x.r = 0.5f; x.level = 0.5f;
+    }
+    { // Tape keys: e-piano with tape wow.
+        auto& x = set(SynthSound::TapeKeys);
+        x.osc = Osc::Fm; x.fmRatio = 1.0f; x.fmIndex = 1.2f; x.fmIndexEnd = 0.2f; x.fmIndexTime = 1.0f; x.tine = 0.1f;
+        x.cutoffHz = 3000.0f; x.keyTrack = 0.0f; x.vibratoHz = 0.6f; x.vibratoSemis = 0.15f;
+        x.a = 0.003f; x.d = 2.2f; x.s = 0.0f; x.r = 0.5f; x.drive = 1.3f; x.level = 0.8f;
+    }
+    // Jazz keys and bass.
+    { // Suitcase keys: brighter, barkier tine piano.
+        auto& x = set(SynthSound::SuitcaseKeys);
+        x.osc = Osc::Fm; x.fmRatio = 1.0f; x.fmIndex = 2.4f; x.fmIndexEnd = 0.4f; x.fmIndexTime = 0.8f; x.tine = 0.3f;
+        x.cutoffHz = 6000.0f; x.keyTrack = 0.0f; x.a = 0.002f; x.d = 2.6f; x.s = 0.0f; x.r = 0.45f; x.drive = 1.4f; x.level = 0.75f;
+    }
+    { // Vibraphone: mallet partials with motor vibrato.
+        auto& x = set(SynthSound::Vibraphone);
+        x.osc = Osc::Fm; x.fmRatio = 4.0f; x.fmIndex = 0.8f; x.fmIndexEnd = 0.1f; x.fmIndexTime = 0.3f;
+        x.cutoffHz = 7000.0f; x.keyTrack = 0.0f; x.vibratoHz = 5.5f; x.vibratoSemis = 0.03f;
+        x.a = 0.002f; x.d = 3.0f; x.s = 0.0f; x.r = 1.0f; x.level = 0.7f;
+    }
+    { // Upright bass: woody pluck that dies away.
+        auto& x = set(SynthSound::UprightBass);
+        x.osc = Osc::Fm; x.fmRatio = 1.0f; x.fmIndex = 1.5f; x.fmIndexEnd = 0.3f; x.fmIndexTime = 0.08f; x.sub = 0.2f;
+        x.cutoffHz = 900.0f; x.keyTrack = 0.3f; x.a = 0.004f; x.d = 1.2f; x.s = 0.0f; x.r = 0.12f; x.level = 0.95f;
+    }
+    { // Jazz organ: drawbars with a faster vibrato and some grit.
+        auto& x = set(SynthSound::JazzOrgan);
+        x.osc = Osc::Organ; x.cutoffHz = 4500.0f; x.keyTrack = 0.0f;
+        x.a = 0.003f; x.d = 0.1f; x.s = 1.0f; x.r = 0.05f; x.vibratoHz = 6.8f; x.vibratoSemis = 0.1f;
+        x.drive = 1.8f; x.level = 0.45f;
+    }
     return p;
 }
 
@@ -123,6 +193,18 @@ const char* synthSoundName(SynthSound sound)
         case SynthSound::SquareLead: return "Square Lead";
         case SynthSound::SyncLead: return "Sync Lead";
         case SynthSound::SoftLead: return "Soft Lead";
+        case SynthSound::FeltPiano: return "Felt Piano";
+        case SynthSound::Celesta: return "Celesta";
+        case SynthSound::BreathPad: return "Breath Pad";
+        case SynthSound::SlowStrings: return "Slow Strings";
+        case SynthSound::PolyStrings: return "Poly Strings";
+        case SynthSound::SynthBrass: return "Synth Brass";
+        case SynthSound::PolySynth: return "Poly Synth";
+        case SynthSound::TapeKeys: return "Tape Keys";
+        case SynthSound::SuitcaseKeys: return "Suitcase Keys";
+        case SynthSound::Vibraphone: return "Vibraphone";
+        case SynthSound::UprightBass: return "Upright Bass";
+        case SynthSound::JazzOrgan: return "Jazz Organ";
         case SynthSound::Count: break;
     }
     return "";
@@ -130,11 +212,25 @@ const char* synthSoundName(SynthSound sound)
 
 const char* synthCategoryName(SynthSound sound)
 {
-    const int i = static_cast<int>(sound);
-    if (i <= static_cast<int>(SynthSound::FmBass)) return "Bass";
-    if (i <= static_cast<int>(SynthSound::Organ)) return "Keys";
-    if (i <= static_cast<int>(SynthSound::DarkPad)) return "Pads";
-    return "Leads";
+    switch (sound)
+    {
+        case SynthSound::SubBass:
+        case SynthSound::AcidBass:
+        case SynthSound::ReeseBass:
+        case SynthSound::FmBass:
+        case SynthSound::UprightBass: return "Bass";
+        case SynthSound::WarmPad:
+        case SynthSound::GlassPad:
+        case SynthSound::DarkPad:
+        case SynthSound::BreathPad:
+        case SynthSound::SlowStrings:
+        case SynthSound::PolyStrings: return "Pads";
+        case SynthSound::SquareLead:
+        case SynthSound::SyncLead:
+        case SynthSound::SoftLead: return "Leads";
+        case SynthSound::SynthBrass: return "Brass";
+        default: return "Keys";
+    }
 }
 
 // ---------------------------------------------------------------------------------

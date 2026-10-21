@@ -103,6 +103,60 @@ const KitPatch* buildKits()
         P().noise(0.75f, 0.2f, 1300.0f, 0.45f, BP).claps(3, 0.010f),
         P().body(0.65f, 480.0f, 440.0f, 0.008f, 0.32f).body2(0.25f, 1.52f).noise(0.2f, 0.03f, 4000.0f, 0.3f, BP),
     });
+    // House (909-style): clicky punchy kick, bright snare, sizzling hats, wide clap, ride.
+    kits[6] = makeKit({
+        P().body(1.0f, 220.0f, 50.0f, 0.011f, 0.5f).click(0.32f).drive(1.6f),
+        P().body(0.5f, 225.0f, 190.0f, 0.006f, 0.12f).body2(0.22f, 1.48f).noise(0.75f, 0.22f, 4200.0f, 0.15f, HP),
+        P().metal(0.32f, 0.05f, 10500.0f).noise(0.32f, 0.045f, 10500.0f, 0.2f, HP).gain(1.4f),
+        P().metal(0.3f, 0.42f, 10500.0f).noise(0.26f, 0.4f, 10000.0f, 0.2f, HP).gain(1.4f),
+        P().noise(0.8f, 0.24f, 1250.0f, 0.45f, BP).claps(4, 0.008f),
+        P().metal(0.26f, 1.1f, 6200.0f).noise(0.1f, 0.9f, 8000.0f, 0.3f, HP).gain(1.3f),
+    }, 20000.0f, 1, 1.1f);
+    // Techno: deep driven kick, dark clap-snare, tight metallic hats, tom, zap.
+    kits[7] = makeKit({
+        P().body(1.0f, 135.0f, 44.0f, 0.02f, 0.75f).click(0.25f).drive(2.8f),
+        P().body(0.3f, 185.0f, 170.0f, 0.008f, 0.1f).noise(0.75f, 0.18f, 1700.0f, 0.4f, BP).claps(2, 0.008f),
+        P().metal(0.45f, 0.03f, 11000.0f).noise(0.15f, 0.02f, 11000.0f, 0.2f, HP).gain(1.4f),
+        P().metal(0.4f, 0.26f, 11000.0f).noise(0.12f, 0.22f, 10000.0f, 0.2f, HP).gain(1.4f),
+        P().body(0.75f, 190.0f, 120.0f, 0.03f, 0.28f).click(0.1f).drive(1.5f),
+        P().body(0.6f, 2400.0f, 380.0f, 0.009f, 0.07f).click(0.2f),
+    }, 14000.0f, 1, 1.4f);
+    // Breakbeat: sampled-break feel; punchy kick, crunchy snare, dusty hats, ghost rim, ride.
+    kits[8] = makeKit({
+        P().body(1.0f, 145.0f, 55.0f, 0.018f, 0.35f).click(0.3f).drive(2.0f),
+        P().body(0.55f, 205.0f, 185.0f, 0.007f, 0.13f).body2(0.3f, 1.7f).noise(0.85f, 0.2f, 3500.0f, 0.25f, BP).drive(2.0f),
+        P().noise(0.4f, 0.05f, 7500.0f, 0.2f, HP).metal(0.15f, 0.04f, 8000.0f).gain(1.4f),
+        P().noise(0.35f, 0.3f, 7000.0f, 0.2f, HP).metal(0.15f, 0.3f, 8000.0f).gain(1.4f),
+        P().body(0.5f, 900.0f, 850.0f, 0.004f, 0.05f).noise(0.4f, 0.06f, 3000.0f, 0.3f, BP).click(0.3f),
+        P().metal(0.28f, 0.8f, 6500.0f).noise(0.1f, 0.6f, 8000.0f, 0.3f, HP).gain(1.3f),
+    }, 12000.0f, 2, 1.8f);
+    // Jungle: tight kick, high-tuned ringing snare, crisp hats, sub boom, ride.
+    kits[9] = makeKit({
+        P().body(1.0f, 175.0f, 60.0f, 0.01f, 0.25f).click(0.35f).drive(1.5f),
+        P().body(0.5f, 310.0f, 275.0f, 0.006f, 0.1f).body2(0.25f, 1.6f).noise(0.9f, 0.16f, 4500.0f, 0.15f, HP).drive(1.6f),
+        P().noise(0.4f, 0.035f, 9000.0f, 0.2f, HP).gain(1.4f),
+        P().noise(0.35f, 0.25f, 8000.0f, 0.2f, HP).metal(0.1f, 0.25f, 8500.0f).gain(1.4f),
+        P().body(1.0f, 62.0f, 44.0f, 0.06f, 1.4f).click(0.05f).drive(1.8f),
+        P().metal(0.3f, 0.7f, 7000.0f).noise(0.1f, 0.5f, 8500.0f, 0.3f, HP).gain(1.3f),
+    }, 14000.0f, 2, 1.4f);
+    // Amapiano: soft round kick, rim-clap snare, shaker hats, open hat, log drum, wood.
+    kits[10] = makeKit({
+        P().body(1.0f, 120.0f, 50.0f, 0.02f, 0.4f).click(0.1f).drive(1.3f),
+        P().body(0.3f, 400.0f, 380.0f, 0.004f, 0.05f).noise(0.6f, 0.12f, 2000.0f, 0.4f, BP).claps(2, 0.007f).click(0.15f),
+        P().noise(0.45f, 0.07f, 6500.0f, 0.3f, BP, 0.012f).gain(1.8f),
+        P().noise(0.3f, 0.2f, 8000.0f, 0.2f, HP).gain(1.4f),
+        P().body(1.0f, 115.0f, 74.0f, 0.06f, 0.6f).body2(0.35f, 2.0f).click(0.08f).drive(2.2f),
+        P().body(0.6f, 430.0f, 385.0f, 0.008f, 0.15f).body2(0.2f, 1.5f).click(0.15f),
+    }, 20000.0f, 1, 1.2f);
+    // Dancehall: punchy short kick, tight high snare, crisp hats, shaker, rim, clap.
+    kits[11] = makeKit({
+        P().body(1.0f, 165.0f, 55.0f, 0.015f, 0.35f).click(0.2f).drive(1.6f),
+        P().body(0.5f, 285.0f, 262.0f, 0.005f, 0.08f).noise(0.8f, 0.12f, 3500.0f, 0.15f, HP),
+        P().noise(0.38f, 0.035f, 8500.0f, 0.2f, HP).metal(0.12f, 0.03f, 9000.0f).gain(1.4f),
+        P().noise(0.42f, 0.09f, 7000.0f, 0.3f, BP, 0.01f).gain(1.6f),
+        P().body(0.5f, 1700.0f, 1650.0f, 0.003f, 0.03f).noise(0.4f, 0.04f, 2800.0f, 0.35f, BP).click(0.3f),
+        P().noise(0.75f, 0.2f, 1300.0f, 0.45f, BP).claps(3, 0.01f),
+    }, 20000.0f, 1, 1.3f);
     return kits;
 }
 
@@ -121,6 +175,12 @@ const char* kitName(Kit kit)
         case Kit::LoFi: return "Lo-fi";
         case Kit::Minimal: return "Minimal";
         case Kit::Reggaeton: return "Reggaeton";
+        case Kit::House: return "House 909";
+        case Kit::Techno: return "Techno";
+        case Kit::Breakbeat: return "Breakbeat";
+        case Kit::Jungle: return "Jungle";
+        case Kit::Amapiano: return "Amapiano";
+        case Kit::Dancehall: return "Dancehall";
         case Kit::Count: break;
     }
     return "";

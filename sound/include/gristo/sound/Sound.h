@@ -13,7 +13,8 @@ constexpr int kNumDrumVoices = 6; // kick, snare, hihat 1, hihat 2, perc 1, perc
 constexpr int kNumSynths = 3;     // one per arp, then the chords (polyphonic)
 constexpr int kChordSynth = 2;
 
-enum class Kit : int { Classic = 0, Eight08, Trap, LoFi, Minimal, Reggaeton, Count };
+// New kits and sounds are appended so saved choices keep their meaning.
+enum class Kit : int { Classic = 0, Eight08, Trap, LoFi, Minimal, Reggaeton, House, Techno, Breakbeat, Jungle, Amapiano, Dancehall, Count };
 const char* kitName(Kit kit);
 
 enum class SynthSound : int
@@ -22,10 +23,13 @@ enum class SynthSound : int
     EPiano, Bell, Pluck, Organ,                   // keys
     WarmPad, GlassPad, DarkPad,                   // pads
     SquareLead, SyncLead, SoftLead,               // leads
+    FeltPiano, Celesta, BreathPad, SlowStrings,   // ambient
+    PolyStrings, SynthBrass, PolySynth, TapeKeys, // vintage analog
+    SuitcaseKeys, Vibraphone, UprightBass, JazzOrgan, // jazz
     Count
 };
 const char* synthSoundName(SynthSound sound);
-const char* synthCategoryName(SynthSound sound); // "Bass", "Keys", "Pads", "Leads"
+const char* synthCategoryName(SynthSound sound); // "Bass", "Keys", "Pads", "Leads", "Brass"
 
 struct KitParams
 {

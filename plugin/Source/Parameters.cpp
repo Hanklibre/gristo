@@ -193,7 +193,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         }
         // Chord sequencer
         {
-            juce::StringArray keys, chordScales, voices, types;
+            juce::StringArray keys, chordScales, voices, types, qualities;
             for (int k = 0; k < 12; ++k)
                 keys.add(pitchClassName(k));
             for (int i = 0; i < static_cast<int>(ChordScale::Count); ++i)
@@ -202,6 +202,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                 voices.add(voiceName(v));
             for (int i = 0; i < static_cast<int>(ChordType::Count); ++i)
                 types.add(chordTypeName(static_cast<ChordType>(i)));
+            for (int i = 0; i < static_cast<int>(ChordQuality::Count); ++i)
+                qualities.add(chordQualityName(static_cast<ChordQuality>(i)));
             auto pid = [](const juce::String& id) { return juce::ParameterID { id, kVersion }; };
             layout.add(std::make_unique<juce::AudioParameterBool>(pid(chordOn), "Chords On", false));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordKey), "Chord Key", keys, 9));
@@ -237,6 +239,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                 layout.add(std::make_unique<juce::AudioParameterInt>(pid(voiceId(chordInversion, i)), n + "Inversion", 0, 2, 0));
                 layout.add(std::make_unique<juce::AudioParameterChoice>(pid(voiceId(chordLength, i)), n + "Length",
                                                                         juce::StringArray { "1/2 bar", "1 bar", "2 bars" }, 1));
+                layout.add(std::make_unique<juce::AudioParameterChoice>(pid(voiceId(chordQuality, i)), n + "Quality", qualities, 0));
+                layout.add(std::make_unique<juce::AudioParameterInt>(pid(voiceId(chordAlter, i)), n + "Root Shift", -1, 1, 0));
             }
         }
         layout.add(percentParam(fxSize, "Reverb Size", 0.5f));
@@ -385,6 +389,9 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         slot.borrowed = load(s, voiceId(chordBorrowed, i)) > 0.5f;
         slot.type = static_cast<ChordType>(juce::jlimit(0, static_cast<int>(ChordType::Count) - 1, static_cast<int>(load(s, voiceId(chordType, i)))));
         slot.inversion = static_cast<int>(load(s, voiceId(chordInversion, i)));
+        slot.quality = static_cast<ChordQuality>(
+            juce::jlimit(0, static_cast<int>(ChordQuality::Count) - 1, static_cast<int>(load(s, voiceId(chordQuality, i)))));
+        slot.alter = static_cast<int>(load(s, voiceId(chordAlter, i)));
         slot.lengthSteps = kChordLengthSteps[juce::jlimit(0, 2, static_cast<int>(load(s, voiceId(chordLength, i))))];
     }
     return p;

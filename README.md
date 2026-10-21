@@ -32,28 +32,41 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   and each arp has its own MIDI channel.
 * **Chords (Chords tab):** a Scaler-style chord sequencer. Pick a key and
   scale, tap a slot, then tap a chord pad: the key's chords on top, borrowed
-  ones (parallel major / minor) below, as triads, 7ths, 9ths or sus, with
-  inversions. Up to 8 chords of 1/2, 1 or 2 bars, or changing every N hits of
-  a drum voice. There's a progression library (pop, jazz, soul, lo-fi, trap,
-  reggaeton, house, ...), New (generate) and Mutate. The chords can play
+  ones (parallel major / minor) below, as triads, 7ths, 9ths, sus, 6, 6/9,
+  add9 or 11, with inversions. For chords from outside the key, **Quality**
+  (Major, Minor, Dominant, Dim, Half-dim, Aug) and the **b / #** root buttons
+  give secondary dominants (E7 in C shows as V7/vi), tritone subs (bII7),
+  7sus4s and so on. Up to 8 chords of 1/2, 1 or 2 bars, or changing every N
+  hits of a drum voice. There's a progression library (pop, soul, lo-fi, trap,
+  reggaeton, house, ...; Harold Budd-inspired ambient colours; Satie
+  (Gymnopedie, Gnossienne, Sarabande ninths); classical (Pachelbel, Bach's C
+  major prelude, Andalusian cadence, Debussy planing); jazz standards (Autumn
+  Leaves, Fly Me to the Moon, Blue Bossa, Rhythm Changes, Take the A Train,
+  So What, Maiden Voyage, a 12-bar jazz blues, ii-V-i's, tritone subs)), New
+  (generate) and Mutate. Library entries keep your key. The chords can play
   their own part (held, or stabbing on drum hits, with their own sound, MIDI
   channel and Shift), and any arp switched to **Chords** plays the current
   chord's notes.
 * **Arp Probability:** each arp has a Probability knob (plus Random, and it's
   a lane target). Skipped steps still advance the arp. It's independent of the
   drums' Probability: the arp steps on the drum pattern as written.
-* **Built-in sounds (Sounds tab):** six synthesized drum kits (Classic, 808,
-  Trap, Lo-fi, Minimal, Reggaeton) with Tune / Decay / Tone / Drive and a level
-  per drum, and a synth per arp with 14 sounds (Sub, Acid, Reese and FM bass;
-  E-piano, Bell, Pluck, Organ; Warm, Glass and Dark pads; Square, Sync and Soft
-  leads), each with Cutoff, Resonance, Env, Attack, Release, Glide and Level.
+* **Built-in sounds (Sounds tab):** twelve synthesized drum kits (Classic,
+  808, Trap, Lo-fi, Minimal, Reggaeton, House 909, Techno, Breakbeat, Jungle,
+  Amapiano with a log drum on P1, Dancehall) with Tune / Decay / Tone / Drive
+  and a level per drum, and a synth per arp and for the chords with 26 sounds:
+  bass (Sub, Acid, Reese, FM, Upright), keys (E-piano, Suitcase Keys, Tape
+  Keys, Felt Piano, Bell, Celesta, Vibraphone, Pluck, Organ, Jazz Organ, Poly
+  Synth), pads (Warm, Glass, Dark, Breath, Slow Strings, Poly Strings), leads
+  (Square, Sync, Soft) and Synth Brass, each with Cutoff, Resonance, Env,
+  Attack, Release, Glide and Level.
   A shared reverb and tempo-synced ping-pong delay with sends. Lanes can drive
   the sound knobs too: the kit's Tune, Decay, Tone, Drive and sends; each
   synth's Cutoff, Resonance, Env, Attack, Release, Level and sends; Reverb
   Size and Delay Feedback.
-* **Presets:** a preset bar at the top. There are 8 factory presets (Trap
+* **Presets:** a preset bar at the top. There are 14 factory presets (Trap
   Acid, Boom Bap Keys, Reggaeton Night, 808 House Pads, Minimal Bells, Lazy
-  Organ, Electro Sync, 2-Step Glass), plus your own as `.gristo` files in
+  Organ, Electro Sync, 2-Step Glass, Pavilion Haze, Jazz Blues Walk, Jungle
+  Reese, Amapiano Logs, Techno Brass, House Organ), plus your own as `.gristo` files in
   `Documents/Gristo/Presets`. Use Save / Save As, step through presets with
   < >, and use Import / Export to move them between computers (or from the
   tablet). A preset stores everything musical, including the sounds, but not

@@ -18,12 +18,17 @@ constexpr int kMaxChordSlots = 8;
 constexpr int kMaxChordNotes = 5;
 
 enum class ChordScale : int { Major = 0, Minor, Dorian, Phrygian, Lydian, Mixolydian, HarmonicMinor, Count };
-enum class ChordType : int { Triad = 0, Seventh, Ninth, Sus2, Sus4, Count };
+// New types are appended so saved slots keep their meaning.
+enum class ChordType : int { Triad = 0, Seventh, Ninth, Sus2, Sus4, Sixth, SixNine, Add9, Eleventh, Count };
+// Scale: the chord the scale gives. The others override it for chromatic chords
+// (secondary dominants like the III7 in jazz turnarounds, tritone subs, ...).
+enum class ChordQuality : int { Scale = 0, Major, Minor, Dominant, Diminished, HalfDiminished, Augmented, Count };
 enum class ChordClock : int { Bars = 0, Drums };
 enum class ChordPlay : int { Off = 0, Held, Stabs };
 
 const char* chordScaleName(ChordScale scale);
 const char* chordTypeName(ChordType type);
+const char* chordQualityName(ChordQuality quality);
 const char* pitchClassName(int pitchClass); // "C", "C#", ...
 
 struct ChordSlot
@@ -32,6 +37,8 @@ struct ChordSlot
     int degree = 0;          // 0..6 = I..VII of the key's scale
     bool borrowed = false;   // from the parallel major / minor
     ChordType type = ChordType::Triad;
+    ChordQuality quality = ChordQuality::Scale;
+    int alter = 0;           // -1 / +1: the root a semitone down / up (bII, #IV...)
     int inversion = 0;       // 0..2
     int lengthSteps = 16;    // Bars clock: 8 (half bar), 16 or 32
 };

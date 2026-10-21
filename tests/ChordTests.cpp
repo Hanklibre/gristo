@@ -122,6 +122,87 @@ TEST("chords: built from the scale, named and numbered like Scaler")
     CHECK(inv.size() == 3 && inv[0] % 12 == 0); // C in the bass
 }
 
+TEST("chords: qualities and altered roots give chromatic chords")
+{
+    const ChordParams c = cMajor();
+    auto as = [](ChordSlot s, ChordQuality q, int alter = 0) {
+        s.quality = q;
+        s.alter = alter;
+        return s;
+    };
+    // Secondary dominants are named as such.
+    const auto e7 = as(slot(2, ChordType::Seventh), ChordQuality::Dominant);
+    CHECK(notesOf(Chords::build(c, e7)) == (std::vector<int> { 52, 56, 59, 62 }));
+    CHECK(Chords::name(c, e7) == "E7");
+    CHECK(Chords::roman(c, e7) == "V7/vi");
+    CHECK(Chords::roman(c, as(slot(1, ChordType::Seventh), ChordQuality::Dominant)) == "V7/V");
+    // Tritone sub: flat root, flat spelling.
+    const auto db7 = as(slot(1, ChordType::Seventh), ChordQuality::Dominant, -1);
+    CHECK(Chords::name(c, db7) == "Db7");
+    CHECK(Chords::roman(c, db7) == "bII7");
+    CHECK(notesOf(Chords::build(c, db7))[0] % 12 == 1);
+    // An altered root with no quality plays major.
+    CHECK(Chords::name(c, as(slot(6, ChordType::Ninth), ChordQuality::Scale, -1)) == "Bbmaj9");
+    CHECK(Chords::name(c, as(slot(0, ChordType::Eleventh), ChordQuality::Minor, 1)) == "C#m11");
+    // New types.
+    CHECK(Chords::name(c, slot(0, ChordType::Sixth)) == "C6");
+    CHECK(Chords::name(c, slot(0, ChordType::SixNine)) == "C6/9");
+    CHECK(Chords::name(c, slot(0, ChordType::Add9)) == "Cadd9");
+    CHECK(Chords::name(c, as(slot(0, ChordType::SixNine), ChordQuality::Minor)) == "Cm6/9");
+    CHECK(Chords::name(c, as(slot(0, ChordType::Sus4), ChordQuality::Dominant)) == "C7sus4");
+    CHECK(Chords::name(c, slot(3, ChordType::Eleventh)) == "Fmaj9#11");
+    CHECK(Chords::name(c, as(slot(1, ChordType::Eleventh), ChordQuality::Dominant)) == "D9#11");
+    CHECK(Chords::name(c, as(slot(6, ChordType::Seventh), ChordQuality::Diminished)) == "Bdim7");
+    CHECK(Chords::roman(c, as(slot(6, ChordType::Seventh), ChordQuality::Diminished)) == "viio7");
+    // Scale chords keep their plain numerals (a Dorian IV7 is not a V7/VII).
+    ChordParams d = c;
+    d.scale = ChordScale::Dorian;
+    CHECK(Chords::roman(d, slot(3, ChordType::Seventh)) == "IV7");
+    // Every chord fits the note budget.
+    for (int t = 0; t < static_cast<int>(ChordType::Count); ++t)
+        for (int q = 0; q < static_cast<int>(ChordQuality::Count); ++q)
+            for (int alter = -1; alter <= 1; ++alter)
+                for (int deg = 0; deg < 7; ++deg)
+                {
+                    const auto s = as(slot(deg, static_cast<ChordType>(t)), static_cast<ChordQuality>(q), alter);
+                    const auto chord = Chords::build(c, s);
+                    CHECK(chord.count >= 3 && chord.count <= kMaxChordNotes);
+                    CHECK(!Chords::name(c, s).empty());
+                    CHECK(!Chords::roman(c, s).empty());
+                }
+}
+
+TEST("chords: the library's jazz and classical entries spell the right chords")
+{
+    auto find = [](const std::string& name) -> const Chords::LibraryEntry* {
+        for (const auto& e : Chords::library())
+            if (name == e.name)
+                return &e;
+        return nullptr;
+    };
+    auto names = [](const Chords::LibraryEntry& e, int key) {
+        ChordParams p;
+        p.key = key;
+        p.scale = e.scale;
+        std::vector<std::string> out;
+        for (const auto& s : e.slots)
+            out.push_back(Chords::name(p, s));
+        return out;
+    };
+    const auto* autumn = find("Autumn Leaves");
+    CHECK(autumn != nullptr);
+    if (autumn != nullptr) // in G minor
+        CHECK(names(*autumn, 7) == (std::vector<std::string> { "Cm7", "F7", "Bbmaj7", "Ebmaj7", "Am7b5", "D7", "Gm6" }));
+    const auto* gymno = find("Gymnopedie No. 1 vamp");
+    CHECK(gymno != nullptr);
+    if (gymno != nullptr) // in D major
+        CHECK(names(*gymno, 2) == (std::vector<std::string> { "Gmaj7", "Dmaj7" }));
+    const auto* fly = find("Fly Me to the Moon (cycle)");
+    CHECK(fly != nullptr);
+    if (fly != nullptr)
+        CHECK(names(*fly, 0) == (std::vector<std::string> { "Am7", "Dm7", "G7", "Cmaj7", "Fmaj7", "Bm7b5", "E7", "Am7" }));
+}
+
 TEST("chords: bars and drum-hit positions step through the used slots")
 {
     ChordParams c = cMajor();

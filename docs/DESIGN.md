@@ -59,7 +59,16 @@ standalone / Android app and the tests share it.
   follows the scale (Am, Bdim, G7, Fmaj7 in C major). Borrowed chords stack in
   the parallel scale (major <-> minor), e.g. iv and bVI in a major key. Names
   ("Am7", "F/A") and roman numerals ("vi7", "bVI") are derived from the
-  intervals.
+  intervals. Types 6, 6/9, add9 and 11 (1-3-7-9-11, the 5th dropped to stay
+  within five notes) were appended later.
+* **Chromatic chords:** a slot also has a quality (Scale, Major, Minor,
+  Dominant, Dim, Half-dim, Aug) and a root shift (-1 / 0 / +1). A quality other
+  than Scale builds the chord from fixed intervals on the slot's root (Major
+  takes #11, Dominant 7#11 / 9#11, sus + Dominant gives 7sus4); a shifted root
+  with Scale quality plays major. Names spell shifted roots with flats / sharps
+  (Db7, C#m11). A chromatic dominant 7th / 9th a fifth above a degree of the key
+  is numbered as a secondary dominant (V7/vi); diatonic chords keep their plain
+  numerals (a Dorian IV7 stays IV7). Mutate resets quality and shift.
 * **Clock:** *Bars*: used slots in order, each 1/2, 1 or 2 bars, looping (a
   pure function of the step). *Drum hits*: the chord changes on every Nth hit
   of a chosen voice, counted from the reset bar (hits are re-counted after a

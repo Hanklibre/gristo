@@ -243,10 +243,10 @@ void PresetManager::step(int direction)
 
 std::int64_t PresetManager::stateHash() const
 {
-    std::int64_t hash = 1469598103934665603LL;
+    std::uint64_t hash = 1469598103934665603ULL; // FNV-1a, unsigned so it may wrap
     auto mix = [&hash](float v) {
-        hash ^= static_cast<std::int64_t>(std::llround(static_cast<double>(v) * 10000.0));
-        hash *= 1099511628211LL;
+        hash ^= static_cast<std::uint64_t>(std::llround(static_cast<double>(v) * 10000.0));
+        hash *= 1099511628211ULL;
     };
     for (auto* param : processor_.getParameters())
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
@@ -255,7 +255,7 @@ std::int64_t PresetManager::stateHash() const
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
         for (int k = 0; k < gristo::kMaxModPoints; ++k)
             mix(p::lanePoint(processor_.modPoints, lane, k).load());
-    return hash;
+    return static_cast<std::int64_t>(hash);
 }
 
 bool PresetManager::isDirty() const { return stateHash() != cleanHash_; }

@@ -162,6 +162,8 @@ private:
     juce::TextButton chordLibrary_ { "Library" }, chordNew_ { "New" }, chordClear_ { "Clear" };
     juce::TextButton chordTypes_[static_cast<int>(gristo::ChordType::Count)];
     juce::TextButton chordInversions_[3], chordLengths_[3];
+    juce::ComboBox chordQuality_;
+    juce::TextButton chordFlat_ { "b" }, chordSharp_ { "#" };
     Knob chordMutate_, chordGate_;
     juce::Label chordOutLabel_;
     ChordSlotsView chordSlots_;

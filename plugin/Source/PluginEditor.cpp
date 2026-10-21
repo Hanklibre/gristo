@@ -965,15 +965,15 @@ void GristoView::setupSoundPage()
     {
         auto& row = synthRows_[a];
         // Sounds grouped by category; item ids stay index + 1 for the attachment.
-        juce::String lastCategory;
-        for (int i = 0; i < static_cast<int>(gristo::sound::SynthSound::Count); ++i)
+        for (const char* category : { "Bass", "Keys", "Pads", "Leads", "Brass" })
         {
-            const auto sound = static_cast<gristo::sound::SynthSound>(i);
-            const juce::String category = gristo::sound::synthCategoryName(sound);
-            if (category != lastCategory)
-                row.sound.addSectionHeading(category);
-            lastCategory = category;
-            row.sound.addItem(gristo::sound::synthSoundName(sound), i + 1);
+            row.sound.addSectionHeading(category);
+            for (int i = 0; i < static_cast<int>(gristo::sound::SynthSound::Count); ++i)
+            {
+                const auto sound = static_cast<gristo::sound::SynthSound>(i);
+                if (juce::String(gristo::sound::synthCategoryName(sound)) == category)
+                    row.sound.addItem(gristo::sound::synthSoundName(sound), i + 1);
+            }
         }
         addAndMakeVisible(row.sound);
         row.soundAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
@@ -1083,10 +1083,27 @@ void GristoView::setupChordPage()
         chordTypes_[t].setButtonText(gristo::chordTypeName(static_cast<gristo::ChordType>(t)));
         chordTypes_[t].onClick = [this, t] { editSelectedChord([t](gristo::ChordSlot& s) { s.type = static_cast<gristo::ChordType>(t); }); };
         addAndMakeVisible(chordTypes_[t]);
-        setHelp(chordTypes_[t], "Chord type", "Triad, 7th, 9th or suspended, built from the scale. Applies to the selected slot.");
+        setHelp(chordTypes_[t], "Chord type", "Triad, 7th, 9th, sus, 6, 6/9, add9 or 11, built from the scale (or the Quality). Applies to the selected slot.");
     }
+    for (int q = 0; q < static_cast<int>(gristo::ChordQuality::Count); ++q)
+        chordQuality_.addItem(gristo::chordQualityName(static_cast<gristo::ChordQuality>(q)), q + 1);
+    chordQuality_.onChange = [this] {
+        const int q = chordQuality_.getSelectedId() - 1;
+        if (q >= 0)
+            editSelectedChord([q](gristo::ChordSlot& s) { s.quality = static_cast<gristo::ChordQuality>(q); });
+    };
+    addAndMakeVisible(chordQuality_);
+    setHelp(chordQuality_, "Quality",
+            "Scale: the chord the key gives. Major, Minor, Dominant, Dim, Half-dim or Aug override it for chords from outside the key, "
+            "like the dominant III7 in jazz turnarounds (Dominant on III).");
+    chordFlat_.onClick = [this] { editSelectedChord([](gristo::ChordSlot& s) { s.alter = s.alter < 0 ? 0 : -1; }); };
+    chordSharp_.onClick = [this] { editSelectedChord([](gristo::ChordSlot& s) { s.alter = s.alter > 0 ? 0 : 1; }); };
+    addAndMakeVisible(chordFlat_);
+    addAndMakeVisible(chordSharp_);
+    setHelp(chordFlat_, "Flat root", "Moves the selected chord's root down a semitone: bII for a tritone sub, bIII, bVI... Tap again to undo.");
+    setHelp(chordSharp_, "Sharp root", "Moves the selected chord's root up a semitone (#IV, or So What's half-step lift). Tap again to undo.");
     const char* inversionNames[] = { "Root", "1st", "2nd" };
-    const char* lengthNames[] = { "1/2 bar", "1 bar", "2 bars" };
+    const char* lengthNames[] = { "1/2", "1 bar", "2 bars" };
     for (int i = 0; i < 3; ++i)
     {
         chordInversions_[i].setButtonText(inversionNames[i]);
@@ -1098,8 +1115,15 @@ void GristoView::setupChordPage()
         setHelp(chordInversions_[i], "Inversion", "Which chord note is at the bottom: root, the 3rd (1st inversion) or the 5th (2nd).");
         setHelp(chordLengths_[i], "Length", "How long the selected chord lasts (Bars clock).");
     }
-    for (auto* b : { &chordTypes_[0], &chordTypes_[1], &chordTypes_[2], &chordTypes_[3], &chordTypes_[4], &chordInversions_[0],
-                     &chordInversions_[1], &chordInversions_[2], &chordLengths_[0], &chordLengths_[1], &chordLengths_[2] })
+    std::vector<juce::TextButton*> toggles { &chordFlat_, &chordSharp_ };
+    for (auto& b : chordTypes_)
+        toggles.push_back(&b);
+    for (int i = 0; i < 3; ++i)
+    {
+        toggles.push_back(&chordInversions_[i]);
+        toggles.push_back(&chordLengths_[i]);
+    }
+    for (auto* b : toggles)
     {
         b->setColour(juce::TextButton::buttonOnColourId, colours::accent);
         b->setColour(juce::TextButton::textColourOnId, colours::background);
@@ -1113,6 +1137,8 @@ void GristoView::setupChordPage()
             s.used = true;
             s.degree = degree;
             s.borrowed = borrowed;
+            s.quality = gristo::ChordQuality::Scale; // a pad gives the plain chord
+            s.alter = 0;
         });
         // Filling the progression left to right: move on to the next slot.
         selectedChordSlot_ = std::min(selectedChordSlot_ + 1, gristo::kMaxChordSlots - 1);
@@ -1146,7 +1172,7 @@ std::vector<juce::Component*> GristoView::chordPageComponents()
                                          &chordReset_.box, &chordPlay_.box, &chordOctave_.box, chordHits_.get(), chordChannel_.get(),
                                          chordShift_.get(), chordVelocity_.get(), &chordLibrary_, &chordNew_, &chordClear_,
                                          &chordSlots_, &chordPads_, &chordOutLabel_, &chordMutate_.slider, &chordMutate_.label,
-                                         &chordGate_.slider, &chordGate_.label };
+                                         &chordGate_.slider, &chordGate_.label, &chordQuality_, &chordFlat_, &chordSharp_ };
     for (auto& t : chordStabs_)
         list.push_back(&t.button);
     for (auto& b : chordTypes_)
@@ -1173,6 +1199,8 @@ void GristoView::writeChordSlot(int index, const gristo::ChordSlot& slot)
     set(p::voiceId(p::chordBorrowed, index), slot.borrowed ? 1.0f : 0.0f);
     set(p::voiceId(p::chordType, index), static_cast<float>(slot.type));
     set(p::voiceId(p::chordInversion, index), static_cast<float>(slot.inversion));
+    set(p::voiceId(p::chordQuality, index), static_cast<float>(slot.quality));
+    set(p::voiceId(p::chordAlter, index), static_cast<float>(slot.alter));
     set(p::voiceId(p::chordLength, index), slot.lengthSteps <= 8 ? 0.0f : slot.lengthSteps >= 32 ? 2.0f : 1.0f);
 }
 
@@ -1230,6 +1258,9 @@ void GristoView::updateChordPage(const gristo::EngineParams& params)
     chordPads_.update(c, editing);
     for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
         chordTypes_[t].setToggleState(editing.used && static_cast<int>(editing.type) == t, juce::dontSendNotification);
+    chordQuality_.setSelectedId(static_cast<int>(editing.quality) + 1, juce::dontSendNotification);
+    chordFlat_.setToggleState(editing.used && editing.alter < 0, juce::dontSendNotification);
+    chordSharp_.setToggleState(editing.used && editing.alter > 0, juce::dontSendNotification);
     for (int i = 0; i < 3; ++i)
     {
         chordInversions_[i].setToggleState(editing.used && editing.inversion == i, juce::dontSendNotification);
@@ -1721,15 +1752,18 @@ void GristoView::resized()
         chordSlots_.setBounds(24, y + 32, 840, 48);
         placeSmallKnob(chordMutate_, 874, y + 32);
         placeSmallKnob(chordGate_, 922, y + 32);
-        chordPads_.setBounds(24, y + 86, 500, 74);
+        chordPads_.setBounds(24, y + 86, 420, 74);
         for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
-            chordTypes_[t].setBounds(536 + t * 52, y + 86, 48, 34);
+            chordTypes_[t].setBounds(456 + t * 58, y + 86, 54, 34);
         for (int i = 0; i < 3; ++i)
         {
-            chordInversions_[i].setBounds(536 + i * 52, y + 126, 48, 34);
-            chordLengths_[i].setBounds(696 + i * 58, y + 126, 54, 34);
+            chordInversions_[i].setBounds(456 + i * 46, y + 126, 42, 34);
+            chordLengths_[i].setBounds(596 + i * 52, y + 126, 48, 34);
         }
-        chordClear_.setBounds(880, y + 126, 64, 34);
+        chordQuality_.setBounds(752, y + 128, 96, 30);
+        chordFlat_.setBounds(854, y + 126, 30, 34);
+        chordSharp_.setBounds(888, y + 126, 30, 34);
+        chordClear_.setBounds(924, y + 126, 50, 34);
         for (int v = 0; v < gristo::kNumVoices; ++v)
             chordStabs_[v].button.setBounds(80 + v * 36, kModY + 190, 34, 22);
         if (chordVelocity_ != nullptr)
