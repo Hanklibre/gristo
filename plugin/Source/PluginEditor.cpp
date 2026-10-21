@@ -1368,7 +1368,7 @@ void GristoView::setupArpPage()
     setHelp(arpSlide_, "Slide", "Generate: share of steps that overlap into the next note (glide on a mono synth).");
     setHelp(arpMutate_, "Mutate", "Generate: share of steps re-rolled at every reset, so the pattern slowly evolves.");
     setHelp(arpNew_, "New pattern", "Roll a new generated pattern. It is saved with the project.");
-    setHelp(arpProb_, "Probability", "Chance each step plays. Skipped steps still move the arp on, so the pattern keeps its place.");
+    setHelp(arpProb_, "Probability", "Chance each arp step plays, independent of the drums' Probability (the arp follows the drum pattern as written). Skipped steps still move it on.");
     setHelp(arpProbRandom_, "Probability Random", "Moves Probability up and down from bar to bar (up to +-50%).");
     setHelp(arpFollow_.button, "Follow chords", "Use the Chords page's progression as this arp's notes, instead of the keys / MIDI in.");
     setHelp(arpView_, "Arp notes", "Bars = pitch, outlines = rests, dots = accents, lines = slides; bright column = current step. Drop a lane here to transpose (up to an octave).");

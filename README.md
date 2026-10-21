@@ -40,7 +40,8 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   channel and Shift), and any arp switched to **Chords** plays the current
   chord's notes.
 * **Arp Probability:** each arp has a Probability knob (plus Random, and it's
-  a lane target). Skipped steps still advance the arp.
+  a lane target). Skipped steps still advance the arp. It's independent of the
+  drums' Probability: the arp steps on the drum pattern as written.
 * **Built-in sounds (Sounds tab):** six synthesized drum kits (Classic, 808,
   Trap, Lo-fi, Minimal, Reggaeton) with Tune / Decay / Tone / Drive and a level
   per drum, and a synth per arp with 14 sounds (Sub, Acid, Reese and FM bass;

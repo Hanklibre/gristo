@@ -289,3 +289,30 @@ TEST("arps: Probability skips steps, deterministic and block-size independent")
     CHECK(count(render(p, 999, kBar * 16)) == n);
     CHECK(mod::targetName(mod::arpProbTarget(1)) == "Arp 2 Probability");
 }
+
+TEST("arps: the drums' Probability doesn't thin out the arp")
+{
+    EngineParams p = fourOnFloor();
+    ArpParams& a = p.arps[0];
+    a.enabled = true;
+    a.triggers = { true, false, false, false, false, false };
+    a.mode = ArpMode::Generate;
+    a.density = 1.0f;
+    auto counts = [](const std::vector<Ev>& evs) {
+        int kicks = 0, arps = 0;
+        for (const auto& e : evs)
+            if (e.on)
+            {
+                kicks += e.voice == Kick ? 1 : 0;
+                arps += e.voice == kArpVoiceBase ? 1 : 0;
+            }
+        return std::make_pair(kicks, arps);
+    };
+    const auto full = counts(render(p, 256, kBar * 4));
+    p.pattern.probability[Kick] = 0.0f;
+    const auto silent = counts(render(p, 256, kBar * 4));
+    CHECK(full.first > 0);
+    CHECK(silent.first == 0);            // the kick no longer plays...
+    CHECK(silent.second == full.second); // ...but the arp still steps on its pattern
+}
+

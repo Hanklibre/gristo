@@ -65,8 +65,15 @@ bool Engine::arpTrigger(int arp, std::int64_t step, double bpm, HitInfo& best, d
     {
         if (!ap.triggers[static_cast<size_t>(v)])
             continue;
-        const HitInfo h = describe(step, v, bpm, true);
+        HitInfo h = describe(step, v, bpm, true);
         earliest = std::min(earliest, h.timeBeats);
+        // The arp follows the drum pattern as written: hits the drums' Probability
+        // skipped still step it (the arp's own Probability decides its notes).
+        if (h.dropped)
+        {
+            h.on = true;
+            h.velocityNorm = h.accent ? 1.0f : kNormalVelocity;
+        }
         if (h.on && (!found || h.velocityNorm > best.velocityNorm))
         {
             best = h;
