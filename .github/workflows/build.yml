@@ -11,20 +11,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
+      # macOS runners cost 10x the Actions minutes of a private repo's monthly allowance
+      # and aren't used here, so macOS only builds on manual runs (Actions > Run workflow).
       matrix:
-        include:
-          - name: Windows
-            os: windows-latest
-            artifact: Gristo-Windows-x64
-            configure: ""
-          - name: macOS
-            os: macos-14
-            artifact: Gristo-macOS-universal
-            configure: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
-          - name: Linux
-            os: ubuntu-24.04
-            artifact: Gristo-Linux-x86_64
-            configure: -G Ninja
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"name":"Windows","os":"windows-latest","artifact":"Gristo-Windows-x64","configure":""},{"name":"macOS","os":"macos-14","artifact":"Gristo-macOS-universal","configure":"-DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13"},{"name":"Linux","os":"ubuntu-24.04","artifact":"Gristo-Linux-x86_64","configure":"-G Ninja"}]' || '[{"name":"Windows","os":"windows-latest","artifact":"Gristo-Windows-x64","configure":""},{"name":"Linux","os":"ubuntu-24.04","artifact":"Gristo-Linux-x86_64","configure":"-G Ninja"}]') }}
 
     steps:
       - uses: actions/checkout@v4
