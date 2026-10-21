@@ -51,7 +51,19 @@ constexpr int arpCutoffTarget(int arp) { return kArpCutoffBase + arp; }
 constexpr int kArpProbBase = kArpCutoffBase + kNumArps;
 constexpr int arpProbTarget(int arp) { return kArpProbBase + arp; }
 
-constexpr int kNumTargets = kArpProbBase + kNumArps;
+// Built-in sounds (appended for the same reason). Synths: 0, 1 = arps, 2 = chords.
+constexpr int kSoundBase = kArpProbBase + kNumArps;
+constexpr int kKitTune = 0, kKitDecay = 1, kKitTone = 2, kKitDrive = 3, kKitReverb = 4, kKitDelay = 5, kKitTargets = 6;
+constexpr int kSynthReso = 0, kSynthEnv = 1, kSynthAttack = 2, kSynthRelease = 3, kSynthLevel = 4, kSynthReverb = 5,
+              kSynthDelay = 6, kSynthTargets = 7;
+constexpr int kNumSoundSynths = 3;
+constexpr int kitTarget(int which) { return kSoundBase + which; }
+constexpr int synthTarget(int synth, int which) { return kSoundBase + kKitTargets + synth * kSynthTargets + which; }
+constexpr int kChordCutoffTarget = kSoundBase + kKitTargets + kNumSoundSynths * kSynthTargets;
+constexpr int kFxSizeTarget = kChordCutoffTarget + 1;
+constexpr int kFxFeedbackTarget = kChordCutoffTarget + 2;
+
+constexpr int kNumTargets = kFxFeedbackTarget + 1;
 
 std::string targetName(int target);
 

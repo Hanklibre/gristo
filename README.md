@@ -47,8 +47,10 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   per drum, and a synth per arp with 14 sounds (Sub, Acid, Reese and FM bass;
   E-piano, Bell, Pluck, Organ; Warm, Glass and Dark pads; Square, Sync and Soft
   leads), each with Cutoff, Resonance, Env, Attack, Release, Glide and Level.
-  A shared reverb and tempo-synced ping-pong delay with sends. Lanes can sweep
-  each synth's Cutoff.
+  A shared reverb and tempo-synced ping-pong delay with sends. Lanes can drive
+  the sound knobs too: the kit's Tune, Decay, Tone, Drive and sends; each
+  synth's Cutoff, Resonance, Env, Attack, Release, Level and sends; Reverb
+  Size and Delay Feedback.
 * **Presets:** a preset bar at the top. There are 8 factory presets (Trap
   Acid, Boom Bap Keys, Reggaeton Night, 808 House Pads, Minimal Bells, Lazy
   Organ, Electro Sync, 2-Step Glass), plus your own as `.gristo` files in

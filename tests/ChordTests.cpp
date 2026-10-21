@@ -316,3 +316,16 @@ TEST("arps: the drums' Probability doesn't thin out the arp")
     CHECK(silent.second == full.second); // ...but the arp still steps on its pattern
 }
 
+TEST("modulation: sound targets have names and ranges")
+{
+    CHECK(mod::targetName(mod::kitTarget(mod::kKitTune)) == "Kit Tune");
+    CHECK(mod::targetRange(mod::kitTarget(mod::kKitTune)) == 24.0f);
+    CHECK(mod::targetName(mod::synthTarget(2, mod::kSynthLevel)) == "Chords Level");
+    CHECK(mod::targetName(mod::synthTarget(0, mod::kSynthReso)) == "Arp 1 Resonance");
+    CHECK(mod::targetName(mod::kChordCutoffTarget) == "Chords Cutoff");
+    CHECK(mod::targetName(mod::kFxFeedbackTarget) == "Delay Feedback");
+    CHECK(mod::kNumTargets == mod::kFxFeedbackTarget + 1);
+    for (int t = 1; t < mod::kNumTargets; ++t)
+        CHECK_MSG(mod::targetName(t) != "None", "target " << t);
+}
+

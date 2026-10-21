@@ -168,6 +168,14 @@ knob range.
   Length are rounded to whole values. Arp targets are read at the drum step
   that triggers the arp, so a lane can, say, thin the sequence out at the end
   of a bar or move it up a fifth every other bar.
+* **Sound targets** (appended after the arp targets, so saved routings stay
+  valid): kit Tune (±24 semitones of travel, clamped to ±12), Decay, Tone,
+  Drive and sends; per synth (Arp 1, Arp 2, Chords) Resonance, Env, Attack,
+  Release, Level and sends; Chords Cutoff; Reverb Size and Delay Feedback. The
+  processor reads them once per audio block at the block's step and adds them
+  to the knob values before handing them to the sound engine, so they follow
+  the lane at block resolution. Their knobs on the Sounds page take lane
+  drops and show the modulated value.
 * **Arp pages:** the bottom panel shows either the lanes or an arp, so each arp
   page has small L1–L4 chips to drag onto its knobs, its Velocity range, or the
   note view (Transpose). The Modulation tab's routing menus list the arp

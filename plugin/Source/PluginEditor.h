@@ -168,6 +168,7 @@ private:
     ChordPadsView chordPads_;
     int selectedChordSlot_ = 0;
     LaneHandle soundLaneHandles_[gristo::kNumModLanes];
+    std::vector<std::pair<Knob*, int>> soundTargets_; // Sounds-page knob -> modulation target
 
     // Arp page: one set of controls, bound to the arp being shown
     Toggle arpOn_, arpLatch_;

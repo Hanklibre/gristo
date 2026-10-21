@@ -518,6 +518,12 @@ void GristoView::updateModulationDisplay(const gristo::EngineParams& params)
         show(mod::kHumanize, ep.humanize.amount);
         for (int a = 0; a < gristo::kNumArps; ++a)
             show(mod::arpCutoffTarget(a), juce::jlimit(0.0, 1.0, synthRows_[a].cutoff.slider.getValue() + ep.arps[static_cast<size_t>(a)].cutoffOffset));
+        for (const auto& [knob, target] : soundTargets_)
+        {
+            const auto& s = knob->slider;
+            show(target, juce::jlimit(s.getMinimum(), s.getMaximum(),
+                                      s.getValue() + previewEngine_.modulationAt(target, step) * mod::targetRange(target)));
+        }
         if (shownArp >= 0)
         {
             const auto& ap = ep.arps[static_cast<size_t>(shownArp)];
@@ -1007,13 +1013,35 @@ void GristoView::setupSoundPage()
     setHelp(fxFeedback_, "Delay Feedback", "How many echoes. The delay ping-pongs left and right and follows the tempo.");
     setHelp(fxTime_.box, "Delay Time", "Echo spacing in note values, synced to the tempo.");
 
+    // Every sound knob can take a lane.
+    soundTargets_ = { { &kitTune_, mod::kitTarget(mod::kKitTune) },     { &kitDecay_, mod::kitTarget(mod::kKitDecay) },
+                      { &kitTone_, mod::kitTarget(mod::kKitTone) },     { &kitDrive_, mod::kitTarget(mod::kKitDrive) },
+                      { &kitReverb_, mod::kitTarget(mod::kKitReverb) }, { &kitDelay_, mod::kitTarget(mod::kKitDelay) },
+                      { &fxSize_, mod::kFxSizeTarget },                 { &fxFeedback_, mod::kFxFeedbackTarget },
+                      { &synthRows_[gristo::sound::kChordSynth].cutoff, mod::kChordCutoffTarget } };
+    for (int a = 0; a < gristo::sound::kNumSynths; ++a)
+    {
+        auto& row = synthRows_[a];
+        const std::pair<Knob*, int> knobs[] = { { &row.resonance, mod::kSynthReso }, { &row.env, mod::kSynthEnv },
+                                                { &row.attack, mod::kSynthAttack },  { &row.release, mod::kSynthRelease },
+                                                { &row.level, mod::kSynthLevel },    { &row.reverb, mod::kSynthReverb },
+                                                { &row.delay, mod::kSynthDelay } };
+        for (const auto& [knob, which] : knobs)
+            soundTargets_.push_back({ knob, mod::synthTarget(a, which) });
+    }
+    for (const auto& [knob, target] : soundTargets_)
+    {
+        makeTarget(knob->slider, knob->slider, target);
+        targetSliders_[static_cast<size_t>(target)] = &knob->slider;
+    }
+
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
     {
         soundLaneHandles_[lane].setLane(lane);
         soundLaneHandles_[lane].setCompact(true);
         addAndMakeVisible(soundLaneHandles_[lane]);
         setHelp(soundLaneHandles_[lane], "Lane " + juce::String(lane + 1),
-                "Drag onto an arp's Cutoff knob for filter sweeps. Draw the curve on the Modulation tab.");
+                "Drag onto any knob here (or tap it, then tap the knob): filter sweeps, drive, sends, reverb size... Draw the curve on the Modulation tab.");
     }
 }
 

@@ -14,7 +14,21 @@ std::string targetName(int target)
     if (target >= kFill && target < kFill + kNumVoices) return std::string(voiceName(target - kFill)) + " Fill";
     if (target >= kProbability && target < kProbability + kNumVoices) return std::string(voiceName(target - kProbability)) + " Probability";
     if (target >= kVelocity && target < kVelocity + kNumVoices) return std::string(voiceName(target - kVelocity)) + " Velocity";
-    if (target >= kArpProbBase && target < kNumTargets)
+    if (target >= kSoundBase && target < kNumTargets)
+    {
+        static const char* const kit[kKitTargets] = { "Tune", "Decay", "Tone", "Drive", "Reverb", "Delay" };
+        static const char* const synth[kSynthTargets] = { "Resonance", "Env", "Attack", "Release", "Level", "Reverb", "Delay" };
+        const int i = target - kSoundBase;
+        if (i < kKitTargets)
+            return std::string("Kit ") + kit[i];
+        if (target == kChordCutoffTarget) return "Chords Cutoff";
+        if (target == kFxSizeTarget) return "Reverb Size";
+        if (target == kFxFeedbackTarget) return "Delay Feedback";
+        const int s = (i - kKitTargets) / kSynthTargets;
+        const std::string owner = s == 2 ? std::string("Chords") : "Arp " + std::to_string(s + 1);
+        return owner + " " + synth[(i - kKitTargets) % kSynthTargets];
+    }
+    if (target >= kArpProbBase && target < kSoundBase)
         return "Arp " + std::to_string(target - kArpProbBase + 1) + " Probability";
     if (target >= kArpCutoffBase && target < kArpProbBase)
         return "Arp " + std::to_string(target - kArpCutoffBase + 1) + " Cutoff";
@@ -38,6 +52,10 @@ std::string targetName(int target)
 
 float targetRange(int target)
 {
+    if (target == kitTarget(kKitTune))
+        return 24.0f; // the Tune knob: -12..12 semitones
+    if (target == kFxFeedbackTarget)
+        return 0.9f;
     if (target >= kArpBase && target < kArpCutoffBase)
     {
         switch ((target - kArpBase) % kArpTargetsPerArp)

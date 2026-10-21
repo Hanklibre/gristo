@@ -130,19 +130,44 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         lastBpm_ = block.bpm;
     if (kitOn)
     {
-        sound_.setKit(p::readKitParams(state));
-        // Cutoff lanes: sampled at the block's 16th (lanes move in 16ths anyway).
-        const gristo::EngineParams modulated =
-            engine_.effectiveParams(static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat)));
+        // Modulation lanes on the sounds, sampled once per block (at its 16th).
+        const auto step = static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat));
+        auto lane = [&](int target) {
+            return block.playing ? engine_.modulationAt(target, step) * gristo::mod::targetRange(target) : 0.0f;
+        };
+        auto unit = [](float v) { return juce::jlimit(0.0f, 1.0f, v); };
+        namespace mod = gristo::mod;
+
+        auto kit = p::readKitParams(state);
+        kit.tune = juce::jlimit(-12.0f, 12.0f, kit.tune + lane(mod::kitTarget(mod::kKitTune)));
+        kit.decay = unit(kit.decay + lane(mod::kitTarget(mod::kKitDecay)));
+        kit.tone = unit(kit.tone + lane(mod::kitTarget(mod::kKitTone)));
+        kit.drive = unit(kit.drive + lane(mod::kitTarget(mod::kKitDrive)));
+        kit.reverbSend = unit(kit.reverbSend + lane(mod::kitTarget(mod::kKitReverb)));
+        kit.delaySend = unit(kit.delaySend + lane(mod::kitTarget(mod::kKitDelay)));
+        sound_.setKit(kit);
+
+        const gristo::EngineParams modulated = engine_.effectiveParams(step);
         for (int a = 0; a < gristo::sound::kNumSynths; ++a)
         {
             auto synth = p::readSynthParams(state, a);
             if (a < gristo::kNumArps)
                 synth.cutoffMod = block.playing ? modulated.arps[static_cast<size_t>(a)].cutoffOffset : 0.0f;
+            else
+                synth.cutoffMod = lane(mod::kChordCutoffTarget);
+            synth.resonance = unit(synth.resonance + lane(mod::synthTarget(a, mod::kSynthReso)));
+            synth.envAmount = unit(synth.envAmount + lane(mod::synthTarget(a, mod::kSynthEnv)));
+            synth.attack = unit(synth.attack + lane(mod::synthTarget(a, mod::kSynthAttack)));
+            synth.release = unit(synth.release + lane(mod::synthTarget(a, mod::kSynthRelease)));
+            synth.level = unit(synth.level + lane(mod::synthTarget(a, mod::kSynthLevel)));
+            synth.reverbSend = unit(synth.reverbSend + lane(mod::synthTarget(a, mod::kSynthReverb)));
+            synth.delaySend = unit(synth.delaySend + lane(mod::synthTarget(a, mod::kSynthDelay)));
             sound_.setSynth(a, synth);
         }
         auto fx = p::readFxParams(state);
         fx.bpm = lastBpm_;
+        fx.reverbSize = unit(fx.reverbSize + lane(mod::kFxSizeTarget));
+        fx.delayFeedback = juce::jlimit(0.0f, 0.9f, fx.delayFeedback + lane(mod::kFxFeedbackTarget));
         sound_.setFx(fx);
     }
     const float kitGain = state.getRawParameterValue(p::kitGain)->load();
