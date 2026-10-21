@@ -75,5 +75,5 @@ private:
     juce::String name_ { "Init" };
     juce::File file_;
     int factoryIndex_ = -1;
-    std::int64_t cleanHash_ = 0;
+    std::atomic<std::int64_t> cleanHash_ { 0 }; // written when a host restores state, maybe off the UI thread
 };

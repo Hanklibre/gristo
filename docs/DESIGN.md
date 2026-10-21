@@ -281,7 +281,7 @@ scheduling in `Engine::processArp`).
   at the top of the velocity range; otherwise velocity follows the drum hit that clocked the step, mapped
   into the arp's velocity range.
 * **Out Shift:** semitones added to the arp's MIDI out (Arp 1: 0, Arp 2: +36,
-  Arp 3: 0 from a C5 root by default), folded back by octaves at the ends of the MIDI range, so each arp
+  Arp 3: 0 from a C4 root by default, middle C = C3), folded back by octaves at the ends of the MIDI range, so each arp
   gets its own note range in hosts that can't split by channel. The DAW undoes
   it with a Pitch device; the preview synth plays the unshifted pitch. The arp
   page shows the resulting range, the key zone and Pitch value to use in Live,

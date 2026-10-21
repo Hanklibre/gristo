@@ -12,7 +12,7 @@ constexpr int kFormatVersion = 1;
 constexpr juce::int64 kMaxPresetBytes = 1 << 20;
 
 // Each id is matched without its trailing index (note0..note5 -> note).
-const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun" };
+const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun", "freeTempo" };
 
 juce::String withoutIndex(const juce::String& id)
 {
@@ -89,7 +89,8 @@ void PresetManager::apply(const juce::ValueTree& preset)
     std::map<juce::String, float> values;
     for (const auto& child : preset)
         if (child.hasType("PARAM"))
-            values[child["id"].toString()] = static_cast<float>(child["value"]);
+            if (const auto v = static_cast<float>(child["value"]); std::isfinite(v)) // "nan" in a file stays out
+                values[child["id"].toString()] = v;
 
     // Everything musical not in the preset goes back to its default, so a preset
     // always sounds the same no matter what was loaded before.
@@ -167,6 +168,10 @@ juce::File PresetManager::importFile(const juce::File& source)
     if (source.isAChildOf(userFolder()))
         return source;
     if (source.getSize() > kMaxPresetBytes)
+        return {};
+    // Only real presets are copied in: a wrong file shouldn't land in My presets.
+    const auto xml = juce::XmlDocument::parse(source);
+    if (xml == nullptr || !xml->hasTagName("GristoPreset"))
         return {};
     auto target = userFolder().getChildFile(source.getFileName());
     if (target.existsAsFile())
@@ -247,12 +252,19 @@ void PresetManager::step(int direction)
     const int total = factoryCount + files.size();
     if (total == 0)
         return;
-    const int current = currentIndex();
-    const int next = current < 0 ? (direction > 0 ? 0 : total - 1) : (current + direction + total) % total;
-    if (next < factoryCount)
-        loadFactory(next);
-    else
-        loadFile(files[next - factoryCount]);
+    // Skip files that don't load (damaged, or not a preset) instead of getting stuck on them.
+    int index = currentIndex();
+    for (int tries = 0; tries < total; ++tries)
+    {
+        index = index < 0 ? (direction > 0 ? 0 : total - 1) : (index + direction + total) % total;
+        if (index < factoryCount)
+        {
+            loadFactory(index);
+            return;
+        }
+        if (loadFile(files[index - factoryCount]))
+            return;
+    }
 }
 
 std::int64_t PresetManager::stateHash() const

@@ -28,7 +28,8 @@ inline const juce::Colour laneColours[gristo::kNumModLanes] = {
     juce::Colour(0xff4fc3f7), juce::Colour(0xffba68c8), juce::Colour(0xff81c784), juce::Colour(0xffff8a65),
 };
 
-inline const juce::Colour arpColours[gristo::kNumArps] = { juce::Colour(0xfff06292), juce::Colour(0xff9ccc65), juce::Colour(0xff4fc3f7) };
+// Distinct from the lane colours, so lane rings stay readable on every arp page.
+inline const juce::Colour arpColours[gristo::kNumArps] = { juce::Colour(0xfff06292), juce::Colour(0xff9ccc65), juce::Colour(0xffffee58) };
 
 inline void drawPanel(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title)
 {

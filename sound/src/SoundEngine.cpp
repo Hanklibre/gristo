@@ -95,9 +95,24 @@ void SoundEngine::reset()
     m.configureBus();
 }
 
+namespace {
+// Non-finite settings must never reach the DSP: a NaN would sit in the reverb forever.
+float finite(float v, float fallback) { return std::isfinite(v) ? v : fallback; }
+} // namespace
+
 void SoundEngine::setKit(const KitParams& params)
 {
-    impl_->kit = params;
+    KitParams k = params;
+    const KitParams d;
+    k.tune = finite(k.tune, d.tune);
+    k.decay = finite(k.decay, d.decay);
+    k.tone = finite(k.tone, d.tone);
+    k.drive = finite(k.drive, d.drive);
+    k.reverbSend = finite(k.reverbSend, 0.0f);
+    k.delaySend = finite(k.delaySend, 0.0f);
+    for (auto& level : k.level)
+        level = finite(level, 0.0f);
+    impl_->kit = k;
     impl_->configureBus();
 }
 
@@ -105,17 +120,31 @@ void SoundEngine::setSynth(int synth, const SynthParams& params)
 {
     if (synth < 0 || synth >= kNumSynths)
         return;
-    impl_->synthParams[synth] = params;
-    impl_->synths[synth].setParams(params);
+    SynthParams p = params;
+    const SynthParams d;
+    for (auto [value, fallback] : { std::pair<float*, float> { &p.cutoff, d.cutoff }, { &p.resonance, d.resonance },
+                                    { &p.envAmount, d.envAmount }, { &p.attack, d.attack }, { &p.release, d.release },
+                                    { &p.glide, d.glide }, { &p.level, 0.0f }, { &p.reverbSend, 0.0f },
+                                    { &p.delaySend, 0.0f }, { &p.cutoffMod, 0.0f } })
+        *value = finite(*value, fallback);
+    impl_->synthParams[synth] = p;
+    impl_->synths[synth].setParams(p);
 }
 
 void SoundEngine::setFx(const FxParams& params)
 {
     auto& m = *impl_;
-    m.fx = params;
-    m.reverb.setSize(params.reverbSize);
-    const double bpm = std::clamp(params.bpm, 20.0, 400.0);
-    m.delay.set(static_cast<float>(params.delayBeats * 60.0 / bpm), params.delayFeedback);
+    FxParams fx = params;
+    const FxParams d;
+    fx.reverbSize = finite(fx.reverbSize, d.reverbSize);
+    fx.delayBeats = finite(fx.delayBeats, d.delayBeats);
+    fx.delayFeedback = finite(fx.delayFeedback, d.delayFeedback);
+    if (!std::isfinite(fx.bpm))
+        fx.bpm = d.bpm;
+    m.fx = fx;
+    m.reverb.setSize(fx.reverbSize);
+    const double bpm = std::clamp(fx.bpm, 20.0, 400.0);
+    m.delay.set(static_cast<float>(fx.delayBeats * 60.0 / bpm), fx.delayFeedback);
 }
 
 void SoundEngine::triggerDrum(int voice, float velocity)
@@ -161,6 +190,7 @@ bool SoundEngine::drumActive(int voice) const
 void SoundEngine::render(float* left, float* right, int numSamples, float gain)
 {
     auto& m = *impl_;
+    bool poisoned = false;
     const KitPatch& patch = kitPatch(m.kit.kit);
     const float busDrive = patch.busDrive * (1.0f + 5.0f * dsp::clamp01(m.kit.drive));
     const float air = m.kit.tone > 0.5f ? (m.kit.tone - 0.5f) * 1.6f : 0.0f;
@@ -250,10 +280,17 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
 
         l *= gain;
         r *= gain;
+        if (!std::isfinite(l) || !std::isfinite(r)) // last line of defence: never output NaN,
+        {                                            // and start clean rather than stay poisoned
+            l = r = 0.0f;
+            poisoned = true;
+        }
         m.glue.process(l, r);
         left[i] += dsp::outputClip(l) * 0.8f;
         right[i] += dsp::outputClip(r) * 0.8f;
     }
+    if (poisoned)
+        reset();
 }
 
 } // namespace gristo::sound

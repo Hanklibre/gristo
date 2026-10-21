@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 using namespace gristo::sound;
@@ -411,4 +412,29 @@ TEST("sound: hard sync is band-limited (little energy between the harmonics)")
     }
     const double inharmonicDb = 10.0 * std::log10(other / (harmonic + other));
     CHECK_MSG(inharmonicDb < -25.0, "inharmonic energy " << inharmonicDb << " dB");
+}
+
+TEST("sound: non-finite settings never reach the output")
+{
+    SoundEngine e;
+    e.prepare(kRate);
+    FxParams fx;
+    fx.reverbSize = std::numeric_limits<float>::quiet_NaN();
+    fx.delayFeedback = std::numeric_limits<float>::infinity();
+    e.setFx(fx);
+    KitParams kit;
+    kit.tone = std::numeric_limits<float>::quiet_NaN();
+    kit.reverbSend = 1.0f;
+    e.setKit(kit);
+    SynthParams p;
+    p.cutoff = std::numeric_limits<float>::quiet_NaN();
+    p.level = std::numeric_limits<float>::infinity();
+    p.reverbSend = 1.0f;
+    e.setSynth(0, p);
+    e.triggerDrum(0, 1.0f);
+    e.noteOn(0, 48, 48.0f, 1.0f);
+    Rendered out;
+    renderInto(e, out, 1.0);
+    CHECK(out.finite);
+    CHECK(out.peak > 0.01f); // and it still plays
 }

@@ -19,11 +19,12 @@ enum Sound { Sub = 0, Acid, Reese, FmBass, EPiano, Bell, Pluck, Organ, WarmPad, 
 enum ChordPlay { Off = 0, Held, Stabs };
 enum Scale { Major = 0, Minor, Dorian, Phrygian, Lydian, Mixolydian, HarmonicMinor, MinorPenta, MajorPenta, Blues, Chromatic };
 
-// Generate-mode arp: index, sound, root note, scale, the voices that step it.
+// Generate-mode arp: index, sound, root note, scale, the voices that step it. (Synth
+// settings are per sound-engine synth: arp 3 plays synth 3, the chords synth 2.)
 V arp(int a, Sound sound, int root, Scale scale, std::initializer_list<int> triggers, float density, float gate = 2.0f)
 {
     const juce::String n(a);
-    V v { { "arpOn" + n, 1.0f }, { "arpMode" + n, 1.0f }, { "arpSnd" + n, static_cast<float>(sound) },
+    V v { { "arpOn" + n, 1.0f }, { "arpMode" + n, 1.0f }, { "arpSnd" + juce::String(gristo::mod::synthOfArp(a)), static_cast<float>(sound) },
           { "arpRoot" + n, static_cast<float>(root) }, { "arpScale" + n, static_cast<float>(scale) },
           { "arpDens" + n, density }, { "arpGate" + n, gate } };
     for (int voice = 0; voice < 6; ++voice)

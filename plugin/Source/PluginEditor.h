@@ -5,7 +5,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
-// The whole UI at its design size (1000 x 1096). GristoEditor scales it.
+// The whole UI at its design size (1000 x 1142). GristoEditor scales it.
 class GristoView : public juce::Component, public juce::DragAndDropContainer, private juce::Timer
 {
 public:
@@ -28,6 +28,8 @@ public:
     std::vector<juce::Component*> headerControls();
     void setHeaderExternal(bool external) { headerExternal_ = external; resized(); }
     void showBottomPage(int page);
+    int lastArpPage() const { return lastArpPage_; } // the arp page shown last (1..kNumArps)
+    std::function<void(int)> onBottomPageChanged;     // the panel's own tabs changed the page
     void showHelp(juce::Component* component) { showHelpFor(component); }
     juce::String helpTitle() const { return helpTitle_; }
     juce::String helpText() const { return helpText_; }
@@ -70,6 +72,7 @@ private:
     void timerCallback() override;
     void mouseMove(const juce::MouseEvent&) override;
     void mouseEnter(const juce::MouseEvent&) override;
+    void mouseDown(const juce::MouseEvent& e) override { showHelpFor(e.originalComponent); } // touch has no hover
     void showHelpFor(juce::Component* component);
     static void setHelp(juce::Component& component, const juce::String& title, const juce::String& text);
     static void setHelp(Knob& knob, const juce::String& title, const juce::String& text);
@@ -122,7 +125,7 @@ private:
     static constexpr int kSoundsPage = 2 + gristo::kNumArps;
     juce::TextButton pageTabs_[3 + gristo::kNumArps];
     bool isArpPage() const { return page_ >= 1 && page_ <= gristo::kNumArps; }
-    int page_ = 0;
+    int page_ = 0, lastArpPage_ = 1;
     void showPage(int page);
     void setupArpPage();
     void bindArp(int arp);
@@ -163,6 +166,7 @@ private:
     juce::TextButton chordTypes_[static_cast<int>(gristo::ChordType::Count)];
     juce::TextButton chordInversions_[3], chordLengths_[3];
     juce::ComboBox chordQuality_;
+    int shownQualitySlot_ = -1, shownQuality_ = -1; // what the combo was last set to by the timer
     juce::TextButton chordFlat_ { "b" }, chordSharp_ { "#" };
     Knob chordMutate_, chordGate_;
     juce::Label chordOutLabel_;

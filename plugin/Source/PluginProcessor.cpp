@@ -315,7 +315,10 @@ void GristoProcessor::readLanes(const juce::ValueTree& lanes)
         juce::StringArray values;
         values.addTokens(lanes.getProperty("lane" + juce::String(lane)).toString(), ",", {});
         for (int k = 0; k < gristo::kMaxModPoints && k < values.size(); ++k)
-            p::lanePoint(modPoints, lane, k).store(juce::jlimit(0.0f, 1.0f, values[k].getFloatValue()));
+        {
+            const float v = values[k].getFloatValue();
+            p::lanePoint(modPoints, lane, k).store(std::isfinite(v) ? juce::jlimit(0.0f, 1.0f, v) : 0.0f);
+        }
     }
 }
 
@@ -337,7 +340,16 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
         if (xml->hasTagName(state.state.getType()))
         {
-            const auto tree = juce::ValueTree::fromXml(*xml);
+            auto tree = juce::ValueTree::fromXml(*xml);
+            // A damaged or hand-edited state must not feed NaN into the engine.
+            for (auto child : tree)
+                if (child.hasType("PARAM") && !std::isfinite(static_cast<float>(child["value"])))
+                {
+                    if (auto* param = state.getParameter(child["id"].toString()))
+                        child.setProperty("value", param->convertFrom0to1(param->getDefaultValue()), nullptr);
+                    else
+                        child.removeProperty("value", nullptr);
+                }
             const auto lanes = tree.getChildWithName("MODLANES");
             if (lanes.isValid())
                 readLanes(lanes);

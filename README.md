@@ -182,8 +182,9 @@ cmake -S . -B build -DGRISTO_BUILD_PLUGIN=OFF && cmake --build build && ./build/
   * **Splitting drums and arps in Live (by note):** Live merges a plugin's
     MIDI output to channel 1, so Gristo keeps each part in its own note range
     instead. Drums default to the GM notes three octaves down (C-2 to A#-2), and
-    each arp has an Out **Shift** (Arp 1: 0 from C2, Arp 2: +36 from C4, Arp 3:
-    0 from C5, which lands between them). The arp page shows the exact range,
+    each arp has an Out **Shift** (Arp 1: 0 from C1, Arp 2: +36 from C3, Arp 3:
+    0 from C4, which lands between them; note names as Gristo shows them, with
+    middle C = C3). The arp page shows the exact range,
     the setting to use and any overlap.
     1. Hold or clip the arps' chord on the Gristo track itself (its MIDI in).
     2. Make one MIDI track with *MIDI From* = the Gristo track / "Gristo", and

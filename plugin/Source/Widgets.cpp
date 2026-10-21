@@ -327,12 +327,19 @@ void ArpView::paint(juce::Graphics& g)
     const auto step = static_cast<std::int64_t>(std::floor(processor_.displayPpq.load() * kStepsPerBeat));
     const std::int64_t cycle = playing ? floorDiv(step, resetLen) : 0;
     const ArpPattern pattern = Arp::pattern(params_.seed, params_.mutate, cycle);
-    const int columns = params_.mode == ArpMode::Generate ? std::clamp(params_.length, 1, kMaxArpSteps)
-                                                          : std::min(pool.size, kMaxArpSteps);
-    const int current = playing && count > 0 ? static_cast<int>((count - 1) % columns) : -1;
+    const bool generate = params_.mode == ArpMode::Generate;
+    // Arp mode: one column per step of the order's cycle (Up/Down: each note once,
+    // Up/Down: there and back), showing the window that holds the current step.
+    const int period = params_.order == ArpOrder::UpDown ? std::max(1, 2 * pool.size - 2) : pool.size;
+    const int columns = std::min(generate ? std::clamp(params_.length, 1, kMaxArpSteps) : period, kMaxArpSteps);
+    const std::int64_t k = playing && count > 0 ? count - 1 : -1;
+    const std::int64_t base = k >= 0 && !generate ? k - k % columns : 0;
+    const int current = k >= 0 ? static_cast<int>(k % columns) : -1;
     const float colW = area.getWidth() / static_cast<float>(columns);
-    auto heightOf = [&](int note) {
-        const int lo = pool.notes[0], hi = pool.notes[static_cast<size_t>(pool.size - 1)];
+    // As played keeps the held order, so the range comes from the notes themselves.
+    const auto [loIt, hiIt] = std::minmax_element(pool.notes.begin(), pool.notes.begin() + pool.size);
+    const int lo = *loIt, hi = *hiIt;
+    auto heightOf = [lo, hi](int note) {
         return hi > lo ? 0.15f + 0.85f * static_cast<float>(note - lo) / static_cast<float>(hi - lo) : 0.6f;
     };
 
@@ -346,8 +353,7 @@ void ArpView::paint(juce::Graphics& g)
             g.setColour(juce::Colours::white.withAlpha(0.12f));
             g.fillRect(col);
         }
-        const ArpNote n = params_.mode == ArpMode::Generate ? Arp::noteFor(params_, pool, pattern, i, cycle)
-                                                            : ArpNote { true, pool.notes[static_cast<size_t>(i)], false, false };
+        const ArpNote n = Arp::noteFor(params_, pool, pattern, generate ? i : base + i, cycle);
         if (!n.play)
         {
             g.setColour(colour.withAlpha(0.35f));
@@ -997,13 +1003,17 @@ void ChordPadsView::paint(juce::Graphics& g)
     for (int row = 0; row < 2; ++row)
         for (int d = 0; d < 7; ++d)
         {
-            ChordSlot s = editing_;
+            // The chord a tap puts in the slot: the plain scale chord, in the slot's type.
+            ChordSlot s = editing_.used ? editing_ : ChordSlot {};
             s.used = true;
             s.degree = d;
             s.borrowed = row == 1;
             s.inversion = 0;
+            s.quality = ChordQuality::Scale;
+            s.alter = 0;
             const auto pad = padArea(row, d).reduced(2.0f);
-            const bool current = editing_.used && editing_.degree == d && editing_.borrowed == (row == 1);
+            const bool current = editing_.used && editing_.degree == d && editing_.borrowed == (row == 1)
+                              && editing_.quality == ChordQuality::Scale && editing_.alter == 0;
             g.setColour(current ? colours::accent : row == 0 ? colours::cool : colours::cool.withAlpha(0.55f));
             g.fillRoundedRectangle(pad, 5.0f);
             g.setColour(current ? colours::background : colours::text);
