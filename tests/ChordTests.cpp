@@ -102,6 +102,10 @@ TEST("chords: built from the scale, named and numbered like Scaler")
     CHECK(Chords::roman(c, slot(6)) == "viio");
     CHECK(Chords::name(c, slot(6, ChordType::Seventh)) == "Bm7b5");
     CHECK(Chords::name(c, slot(1, ChordType::Ninth)) == "Dm9");
+    CHECK(Chords::name(c, slot(4, ChordType::Ninth)) == "G9");
+    CHECK(Chords::name(c, slot(3, ChordType::Ninth)) == "Fmaj9");
+    CHECK(Chords::name(c, slot(2, ChordType::Ninth)) == "Em7b9");
+    CHECK(Chords::name(c, slot(6, ChordType::Ninth)) == "Bm7b5b9");
     CHECK(Chords::name(c, slot(0, ChordType::Sus4)) == "Csus4");
     // Borrowed from C minor: iv and bVI.
     CHECK(Chords::name(c, slot(3, ChordType::Triad, 16, true)) == "Fm");

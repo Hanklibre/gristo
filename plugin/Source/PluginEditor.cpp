@@ -1132,12 +1132,20 @@ std::vector<juce::Component*> GristoView::chordPageComponents()
 
 void GristoView::writeChordSlot(int index, const gristo::ChordSlot& slot)
 {
-    setParameter(p::voiceId(p::chordSlotUsed, index), slot.used ? 1.0f : 0.0f);
-    setParameter(p::voiceId(p::chordDegree, index), static_cast<float>(slot.degree));
-    setParameter(p::voiceId(p::chordBorrowed, index), slot.borrowed ? 1.0f : 0.0f);
-    setParameter(p::voiceId(p::chordType, index), static_cast<float>(slot.type));
-    setParameter(p::voiceId(p::chordInversion, index), static_cast<float>(slot.inversion));
-    setParameter(p::voiceId(p::chordLength, index), slot.lengthSteps <= 8 ? 0.0f : slot.lengthSteps >= 32 ? 2.0f : 1.0f);
+    // Only touch what changes: loading a progression stays a handful of updates.
+    auto set = [this](const juce::String& id, float value) {
+        if (auto* param = processor_.state.getParameter(id))
+            if (std::abs(param->convertFrom0to1(param->getValue()) - value) > 1.0e-4f)
+                setParameter(id, value);
+    };
+    set(p::voiceId(p::chordSlotUsed, index), slot.used ? 1.0f : 0.0f);
+    if (!slot.used)
+        return; // an empty slot's other settings don't matter
+    set(p::voiceId(p::chordDegree, index), static_cast<float>(slot.degree));
+    set(p::voiceId(p::chordBorrowed, index), slot.borrowed ? 1.0f : 0.0f);
+    set(p::voiceId(p::chordType, index), static_cast<float>(slot.type));
+    set(p::voiceId(p::chordInversion, index), static_cast<float>(slot.inversion));
+    set(p::voiceId(p::chordLength, index), slot.lengthSteps <= 8 ? 0.0f : slot.lengthSteps >= 32 ? 2.0f : 1.0f);
 }
 
 void GristoView::editSelectedChord(const std::function<void(gristo::ChordSlot&)>& edit)
@@ -1152,16 +1160,16 @@ void GristoView::showChordLibrary()
 {
     juce::PopupMenu menu;
     const auto& library = gristo::Chords::library();
+    // One flat list with mood headings: nested submenus are fiddly on touch screens.
     juce::StringArray moods;
     for (const auto& entry : library)
         moods.addIfNotAlreadyThere(entry.mood);
     for (const auto& mood : moods)
     {
-        juce::PopupMenu sub;
+        menu.addSectionHeader(mood);
         for (int i = 0; i < static_cast<int>(library.size()); ++i)
             if (mood == library[static_cast<size_t>(i)].mood)
-                sub.addItem(i + 1, juce::String(library[static_cast<size_t>(i)].name) + "  (" + gristo::chordScaleName(library[static_cast<size_t>(i)].scale) + ")");
-        menu.addSubMenu(mood, sub);
+                menu.addItem(i + 1, juce::String(library[static_cast<size_t>(i)].name) + "  (" + gristo::chordScaleName(library[static_cast<size_t>(i)].scale) + ")");
     }
     juce::Component::SafePointer<GristoView> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&chordLibrary_), [safe](int result) {

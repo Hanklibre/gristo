@@ -170,15 +170,25 @@ std::string Chords::name(const ChordParams& p, const ChordSlot& s)
         else
         {
             const bool maj7 = has(iv, 11), min7 = has(iv, 10), dim7 = has(iv, 9) && dim5;
-            const std::string ext = s.type == ChordType::Ninth ? "9" : "7";
-            if (major3 && maj7) quality = (aug5 ? "maj" + ext + "#5" : "maj" + ext);
-            else if (major3 && min7) quality = ext;
-            else if (minor3 && dim5 && dim7) quality = "dim7";
-            else if (minor3 && dim5) quality = "m" + ext + "b5";
-            else if (minor3 && maj7) quality = "mMaj" + ext;
-            else quality = "m" + ext;
-            if (s.type == ChordType::Ninth && has(iv, 13))
-                quality = (quality == "9" ? "7" : quality.substr(0, quality.size() - 1) + "7") + "b9";
+            std::string q7;
+            if (major3 && maj7) q7 = aug5 ? "maj7#5" : "maj7";
+            else if (major3 && min7) q7 = "7";
+            else if (minor3 && dim5 && dim7) q7 = "dim7";
+            else if (minor3 && dim5) q7 = "m7b5";
+            else if (minor3 && maj7) q7 = "mMaj7";
+            else q7 = "m7";
+            quality = q7;
+            if (s.type == ChordType::Ninth)
+            {
+                if (has(iv, 13)) // flat 9 (Phrygian / Locrian colours)
+                    quality = q7 + "b9";
+                else if (q7 == "7") quality = "9";
+                else if (q7 == "maj7") quality = "maj9";
+                else if (q7 == "m7") quality = "m9";
+                else if (q7 == "mMaj7") quality = "mMaj9";
+                else if (q7 == "m7b5") quality = "m9b5";
+                else quality = q7 + "add9";
+            }
         }
     }
     std::string out = std::string(kPitchNames[rootPc]) + quality;

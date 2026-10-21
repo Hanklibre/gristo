@@ -93,7 +93,11 @@ public:
     const DrumMap& map() const { return map_; }
 
     HitInfo describe(std::int64_t step, int voice, double bpm, bool withHumanize = true) const;
-    StepHits evaluateStep(std::int64_t step) const { return generator_.evaluate(effectiveParams(step).pattern, step); }
+    StepHits evaluateStep(std::int64_t step) const
+    {
+        // Only build the modulated copy when lanes are routed (it's a big struct).
+        return hasModulation_ ? generator_.evaluate(effectiveParams(step).pattern, step) : generator_.evaluate(params_.pattern, step);
+    }
 
     // Parameters in effect at a step: the base parameters plus all modulation lanes.
     // Shuffle modulation is sampled at the start of the groove cell so positions stay
@@ -169,6 +173,7 @@ private:
     static float normalizedVelocity(const EngineParams& ep, const VoiceHit& hit, int voice);
     bool chordsActive() const;
     std::int64_t clockHitsBefore(std::int64_t step) const;
+    ChordPosition computeChordPosition(std::int64_t step) const;
     void releaseHeldChord(double beats);
     void processChords(double ppqStart, double ppqEnd, double bpm);
     double gridAt(std::int64_t step) const;
@@ -196,6 +201,17 @@ private:
     ChordState chord_;
     // Drums-clocked chords: running count of clock hits (a cache, so lookups stay cheap).
     mutable std::int64_t hitsMemoCycle_ = -1, hitsMemoStep_ = 0, hitsMemoHits_ = 0;
+    // Chord position per step for the current parameters: chords and both arps ask
+    // about the same steps, so each is worked out once.
+    static constexpr int kChordCacheSize = 512;
+    struct ChordCacheEntry
+    {
+        std::int64_t step = 0;
+        std::uint32_t generation = 0;
+        ChordPosition pos;
+    };
+    mutable std::array<ChordCacheEntry, kChordCacheSize> chordCache_ {};
+    std::uint32_t chordGeneration_ = 1;
     double expectedPpq_ = 0.0;
     bool needsResync_ = true;
 };

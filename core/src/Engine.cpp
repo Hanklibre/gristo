@@ -210,6 +210,17 @@ ChordPosition Engine::chordPositionAt(std::int64_t step) const
 {
     if (!chordsActive())
         return {};
+    auto& entry = chordCache_[static_cast<size_t>(floorMod(step, kChordCacheSize))];
+    if (entry.generation == chordGeneration_ && entry.step == step)
+        return entry.pos;
+    entry.step = step;
+    entry.generation = chordGeneration_;
+    entry.pos = computeChordPosition(step);
+    return entry.pos;
+}
+
+ChordPosition Engine::computeChordPosition(std::int64_t step) const
+{
     const ChordParams& cp = params_.chords;
     if (cp.clock == ChordClock::Drums)
     {
@@ -371,6 +382,7 @@ void Engine::setParams(const EngineParams& p)
     params_ = p;
     hasModulation_ = false;
     shuffleModulated_ = false;
+    ++chordGeneration_; // positions depend on the pattern and the chord settings
     for (const ModLane& lane : params_.modulation.lanes)
         for (const ModSlot& slot : lane.slots)
             if (slot.target > mod::kNone && slot.target < mod::kNumTargets && slot.amount != 0.0f)
@@ -571,6 +583,7 @@ void Engine::flushNoteOffs(std::vector<OutputEvent>& out)
 
 void Engine::resync(double ppqStart)
 {
+    hitsMemoCycle_ = -1;
     const auto first = static_cast<std::int64_t>(std::ceil(ppqStart * kStepsPerBeat - 1e-9));
     nextStep_.fill(first);
     needsResync_ = false;
