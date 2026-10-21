@@ -179,6 +179,53 @@ const SynthPatch* buildPatches()
     }
     set(SynthSound::GlassPad).velocityToFm = 0.2f; // pads keep their tone
     set(SynthSound::BreathPad).velocityToFm = 0.2f;
+
+    // Monosynth behaviour for basses and leads; free-running oscillators for pads.
+    for (auto s : { SynthSound::SubBass, SynthSound::AcidBass, SynthSound::ReeseBass, SynthSound::FmBass, SynthSound::UprightBass,
+                    SynthSound::SquareLead, SynthSound::SyncLead, SynthSound::SoftLead })
+        set(s).mono = true;
+    for (auto s : { SynthSound::ReeseBass, SynthSound::WarmPad, SynthSound::DarkPad, SynthSound::SlowStrings, SynthSound::PolyStrings,
+                    SynthSound::PolySynth, SynthSound::SynthBrass })
+        set(s).freePhase = true;
+    // The ladder for the classic subtractive sounds (acid squelch, brass, poly).
+    for (auto s : { SynthSound::AcidBass, SynthSound::SynthBrass, SynthSound::PolySynth })
+        set(s).fourPole = true;
+    set(SynthSound::AcidBass).cutoffHz = 320.0f; // the ladder's steeper slope sits darker
+    // Attack noise (hammer, mallet, finger, key click) and breath / bow noise.
+    const std::pair<SynthSound, float> hammers[] = { { SynthSound::EPiano, 0.06f },      { SynthSound::SuitcaseKeys, 0.08f },
+                                                     { SynthSound::TapeKeys, 0.05f },    { SynthSound::FeltPiano, 0.12f },
+                                                     { SynthSound::Vibraphone, 0.05f },  { SynthSound::Celesta, 0.04f },
+                                                     { SynthSound::UprightBass, 0.15f }, { SynthSound::Organ, 0.04f },
+                                                     { SynthSound::JazzOrgan, 0.06f },   { SynthSound::Bell, 0.03f } };
+    for (const auto& [sound, level] : hammers)
+        set(sound).hammer = level;
+    set(SynthSound::BreathPad).noise = 0.12f;
+    set(SynthSound::SlowStrings).noise = 0.015f;
+    set(SynthSound::PolyStrings).noise = 0.01f;
+    set(SynthSound::SynthBrass).noise = 0.02f;
+
+    // Real-instrument tremolos: the vibraphone motor, the suitcase e-piano's stereo
+    // vibrato, a rotary speaker on the organs.
+    {
+        auto& x = set(SynthSound::Vibraphone);
+        x.vibratoHz = 0.0f; // the motor moves the level, not the pitch
+        x.tremolo = 0.3f;
+        x.tremoloHz = 5.5f;
+    }
+    {
+        auto& x = set(SynthSound::SuitcaseKeys);
+        x.tremolo = 0.45f;
+        x.tremoloHz = 4.6f;
+        x.tremoloPan = true;
+        x.chorus = 0.2f;
+    }
+    for (auto s : { SynthSound::Organ, SynthSound::JazzOrgan })
+    {
+        auto& x = set(s);
+        x.tremolo = s == SynthSound::JazzOrgan ? 0.3f : 0.2f;
+        x.tremoloHz = x.vibratoHz;
+        x.tremoloPan = true;
+    }
     return p;
 }
 
@@ -265,6 +312,12 @@ void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int i
     pitch_ = targetPitch_ = pitch;
     velocity_ = dsp::clamp01(velocity);
     detune_ = patch_.driftCents * drift_.next() / 100.0f; // semitones
+    {
+        constexpr float spread[5] = { -1.0f, -0.5f, 0.0f, 0.5f, 1.0f };
+        const bool reese = patch_.osc == Osc::Reese;
+        for (int i = 0; i < 5; ++i)
+            detuneRatio_[i] = std::exp2((reese ? (i == 0 ? -1.0f : 1.0f) : spread[i]) * patch_.detuneCents / 1200.0f);
+    }
     amp_.set(attackTime(patch_, macros), patch_.d, patch_.s, releaseTime(patch_, macros), sampleRate_);
     filterEnv_.set(patch_.fa, patch_.fd, patch_.fs, patch_.fr, sampleRate_);
     amp_.gateOn();
@@ -272,13 +325,17 @@ void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int i
     fmEnv_ = 1.0f;
     fmCoef_ = dsp::decayCoef(std::max(patch_.fmIndexTime, 0.01f), sampleRate_);
     tineEnv_ = patch_.tine > 0.0f ? 1.0f : 0.0f;
+    hammerEnv_ = patch_.hammer > 0.0f ? 0.4f + 0.6f * velocity_ : 0.0f; // harder notes, harder hammer
+    hammerCoef_ = dsp::decayCoef(0.008f, sampleRate_);
     tineCoef_ = dsp::decayCoef(0.25f, sampleRate_);
     if (!wasActive)
     {
-        for (int i = 0; i < 5; ++i)
-            phase_[i] = 0.2f * static_cast<float>(i); // spread supersaw phases
+        for (int i = 0; i < 5; ++i) // spread supersaw phases; free-running sounds start anywhere
+            phase_[i] = patch_.freePhase ? 0.5f + 0.5f * drift_.next() : 0.2f * static_cast<float>(i);
+        syncPhase_ = syncHeld_ = 0.0f;
         filter1_.reset();
-        filter2_.reset();
+        ladder_.reset();
+        filterPrimed_ = false;
     }
     controlCounter_ = 0;
 }
@@ -318,10 +375,9 @@ float SynthVoice::oscillator(float hz)
             break;
         case Osc::Supersaw:
         {
-            constexpr float spread[5] = { -1.0f, -0.5f, 0.0f, 0.5f, 1.0f };
             for (int i = 0; i < 5; ++i)
             {
-                const float d = dt * std::exp2(spread[i] * patch_.detuneCents / 1200.0f);
+                const float d = dt * detuneRatio_[i];
                 advance(phase_[i], d);
                 out += dsp::sawBlep(phase_[i], d);
             }
@@ -331,7 +387,7 @@ float SynthVoice::oscillator(float hz)
         case Osc::Reese:
             for (int i = 0; i < 2; ++i)
             {
-                const float d = dt * std::exp2((i == 0 ? -1.0f : 1.0f) * patch_.detuneCents / 1200.0f);
+                const float d = dt * detuneRatio_[i];
                 advance(phase_[i], d);
                 out += dsp::sawBlep(phase_[i], d);
             }
@@ -347,7 +403,7 @@ float SynthVoice::oscillator(float hz)
             advance(modPhase_, dt * patch_.fmRatio);
             // Harder notes are brighter, like a real e-piano or mallet.
             const float index = (patch_.fmIndexEnd + (patch_.fmIndex - patch_.fmIndexEnd) * fmEnv_)
-                              * (1.0f - patch_.velocityToFm * (1.0f - velocity_));
+                              * (1.0f - patch_.velocityToFm * (1.0f - velocity_)) * fmKeyScale_;
             out = std::sin(dsp::kTwoPi * phase_[0] + index * std::sin(dsp::kTwoPi * modPhase_));
             break;
         }
@@ -360,14 +416,37 @@ float SynthVoice::oscillator(float hz)
             break;
         case Osc::Sync:
         {
-            const float before = phase_[0];
-            advance(phase_[0], dt);
+            // Slave saw reset by the master. Each jump (the slave's own wrap or the
+            // reset) gets a polyBLEP: half its correction lands on this sample, half on
+            // the previous one, hence the one-sample delay.
             const float ratio = 1.0f + patch_.syncAmount * filterEnv_.value();
-            syncPhase_ += dt * ratio;
-            if (phase_[0] < before) // master wrapped: hard sync
-                syncPhase_ = phase_[0] * ratio;
-            syncPhase_ -= std::floor(syncPhase_);
-            out = 2.0f * syncPhase_ - 1.0f;
+            const float dts = std::min(dt * ratio, 0.45f);
+            float now = 0.0f, before = 0.0f; // corrections to this and the held sample
+            auto jump = [&](float height, float f) { // f: samples since the jump, 0..1
+                now -= 0.5f * height * (1.0f - f) * (1.0f - f);
+                before += 0.5f * height * f * f;
+            };
+            phase_[0] += dt;
+            if (phase_[0] >= 1.0f) // master wrapped: hard sync
+            {
+                phase_[0] -= 1.0f;
+                const float f = phase_[0] / dt;
+                float at = syncPhase_ + dts * (1.0f - f); // slave phase at the reset
+                at -= std::floor(at);
+                syncPhase_ = dts * f;
+                jump(-2.0f * at, f); // from 2 * at - 1 down to -1
+            }
+            else
+            {
+                syncPhase_ += dts;
+                if (syncPhase_ >= 1.0f)
+                {
+                    syncPhase_ -= 1.0f;
+                    jump(-2.0f, syncPhase_ / dts);
+                }
+            }
+            out = syncHeld_ + before;
+            syncHeld_ = 2.0f * syncPhase_ - 1.0f + now;
             break;
         }
     }
@@ -376,9 +455,16 @@ float SynthVoice::oscillator(float hz)
         advance(subPhase_, dt * 0.5f);
         out += patch_.sub * std::sin(dsp::kTwoPi * subPhase_);
     }
-    if (tineEnv_ > 1e-4f)
+    if (hammerEnv_ > 1e-4f)
     {
-        advance(tinePhase_, std::min(dt * 14.0f, 0.45f));
+        out += patch_.hammer * hammerEnv_ * drift_.next();
+        hammerEnv_ *= hammerCoef_;
+    }
+    if (patch_.noise > 0.0f)
+        out += patch_.noise * drift_.next();
+    if (tineEnv_ > 1e-4f && dt * 14.0f < 0.45f) // high notes: the tine would sit above Nyquist
+    {
+        advance(tinePhase_, dt * 14.0f);
         out += patch_.tine * tineEnv_ * std::sin(dsp::kTwoPi * tinePhase_);
         tineEnv_ *= tineCoef_;
     }
@@ -398,15 +484,16 @@ void SynthVoice::updateFilter(const SynthParams& m, float hz)
     const float r = dsp::clamp01(m.resonance);
     const float reso = r <= 0.5f ? patch_.resonance * r * 2.0f
                                  : patch_.resonance + (0.95f - patch_.resonance) * (r - 0.5f) * 2.0f;
-    if (patch_.fourPole)
+    k_ = patch_.fourPole ? 4.0f * reso : 2.0f - 2.0f * reso;
+    const float target = dsp::filterG(cutoff, sampleRate_);
+    if (!filterPrimed_)
     {
-        filter1_.set(cutoff, 0.1f, sampleRate_);
-        filter2_.set(cutoff, reso, sampleRate_);
+        g_ = target;
+        gStep_ = 0.0f;
+        filterPrimed_ = true;
     }
     else
-    {
-        filter1_.set(cutoff, reso, sampleRate_);
-    }
+        gStep_ = (target - g_) / static_cast<float>(kControlRate);
 }
 
 float SynthVoice::tick(const SynthParams& macros, float glideCoef)
@@ -425,6 +512,7 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
     {
         hzPitch_ = pitch;
         hz_ = dsp::midiToHz(pitch);
+        fmKeyScale_ = hz_ > 700.0f ? std::sqrt(700.0f / hz_) : 1.0f; // gentler FM up high: less harsh, no aliasing
     }
     const float hz = hz_;
 
@@ -432,13 +520,13 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
     if (--controlCounter_ <= 0)
     {
         updateFilter(macros, hz);
-        controlCounter_ = 16;
+        controlCounter_ = kControlRate;
     }
+    g_ += gStep_;
     fmEnv_ *= fmCoef_;
 
-    float y = filter1_.tick(oscillator(hz)).lp;
-    if (patch_.fourPole)
-        y = filter2_.tick(y).lp;
+    const float x = oscillator(hz);
+    float y = patch_.fourPole ? ladder_.tick(x, g_, k_) : filter1_.tick(x, g_, k_).lp;
     y = dsp::drive(y, patch_.drive);
     return y * amp_.tick() * (0.35f + 0.65f * velocity_) * patch_.level;
 }
@@ -472,7 +560,8 @@ void Synth::setParams(const SynthParams& params)
     started_ = true;
     const float glideSeconds = 0.5f * params_.glide * params_.glide;
     glideCoef_ = glideSeconds < 0.001f ? 0.0f : std::exp(-1.0f / (glideSeconds * sampleRate_ / 3.0f));
-    chorus_ = synthPatch(params_.sound).chorus;
+    patch_ = &synthPatch(params_.sound);
+    chorus_ = patch_->chorus;
 }
 
 void Synth::reset()
@@ -492,12 +581,15 @@ void Synth::noteOn(int id, float pitch, float velocity)
                 return;
             }
     SynthVoice* target = nullptr;
+    // Mono patches restart the voice still ringing out: no overlapping tails in the low
+    // end, and the oscillators keep their phase (no click), like a monosynth.
+    if (patch_ == nullptr)
+        patch_ = &synthPatch(params_.sound);
+    if (!poly_ && patch_->mono && last_ != nullptr && last_->active())
+        target = last_;
     for (auto& v : voices_)
-        if (!v.active())
-        {
+        if (target == nullptr && !v.active())
             target = &v;
-            break;
-        }
     if (target == nullptr) // all busy releasing: steal the quietest
     {
         target = &voices_[0];
@@ -505,7 +597,8 @@ void Synth::noteOn(int id, float pitch, float velocity)
             if (v.level() < target->level())
                 target = &v;
     }
-    target->start(synthPatch(params_.sound), live_, id, pitch, velocity);
+    target->start(*patch_, live_, id, pitch, velocity);
+    last_ = target;
 }
 
 void Synth::noteOff(int id)

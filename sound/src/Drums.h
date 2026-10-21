@@ -12,6 +12,7 @@ struct DrumPatch
 {
     // Tonal body: a sine sweeping from f0 to f1 (pitchTime = time constant).
     float body = 0.0f, f0 = 60.0f, f1 = 50.0f, pitchTime = 0.02f, bodyDecay = 0.3f;
+    float bodyHold = 0.0f; // seconds at full level before the body decays (kick punch)
     float body2 = 0.0f, body2Ratio = 1.6f; // a second partial (snare / timbale ring)
     // Filtered noise, optionally as hand-clap bursts before the tail.
     float noise = 0.0f, noiseAttack = 0.0f, noiseDecay = 0.1f, noiseHz = 5000.0f, noiseQ = 0.2f;
@@ -54,7 +55,7 @@ private:
     DrumPatch patch_;
     float sampleRate_ = 48000.0f;
     bool active_ = false, choke_ = false;
-    float chokeGain_ = 1.0f;
+    float chokeGain_ = 1.0f, chokeCoef_ = 0.995f;
     float velocity_ = 0.0f;
     float t_ = 0.0f; // seconds since trigger
     float lastOut_ = 0.0f, declick_ = 0.0f, declickCoef_ = 0.0f; // a retrigger fades the old tail out

@@ -31,6 +31,30 @@ inline float macroLog(float knob, float lo, float mid, float hi)
 
 // Saturation that stays at unity gain for small signals.
 inline float softClip(float x) { return std::tanh(x); }
+
+// The final output stage: clean (unity) up to 0.6, then a smooth knee that never
+// passes 1. Unlike a plain tanh it leaves normal levels uncoloured.
+inline float outputClip(float x)
+{
+    const float a = std::abs(x);
+    if (a <= 0.6f)
+        return x;
+    return std::copysign(0.6f + 0.4f * std::tanh((a - 0.6f) * 2.5f), x);
+}
+
+// Rational tanh: close to std::tanh up to |x| = 3 and much cheaper, for per-sample use.
+inline float fastTanh(float x)
+{
+    x = std::clamp(x, -3.0f, 3.0f);
+    const float x2 = x * x;
+    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
+}
+
+// Filter frequency warping: g for a cutoff, as the TPT filters below take it.
+inline float filterG(float cutoffHz, float sampleRate)
+{
+    return std::tan(kPi * std::clamp(cutoffHz, 10.0f, sampleRate * 0.45f) / sampleRate);
+}
 inline float drive(float x, float amount) // amount >= 1
 {
     return amount <= 1.0f ? x : std::tanh(x * amount) / std::tanh(amount);
@@ -71,6 +95,16 @@ public:
     {
         float lp, bp, hp;
     };
+    // Per-sample coefficients (g from filterG, k = 2 - 2 * resonance): lets a
+    // modulated cutoff glide every sample instead of stepping.
+    Out tick(float v0, float g, float k)
+    {
+        k_ = k;
+        a1_ = 1.0f / (1.0f + g * (g + k));
+        a2_ = g * a1_;
+        a3_ = g * a2_;
+        return tick(v0);
+    }
     Out tick(float v0)
     {
         const float v3 = v0 - ic2_;
@@ -86,6 +120,38 @@ public:
 private:
     float ic1_ = 0.0f, ic2_ = 0.0f;
     float k_ = 2.0f, a1_ = 1.0f, a2_ = 0.0f, a3_ = 0.0f;
+};
+
+// Four-pole transistor-ladder lowpass (Moog style), zero-delay feedback with the
+// feedback loop solved per sample and a saturating input stage: resonance gets
+// creamy and self-limiting instead of shrill, and loud input drives it warmly.
+class Ladder
+{
+public:
+    void reset() { s_[0] = s_[1] = s_[2] = s_[3] = 0.0f; }
+    // g from filterG; k = resonance feedback 0..~4 (self-oscillation near 4).
+    float tick(float x, float g, float k)
+    {
+        const float G = g / (1.0f + g), beta = 1.0f / (1.0f + g);
+        const float G2 = G * G, G3 = G2 * G, G4 = G3 * G;
+        const float sigma = beta * (G3 * s_[0] + G2 * s_[1] + G * s_[2] + s_[3]);
+        // Bass lost to the feedback is partly made up, as on most ladder synths.
+        float u = (x * (1.0f + 0.5f * k) - k * sigma) / (1.0f + k * G4);
+        u = fastTanh(u * 0.7f) * (1.0f / 0.7f);
+        for (float& s : s_)
+        {
+            const float v = (u - s) * G;
+            const float y = v + s;
+            s = y + v;
+            if (std::abs(s) < 1e-20f)
+                s = 0.0f;
+            u = y;
+        }
+        return u;
+    }
+
+private:
+    float s_[4] {};
 };
 
 class OnePole

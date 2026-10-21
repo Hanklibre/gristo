@@ -61,10 +61,15 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   Attack, Release, Glide and Level. Pads, strings, keys and brass run
   through a stereo ensemble chorus, the analog-style patches drift a few
   cents per note, FM keys and mallets get brighter the harder you hit, and
-  drums get darker on soft hits, with a little variation on every hit and no
-  clicks on fast re-hits. Lanes glide the levels, filters and sends smoothly.
-  The reverb has a short pre-delay and keeps low end out of the tail, and a
-  gentle glue compressor sits before the final soft clip.
+  drums get darker on soft hits, with a little variation on every hit, a
+  punchier kick and no clicks on fast re-hits. Acid, brass and the analog pads
+  go through a saturating ladder filter; basses and leads behave like a
+  monosynth; keys and mallets have a hammer / mallet attack, the suitcase
+  e-piano a stereo tremolo, the organs a rotary-style swirl and the vibraphone
+  its motor tremolo. Lanes glide the levels, filters and sends smoothly. The
+  reverb is a lush, modulated plate with a short pre-delay, the delay has a bit
+  of tape wow and warmth, and a gentle glue compressor sits before a clean
+  output stage.
   A shared reverb and tempo-synced ping-pong delay with sends. Lanes can drive
   the sound knobs too: the kit's Tune, Decay, Tone, Drive and sends; each
   synth's Cutoff, Resonance, Env, Attack, Release, Level and sends; Reverb

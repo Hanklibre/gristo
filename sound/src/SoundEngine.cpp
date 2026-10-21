@@ -21,6 +21,7 @@ struct SoundEngine::Impl
     Delay delay;
     Chorus chorus[kNumSynths];
     bool chorusOn[kNumSynths] {};
+    float tremoloPhase[kNumSynths] {};
     Glue glue;
     // Sends glide to new settings so lanes don't zipper: kit, then each synth.
     float revSend[1 + kNumSynths] {}, dlySend[1 + kNumSynths] {};
@@ -226,6 +227,15 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
             float yl = y, yr = y;
             if (amount > 0.0f)
                 m.chorus[s].process(y, amount, yl, yr); // keeps running so its line never holds stale audio
+            if (const auto& sp = m.synths[s].patch(); sp.tremolo > 0.0f)
+            {
+                float& phase = m.tremoloPhase[s];
+                phase += sp.tremoloHz / m.sampleRate;
+                phase -= std::floor(phase);
+                const float lfo = sp.tremolo * std::sin(dsp::kTwoPi * phase);
+                yl *= 1.0f + lfo;
+                yr *= sp.tremoloPan ? 1.0f - lfo : 1.0f + lfo;
+            }
             l += yl * (1.0f - kSynthPan[s]);
             r += yr * (1.0f + kSynthPan[s]);
             revIn += y * m.revSend[1 + s];
@@ -241,8 +251,8 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
         l *= gain;
         r *= gain;
         m.glue.process(l, r);
-        left[i] += std::tanh(l) * 0.8f;
-        right[i] += std::tanh(r) * 0.8f;
+        left[i] += dsp::outputClip(l) * 0.8f;
+        right[i] += dsp::outputClip(r) * 0.8f;
     }
 }
 

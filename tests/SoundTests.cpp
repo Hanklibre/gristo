@@ -331,3 +331,84 @@ TEST("sound: harder drum hits are brighter, not only louder")
     };
     CHECK(brightness(1.0f) > brightness(0.3f) * 1.1);
 }
+
+TEST("sound: the ladder stays stable and bounded at full resonance")
+{
+    for (float cutoff : { 0.0f, 0.3f, 0.7f, 1.0f })
+    {
+        SoundEngine e;
+        dryEngine(e);
+        SynthParams p;
+        p.sound = SynthSound::AcidBass;
+        p.resonance = 1.0f;
+        p.cutoff = cutoff;
+        p.envAmount = 1.0f;
+        p.reverbSend = 0.0f;
+        p.level = 1.0f;
+        e.setSynth(0, p);
+        for (int n : { 24, 36, 48, 72 })
+            e.noteOn(0, n, static_cast<float>(n), 1.0f);
+        Rendered out;
+        renderInto(e, out, 2.0);
+        CHECK(out.finite);
+        CHECK(out.peak <= 0.81f);
+    }
+}
+
+TEST("sound: monophonic sounds reuse their voice; poly ones let tails ring")
+{
+    auto voicesAfterTwoNotes = [](SynthSound sound) {
+        SoundEngine e;
+        dryEngine(e);
+        SynthParams p;
+        p.sound = sound;
+        e.setSynth(0, p);
+        e.noteOn(0, 48, 48.0f, 0.8f);
+        Rendered out;
+        renderInto(e, out, 0.2);
+        e.noteOff(0, 48);
+        renderInto(e, out, 0.005); // the first note is still ringing out
+        e.noteOn(0, 50, 50.0f, 0.8f);
+        renderInto(e, out, 0.01);
+        return e.activeSynthVoices(0);
+    };
+    CHECK(voicesAfterTwoNotes(SynthSound::AcidBass) == 1);
+    CHECK(voicesAfterTwoNotes(SynthSound::Pluck) == 2);
+}
+
+TEST("sound: hard sync is band-limited (little energy between the harmonics)")
+{
+    // Energy away from the harmonics of a high sync-lead note: aliasing.
+    SoundEngine e;
+    dryEngine(e);
+    SynthParams p;
+    p.sound = SynthSound::SyncLead;
+    p.cutoff = 1.0f;
+    p.envAmount = 0.0f;
+    p.reverbSend = 0.0f;
+    e.setSynth(kChordSynth, p);
+    const int note = 84;
+    e.noteOn(kChordSynth, note, static_cast<float>(note), 1.0f);
+    Rendered out;
+    renderInto(e, out, 0.6);
+    const size_t n = 8192, start = static_cast<size_t>(0.3 * kRate);
+    const double f0 = 440.0 * std::pow(2.0, (note - 69) / 12.0);
+    double harmonic = 0.0, other = 0.0;
+    for (size_t k = 8; k < n / 2; k += 3) // a DFT at every third bin is plenty
+    {
+        double re = 0.0, im = 0.0;
+        for (size_t i = 0; i < n; ++i)
+        {
+            const double w = 0.5 - 0.5 * std::cos(2.0 * M_PI * static_cast<double>(i) / static_cast<double>(n));
+            const double a = 2.0 * M_PI * static_cast<double>(k * i) / static_cast<double>(n);
+            re += out.left[start + i] * w * std::cos(a);
+            im -= out.left[start + i] * w * std::sin(a);
+        }
+        const double f = static_cast<double>(k) * kRate / static_cast<double>(n);
+        const double h = f / f0;
+        const bool nearHarmonic = std::abs(h - std::round(h)) * f0 < std::max(3.0 * kRate / static_cast<double>(n), 0.015 * f0);
+        (nearHarmonic ? harmonic : other) += re * re + im * im;
+    }
+    const double inharmonicDb = 10.0 * std::log10(other / (harmonic + other));
+    CHECK_MSG(inharmonicDb < -25.0, "inharmonic energy " << inharmonicDb << " dB");
+}

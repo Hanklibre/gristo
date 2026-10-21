@@ -28,20 +28,36 @@ standalone / Android app and the tests share it.
 
 * **Drums:** each drum is built from layers: a sine body with a pitch sweep, a
   second partial, filtered noise (with hand-clap bursts), an 808-style metallic
-  layer (six squares through a bandpass), a click, and per-voice drive. A kit is
+  layer (six band-limited squares through a bandpass), a click, and per-voice
+  drive. Kicks hold their body a few ms before it decays (punch). Velocity also
+  shapes the tone (a lowpass that opens with velocity, a deeper kick sweep), each
+  hit varies slightly, and a re-hit fades the old tail out instead of cutting it. A kit is
   six such patches plus a bus colour (lowpass, bit-crush and drive for Lo-fi).
   Kit macros: Tune (±12 st), Decay (0.3–2.5×), Tone (darker below 50 %, airier
   above) and Drive. The closed hat chokes the open hat.
-* **Synths:** six voices per arp. Oscillators: polyBLEP saw/square, supersaw,
-  Reese, sine, 2-op FM (with a decaying index), drawbar organ, hard sync. Then a
-  2- or 4-pole state-variable lowpass with its own envelope, an amp envelope,
+* **Synths:** twelve voices per synth. Oscillators: polyBLEP saw/square,
+  supersaw, Reese, sine, 2-op FM (decaying index, velocity- and key-scaled),
+  drawbar organ, hard sync (polyBLEP on both the slave's wrap and the reset, one
+  sample late), plus attack noise (hammer / mallet / key click) and breath noise
+  per sound. Then either a 12 dB state-variable lowpass or a 24 dB saturating
+  ladder (zero-delay feedback, tanh on the input stage, bass compensation), with
+  the cutoff computed at control rate and glided every sample; an amp envelope,
   vibrato and drive. Macros are relative to each sound (50 % = as designed). A
   note that starts while another is held (a generator slide) glides in the same
-  voice. Otherwise the old note releases while the new one starts, so pads and
-  keys ring out under a monophonic line.
-* **FX:** Freeverb-style reverb and a ping-pong delay synced to the tempo (1/16,
-  1/8, dotted 1/8, 1/4) with a darkening feedback path. Kit and each synth have
-  sends.
+  voice. Otherwise mono sounds (basses, leads) restart the voice still ringing
+  out, like a monosynth, and the rest let the old note release under the new
+  one, so pads and keys ring out under a monophonic line. Per synth: a Juno-style
+  ensemble chorus and a tremolo (amplitude, or stereo for the suitcase e-piano and
+  the rotary organs), by sound.
+* **FX:** a Dattorro plate reverb (input diffusion, a figure-of-eight tank with
+  two slowly modulated allpasses at unrelated rates, stereo output taps; 18 ms
+  pre-delay, low cut on the input). Size sets decay and damping only, fitted to
+  the decay times of the earlier Freeverb so saved settings keep their length.
+  A ping-pong delay synced to the tempo (1/16, 1/8, dotted 1/8, 1/4) with a
+  darkening feedback path, slight tape wow and soft saturation on the repeats.
+  Kit and each synth have sends; sends and levels glide. The master runs through
+  a glue compressor (3:1 above 0.6, 4 ms / 150 ms) and a clipper that is clean
+  to 0.6 and knees softly to the 0.8 ceiling.
 * **Modulation:** lanes can drive each synth's Cutoff, sampled per audio block.
 * Tests render every drum and sound and check that it is audible, finite and
   dies away, that Tune/Decay/Cutoff do what they say, that the closed hat
