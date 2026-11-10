@@ -576,9 +576,10 @@ const std::vector<Chords::LibraryEntry>& Chords::library()
         { "Tritone Sub ii-bII7-I", "Jazz standards", ChordScale::Major,
           { slot(1, T::Seventh), as(slot(1, T::Seventh), Q::Dominant, -1), slot(0, T::Ninth, 32) } },
         { "Jazz Blues (12 bars)", "Jazz standards", ChordScale::Major,
-          { as(slot(0, T::Seventh, 32), Q::Dominant), as(slot(0, T::Seventh, 32), Q::Dominant), as(slot(3, T::Seventh, 32), Q::Dominant),
-            as(slot(0, T::Seventh, 32), Q::Dominant), slot(1, T::Seventh), slot(4, T::Seventh), as(slot(0, T::Seventh), Q::Dominant),
-            slot(4, T::Seventh) } },
+          { as(slot(0, T::Seventh), Q::Dominant), as(slot(3, T::Seventh), Q::Dominant), as(slot(0, T::Seventh), Q::Dominant),
+            as(slot(0, T::Seventh), Q::Dominant), as(slot(3, T::Seventh), Q::Dominant), as(slot(3, T::Seventh), Q::Dominant),
+            as(slot(0, T::Seventh), Q::Dominant), as(slot(5, T::Seventh), Q::Dominant), slot(1, T::Seventh), slot(4, T::Seventh),
+            as(slot(0, T::Seventh), Q::Dominant), slot(4, T::Seventh) } },
     };
     return entries;
 }

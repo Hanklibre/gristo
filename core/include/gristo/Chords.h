@@ -14,7 +14,7 @@ namespace gristo {
 // either loops in bars or steps on drum hits. The current chord can feed the arps
 // and/or play as its own part.
 
-constexpr int kMaxChordSlots = 8;
+constexpr int kMaxChordSlots = 16;
 constexpr int kMaxChordNotes = 5;
 
 enum class ChordScale : int { Major = 0, Minor, Dorian, Phrygian, Lydian, Mixolydian, HarmonicMinor, Count };

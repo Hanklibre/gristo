@@ -517,7 +517,7 @@ void MapPad::refreshHeat(const gristo::EngineParams& params)
     // Only recompute when something that changes density changed.
     juce::String key;
     for (int v = 0; v < gristo::kNumVoices; ++v)
-        key << juce::String(params.pattern.fill[static_cast<size_t>(v)], 3) << (params.pattern.mute[static_cast<size_t>(v)] ? "m" : "") << ",";
+        key << juce::String(params.pattern.fill[static_cast<size_t>(v)], 3) << ",";
     key << (params.pattern.linear ? "L" : "");
     if (key == heatKey_ && heat_.isValid())
         return;

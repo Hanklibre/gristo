@@ -3,7 +3,7 @@
 Preset and project compatibility with 1.x is not required. Each phase ends with a
 green CI build (Windows VST3 + Android APK) for testing before the next starts.
 
-## Phase 1: Engine foundations
+## Phase 1: Engine foundations (done)
 - One "part" model: 6 drums, 3 arps, chords = 10 parts, each with mute, solo, level,
   colour, MIDI channel / note range and its own sound. Replaces the arp/synth index
   mapping and the appended modulation-target blocks with one clean numbering.

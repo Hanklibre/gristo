@@ -37,3 +37,14 @@ target_link_libraries(Gristo
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# Headless tests of the plugin itself (parameters, presets, state, audio), linked
+# against the shared plugin code.
+if(GRISTO_BUILD_TESTS)
+    add_executable(gristo_plugin_tests Tests/PluginTests.cpp)
+    target_include_directories(gristo_plugin_tests PRIVATE
+        $<TARGET_PROPERTY:Gristo,INCLUDE_DIRECTORIES> ${CMAKE_SOURCE_DIR}/tests Source)
+    target_compile_definitions(gristo_plugin_tests PRIVATE $<TARGET_PROPERTY:Gristo,COMPILE_DEFINITIONS>)
+    target_link_libraries(gristo_plugin_tests PRIVATE Gristo gristo_core gristo_sound)
+    add_test(NAME gristo_plugin_tests COMMAND gristo_plugin_tests)
+endif()

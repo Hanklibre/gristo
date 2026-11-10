@@ -6,12 +6,125 @@
 
 namespace p = gristo::params;
 
+namespace {
+// Version 2 renumbered the parts, synths and modulation targets: older projects open
+// with the default patch instead of a scrambled one.
+constexpr int kStateVersion = 2;
+} // namespace
+
 GristoProcessor::GristoProcessor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
     resetLanes();
     presets.markClean();
+    for (auto* param : getParameters())
+        if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
+            state.addParameterListener(withId->paramID, this);
+}
+
+GristoProcessor::~GristoProcessor()
+{
+    for (auto* param : getParameters())
+        if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
+            state.removeParameterListener(withId->paramID, this);
+}
+
+void GristoProcessor::parameterChanged(const juce::String&, float) { paramGeneration_.fetch_add(1, std::memory_order_relaxed); }
+
+void GristoProcessor::refreshSettings()
+{
+    // Reading ~400 parameters by id is the expensive part of a block, so it only
+    // happens when one changed. The drawn lanes are plain atomics: compared every block.
+    const auto generation = paramGeneration_.load(std::memory_order_relaxed);
+    bool changed = generation != seenGeneration_;
+    if (changed)
+    {
+        seenGeneration_ = generation;
+        auto& c = settings_;
+        c.engine = p::readEngineParams(state, modPoints);
+        c.kit = p::readKitParams(state);
+        for (int sIndex = 0; sIndex < gristo::sound::kNumSynths; ++sIndex)
+            c.synths[sIndex] = p::readSynthParams(state, sIndex);
+        c.fx = p::readFxParams(state);
+        auto value = [this](const juce::String& id) { return state.getRawParameterValue(id)->load(std::memory_order_relaxed); };
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+        {
+            c.notes[v] = static_cast<int>(value(p::voiceId(p::note, v)));
+            c.channels[v] = static_cast<int>(value(p::voiceId(p::voiceChannel, v)));
+        }
+        c.channels[gristo::kChordVoice] = static_cast<int>(value(p::chordChannel));
+        c.shifts[gristo::kNumArps] = static_cast<int>(value(p::chordShift));
+        for (int a = 0; a < gristo::kNumArps; ++a)
+        {
+            c.channels[gristo::kArpVoiceBase + a] = static_cast<int>(value(p::laneId(p::arpChannel, a)));
+            c.shifts[a] = static_cast<int>(value(p::laneId(p::arpShift, a)));
+            c.latch[a] = value(p::laneId(p::arpLatch, a)) > 0.5f;
+        }
+        c.kitOn = value(p::kitOn) > 0.5f;
+        c.kitGain = value(p::kitGain);
+        c.freeRun = value(p::freeRun) > 0.5f;
+        c.freeTempo = value(p::freeTempo);
+        c.soundModulated = false;
+        for (const auto& lane : c.engine.modulation.lanes)
+            for (const auto& slot : lane.slots)
+                c.soundModulated = c.soundModulated || (slot.target >= gristo::mod::kSoundBase && std::abs(slot.amount) > 0.0f);
+    }
+    else
+    {
+        for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+        {
+            auto& points = settings_.engine.modulation.lanes[static_cast<size_t>(lane)].points;
+            for (int k = 0; k < gristo::kMaxModPoints; ++k)
+            {
+                const float v = p::lanePoint(modPoints, lane, k).load(std::memory_order_relaxed);
+                if (!juce::exactlyEqual(v, points[static_cast<size_t>(k)]))
+                {
+                    points[static_cast<size_t>(k)] = v;
+                    changed = true;
+                }
+            }
+        }
+    }
+    if (changed)
+        engine_.setParams(settings_.engine);
+}
+
+void GristoProcessor::applySoundSettings(std::int64_t step, bool playing)
+{
+    namespace mod = gristo::mod;
+    const auto& c = settings_;
+    const bool modulate = playing && c.soundModulated;
+    auto lane = [&](int target) { return modulate ? engine_.modulationAt(target, step) * mod::targetRange(target) : 0.0f; };
+    auto unit = [](float v) { return juce::jlimit(0.0f, 1.0f, v); };
+
+    auto kit = c.kit;
+    kit.tune = juce::jlimit(-12.0f, 12.0f, kit.tune + lane(mod::kitTarget(mod::kKitTune)));
+    kit.decay = unit(kit.decay + lane(mod::kitTarget(mod::kKitDecay)));
+    kit.tone = unit(kit.tone + lane(mod::kitTarget(mod::kKitTone)));
+    kit.drive = unit(kit.drive + lane(mod::kitTarget(mod::kKitDrive)));
+    kit.reverbSend = unit(kit.reverbSend + lane(mod::kitTarget(mod::kKitReverb)));
+    kit.delaySend = unit(kit.delaySend + lane(mod::kitTarget(mod::kKitDelay)));
+    sound_.setKit(kit);
+
+    for (int a = 0; a < gristo::sound::kNumSynths; ++a)
+    {
+        auto synth = c.synths[a];
+        synth.cutoffMod = lane(mod::synthTarget(a, mod::kSynthCutoff));
+        synth.resonance = unit(synth.resonance + lane(mod::synthTarget(a, mod::kSynthReso)));
+        synth.envAmount = unit(synth.envAmount + lane(mod::synthTarget(a, mod::kSynthEnv)));
+        synth.attack = unit(synth.attack + lane(mod::synthTarget(a, mod::kSynthAttack)));
+        synth.release = unit(synth.release + lane(mod::synthTarget(a, mod::kSynthRelease)));
+        synth.level = unit(synth.level + lane(mod::synthTarget(a, mod::kSynthLevel)));
+        synth.reverbSend = unit(synth.reverbSend + lane(mod::synthTarget(a, mod::kSynthReverb)));
+        synth.delaySend = unit(synth.delaySend + lane(mod::synthTarget(a, mod::kSynthDelay)));
+        sound_.setSynth(a, synth);
+    }
+    auto fx = c.fx;
+    fx.bpm = lastBpm_;
+    fx.reverbSize = unit(fx.reverbSize + lane(mod::kFxSizeTarget));
+    fx.delayFeedback = juce::jlimit(0.0f, 0.9f, fx.delayFeedback + lane(mod::kFxFeedbackTarget));
+    sound_.setFx(fx);
 }
 
 void GristoProcessor::resetLanes()
@@ -43,6 +156,7 @@ void GristoProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     events_.reserve(static_cast<size_t>(std::max(512, samplesPerBlock)));
     freePpq_ = 0.0;
     wasFreeRunning_ = false;
+    paramGeneration_.fetch_add(1); // read everything afresh
 }
 
 gristo::BlockInfo GristoProcessor::transportFor(int numSamples)
@@ -67,8 +181,7 @@ gristo::BlockInfo GristoProcessor::transportFor(int numSamples)
     }
 
     // No running host transport: optionally run from the internal clock.
-    const bool freeRun = state.getRawParameterValue(p::freeRun)->load() > 0.5f;
-    if (!freeRun)
+    if (!settings_.freeRun)
     {
         wasFreeRunning_ = false;
         return b;
@@ -78,7 +191,7 @@ gristo::BlockInfo GristoProcessor::transportFor(int numSamples)
     wasFreeRunning_ = true;
 
     b.playing = true;
-    b.bpm = state.getRawParameterValue(p::freeTempo)->load();
+    b.bpm = settings_.freeTempo;
     b.ppqStart = freePpq_;
     freePpq_ += numSamples * b.bpm / (60.0 * sampleRate_);
     return b;
@@ -93,10 +206,10 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     handleMidiInput(midi);
     midi.clear(); // MIDI in is consumed (it feeds the arps); the output is Gristo's own
 
-    engine_.setParams(p::readEngineParams(state, modPoints));
+    refreshSettings();
     for (int a = 0; a < gristo::kNumArps; ++a)
     {
-        const bool latch = state.getRawParameterValue(p::laneId(p::arpLatch, a))->load() > 0.5f;
+        const bool latch = settings_.latch[a];
         const int* notes = latch ? latched_.data() : held_.data();
         const int count = latch ? latchedCount_ : heldCount_;
         engine_.setArpInput(a, notes, count);
@@ -109,71 +222,29 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     events_.clear();
     engine_.process(block, events_);
 
-    int notes[gristo::kNumVoices], channels[gristo::kChordVoice + 1];
-    for (int v = 0; v < gristo::kNumVoices; ++v)
-    {
-        notes[v] = static_cast<int>(state.getRawParameterValue(p::voiceId(p::note, v))->load());
-        channels[v] = static_cast<int>(state.getRawParameterValue(p::voiceId(p::voiceChannel, v))->load());
-    }
-    int shifts[gristo::kNumArps + 1]; // arps, then the chords
-    channels[gristo::kChordVoice] = static_cast<int>(state.getRawParameterValue(p::chordChannel)->load());
-    shifts[gristo::kNumArps] = static_cast<int>(state.getRawParameterValue(p::chordShift)->load());
-    for (int a = 0; a < gristo::kNumArps; ++a)
-    {
-        channels[gristo::kArpVoiceBase + a] = static_cast<int>(state.getRawParameterValue(p::laneId(p::arpChannel, a))->load());
-        shifts[a] = static_cast<int>(state.getRawParameterValue(p::laneId(p::arpShift, a))->load());
-    }
+    const int* notes = settings_.notes;
+    const int* channels = settings_.channels;
+    const int* shifts = settings_.shifts;
 
-    const bool kitOn = state.getRawParameterValue(p::kitOn)->load() > 0.5f;
+    const bool kitOn = settings_.kitOn;
     if (kitOn && !soundWasOn_)
         sound_.reset(); // nothing stale from while the sound was off
     soundWasOn_ = kitOn;
     if (block.playing)
         lastBpm_ = block.bpm;
+    // Lanes on the sounds follow the 16th grid inside the block: the settings are
+    // applied at the block start and again at every step boundary (the sound engine
+    // glides levels, filters and sends in between).
+    const double beatsPerSample = block.bpm / (60.0 * sampleRate_);
+    auto nextStep = static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat));
     if (kitOn)
-    {
-        // Modulation lanes on the sounds, sampled once per block (at its 16th).
-        const auto step = static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat));
-        auto lane = [&](int target) {
-            return block.playing ? engine_.modulationAt(target, step) * gristo::mod::targetRange(target) : 0.0f;
-        };
-        auto unit = [](float v) { return juce::jlimit(0.0f, 1.0f, v); };
-        namespace mod = gristo::mod;
-
-        auto kit = p::readKitParams(state);
-        kit.tune = juce::jlimit(-12.0f, 12.0f, kit.tune + lane(mod::kitTarget(mod::kKitTune)));
-        kit.decay = unit(kit.decay + lane(mod::kitTarget(mod::kKitDecay)));
-        kit.tone = unit(kit.tone + lane(mod::kitTarget(mod::kKitTone)));
-        kit.drive = unit(kit.drive + lane(mod::kitTarget(mod::kKitDrive)));
-        kit.reverbSend = unit(kit.reverbSend + lane(mod::kitTarget(mod::kKitReverb)));
-        kit.delaySend = unit(kit.delaySend + lane(mod::kitTarget(mod::kKitDelay)));
-        sound_.setKit(kit);
-
-        const gristo::EngineParams modulated = engine_.effectiveParams(step);
-        for (int a = 0; a < gristo::sound::kNumSynths; ++a)
-        {
-            auto synth = p::readSynthParams(state, a);
-            const int arp = mod::arpOfSynth(a);
-            if (arp >= 0)
-                synth.cutoffMod = block.playing ? modulated.arps[static_cast<size_t>(arp)].cutoffOffset : 0.0f;
-            else
-                synth.cutoffMod = lane(mod::kChordCutoffTarget);
-            synth.resonance = unit(synth.resonance + lane(mod::synthTarget(a, mod::kSynthReso)));
-            synth.envAmount = unit(synth.envAmount + lane(mod::synthTarget(a, mod::kSynthEnv)));
-            synth.attack = unit(synth.attack + lane(mod::synthTarget(a, mod::kSynthAttack)));
-            synth.release = unit(synth.release + lane(mod::synthTarget(a, mod::kSynthRelease)));
-            synth.level = unit(synth.level + lane(mod::synthTarget(a, mod::kSynthLevel)));
-            synth.reverbSend = unit(synth.reverbSend + lane(mod::synthTarget(a, mod::kSynthReverb)));
-            synth.delaySend = unit(synth.delaySend + lane(mod::synthTarget(a, mod::kSynthDelay)));
-            sound_.setSynth(a, synth);
-        }
-        auto fx = p::readFxParams(state);
-        fx.bpm = lastBpm_;
-        fx.reverbSize = unit(fx.reverbSize + lane(mod::kFxSizeTarget));
-        fx.delayFeedback = juce::jlimit(0.0f, 0.9f, fx.delayFeedback + lane(mod::kFxFeedbackTarget));
-        sound_.setFx(fx);
-    }
-    const float kitGain = state.getRawParameterValue(p::kitGain)->load();
+        applySoundSettings(nextStep, block.playing);
+    ++nextStep;
+    auto boundarySample = [&](std::int64_t step) {
+        return static_cast<int>(std::ceil((static_cast<double>(step) / gristo::kStepsPerBeat - block.ppqStart) / beatsPerSample));
+    };
+    const bool stepwise = kitOn && block.playing && settings_.soundModulated && beatsPerSample > 0.0;
+    const float kitGain = settings_.kitGain;
     float* left = buffer.getWritePointer(0);
     float* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
 
@@ -195,6 +266,15 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 
     // Arp / chord part (0..kNumArps, the chords last) -> its synth.
     auto synthOf = [](int part) { return part == gristo::kNumArps ? gristo::sound::kChordSynth : gristo::mod::synthOfArp(part); };
+    auto renderWithSteps = [&](int end) {
+        while (stepwise && boundarySample(nextStep) < end)
+        {
+            renderKitTo(std::max(rendered, boundarySample(nextStep)));
+            applySoundSettings(nextStep, true);
+            ++nextStep;
+        }
+        renderKitTo(end);
+    };
     for (const auto& ev : events_)
     {
         const bool isArp = ev.voice >= gristo::kArpVoiceBase;
@@ -214,7 +294,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         }
         else if (drumSent_[static_cast<size_t>(ev.voice)].second > 0)
             std::tie(note, channel) = drumSent_[static_cast<size_t>(ev.voice)];
-        renderKitTo(ev.sampleOffset);
+        renderWithSteps(ev.sampleOffset);
         if (ev.noteOn)
         {
             const auto velocity = static_cast<juce::uint8>(juce::jlimit(1, 127, juce::roundToInt(ev.velocity * 127.0f)));
@@ -238,7 +318,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 sound_.noteOff(synthOf(ev.voice - gristo::kArpVoiceBase), note);
         }
     }
-    renderKitTo(numSamples);
+    renderWithSteps(numSamples);
 
     for (int a = 0; a < gristo::kNumArps; ++a)
         displayArpCount[static_cast<size_t>(a)].store(engine_.arpCount(a));
@@ -328,6 +408,7 @@ void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
     // Drawn lanes, UI size and the preset name are not parameters: store them alongside.
     auto lanes = tree.getOrCreateChildWithName("MODLANES", nullptr);
     writeLanes(lanes);
+    tree.setProperty("stateVersion", kStateVersion, nullptr);
     tree.setProperty("uiScale", uiScale.load(), nullptr);
     tree.setProperty("showKeys", showKeys.load(), nullptr);
     presets.writeTo(tree);
@@ -338,7 +419,7 @@ void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
 void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
-        if (xml->hasTagName(state.state.getType()))
+        if (xml->hasTagName(state.state.getType()) && xml->getIntAttribute("stateVersion", 1) == kStateVersion)
         {
             auto tree = juce::ValueTree::fromXml(*xml);
             // A damaged or hand-edited state must not feed NaN into the engine.
@@ -358,6 +439,7 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
             if (tree.hasProperty("showKeys"))
                 showKeys.store(static_cast<bool>(tree.getProperty("showKeys")));
             state.replaceState(tree);
+            paramGeneration_.fetch_add(1);
             presets.readFrom(tree);
         }
 }

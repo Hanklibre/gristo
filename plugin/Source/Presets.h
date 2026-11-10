@@ -11,9 +11,23 @@ class GristoProcessor;
 // routing to the outside world (MIDI notes, channels, Out Shift, Sound on/level,
 // Free Run), so a preset made on the tablet doesn't break the DAW setup.
 // Message thread only.
+// Everything musical at one moment: the values of all non-routing parameters (in
+// parameter order, normalised) and the drawn lanes. Presets, scenes and undo are
+// all snapshots.
+struct Snapshot
+{
+    std::vector<float> values;
+    std::vector<float> lanePoints;
+    bool operator==(const Snapshot& o) const { return values == o.values && lanePoints == o.lanePoints; }
+    bool operator!=(const Snapshot& o) const { return !(*this == o); }
+};
+
 class PresetManager
 {
 public:
+    Snapshot captureSnapshot() const;
+    void applySnapshot(const Snapshot& snapshot); // message thread
+
     static constexpr const char* kExtension = ".gristo";
 
     explicit PresetManager(GristoProcessor& processor);

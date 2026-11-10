@@ -7,11 +7,11 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 
-class GristoProcessor : public juce::AudioProcessor
+class GristoProcessor : public juce::AudioProcessor, private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     GristoProcessor();
-    ~GristoProcessor() override = default;
+    ~GristoProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -65,6 +65,25 @@ public:
 
 private:
     gristo::BlockInfo transportFor(int numSamples);
+
+    // Everything the audio thread needs from the parameters, re-read only after a change.
+    struct Settings
+    {
+        gristo::EngineParams engine;
+        gristo::sound::KitParams kit;
+        gristo::sound::SynthParams synths[gristo::sound::kNumSynths];
+        gristo::sound::FxParams fx;
+        int notes[gristo::kNumVoices] {}, channels[gristo::kNumParts] {}, shifts[gristo::kNumArps + 1] {};
+        bool latch[gristo::kNumArps] {};
+        bool kitOn = true, freeRun = false, soundModulated = false;
+        float kitGain = 0.7f, freeTempo = 95.0f;
+    };
+    void parameterChanged(const juce::String& id, float value) override;
+    void refreshSettings();
+    void applySoundSettings(std::int64_t step, bool playing); // lanes applied to the sound knobs at `step`
+    Settings settings_;
+    std::atomic<std::uint32_t> paramGeneration_ { 1 };
+    std::uint32_t seenGeneration_ = 0;
 
     gristo::Engine engine_;
     gristo::sound::SoundEngine sound_;

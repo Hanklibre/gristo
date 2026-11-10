@@ -30,7 +30,7 @@ constexpr int kShuffle = 22;
 constexpr int kFlamMs = 23;
 constexpr int kHumanize = 24;
 
-// Arp targets: kArpBase + arp * kArpTargetsPerArp + one of the offsets below.
+// Arp targets: arpTarget(arp, one of the offsets below).
 constexpr int kArpBase = 25;
 constexpr int kArpDensity = 0;
 constexpr int kArpAccent = 1;
@@ -40,58 +40,35 @@ constexpr int kArpOctaves = 4;
 constexpr int kArpLength = 5;
 constexpr int kArpTranspose = 6;
 constexpr int kArpVelocity = 7;
-constexpr int kArpTargetsPerArp = 8;
-// The first two arps' targets sit in the original blocks below; arps added later
-// (the 3rd) get a block of their own after the FX targets, so saved routings keep
-// their meaning.
-constexpr int kLegacyArps = 2;
+constexpr int kArpProbability = 8;
+constexpr int kArpTargetsPerArp = 9;
+constexpr int arpTarget(int arp, int which) { return kArpBase + arp * kArpTargetsPerArp + which; }
+constexpr int arpProbTarget(int arp) { return arpTarget(arp, kArpProbability); }
 
-// Built-in synth cutoff per arp (added after the arp targets).
-constexpr int kArpCutoffBase = kArpBase + kLegacyArps * kArpTargetsPerArp;
+// Built-in sounds. Synths: one per arp, then the chords.
+constexpr int kNumSoundSynths = kNumArps + 1;
+constexpr int kChordSynthIndex = kNumArps;
+constexpr int synthOfArp(int arp) { return arp; }
+constexpr int arpOfSynth(int synth) { return synth < kNumArps ? synth : -1; } // -1: the chords
 
-// Arp probability (added later still, for the same reason).
-constexpr int kArpProbBase = kArpCutoffBase + kLegacyArps;
-
-// Built-in sounds (appended for the same reason). Sound-engine synths: 0, 1 = arps 1
-// and 2, 2 = chords, 3 = arp 3.
-constexpr int kSoundBase = kArpProbBase + kLegacyArps;
+constexpr int kSoundBase = kArpBase + kNumArps * kArpTargetsPerArp;
 constexpr int kKitTune = 0, kKitDecay = 1, kKitTone = 2, kKitDrive = 3, kKitReverb = 4, kKitDelay = 5, kKitTargets = 6;
-constexpr int kSynthReso = 0, kSynthEnv = 1, kSynthAttack = 2, kSynthRelease = 3, kSynthLevel = 4, kSynthReverb = 5,
-              kSynthDelay = 6, kSynthTargets = 7;
-constexpr int kNumSoundSynths = 3; // synths with targets in the original sound block
 constexpr int kitTarget(int which) { return kSoundBase + which; }
-constexpr int kChordCutoffTarget = kSoundBase + kKitTargets + kNumSoundSynths * kSynthTargets;
-constexpr int kFxSizeTarget = kChordCutoffTarget + 1;
-constexpr int kFxFeedbackTarget = kChordCutoffTarget + 2;
+constexpr int kSynthCutoff = 0, kSynthReso = 1, kSynthEnv = 2, kSynthAttack = 3, kSynthRelease = 4, kSynthLevel = 5,
+              kSynthReverb = 6, kSynthDelay = 7, kSynthTargets = 8;
+constexpr int kSynthBase = kSoundBase + kKitTargets;
+constexpr int synthTarget(int synth, int which) { return kSynthBase + synth * kSynthTargets + which; }
+constexpr int arpCutoffTarget(int arp) { return synthTarget(synthOfArp(arp), kSynthCutoff); }
+constexpr int kChordCutoffTarget = synthTarget(kChordSynthIndex, kSynthCutoff);
+constexpr int kFxSizeTarget = kSynthBase + kNumSoundSynths * kSynthTargets;
+constexpr int kFxFeedbackTarget = kFxSizeTarget + 1;
 
-// Arps from the 3rd on: arp targets, then cutoff, probability and their synth's targets.
-constexpr int kExtraArpBase = kFxFeedbackTarget + 1;
-constexpr int kExtraCutoff = kArpTargetsPerArp, kExtraProb = kArpTargetsPerArp + 1, kExtraSynth = kArpTargetsPerArp + 2;
-constexpr int kExtraArpTargets = kExtraSynth + kSynthTargets;
-constexpr int extraArpBase(int arp) { return kExtraArpBase + (arp - kLegacyArps) * kExtraArpTargets; }
+constexpr int kNumTargets = kFxFeedbackTarget + 1;
 
-// Sound-engine synth of an arp, and the arp of a synth (-1 for the chords).
-constexpr int synthOfArp(int arp) { return arp < kLegacyArps ? arp : arp + 1; }
-constexpr int arpOfSynth(int synth) { return synth < kLegacyArps ? synth : synth == kLegacyArps ? -1 : synth - 1; }
-
-constexpr int arpTarget(int arp, int which)
-{
-    return arp < kLegacyArps ? kArpBase + arp * kArpTargetsPerArp + which : extraArpBase(arp) + which;
-}
-constexpr int arpCutoffTarget(int arp) { return arp < kLegacyArps ? kArpCutoffBase + arp : extraArpBase(arp) + kExtraCutoff; }
-constexpr int arpProbTarget(int arp) { return arp < kLegacyArps ? kArpProbBase + arp : extraArpBase(arp) + kExtraProb; }
-constexpr int synthTarget(int synth, int which)
-{
-    return synth <= kLegacyArps ? kSoundBase + kKitTargets + synth * kSynthTargets + which
-                                : extraArpBase(arpOfSynth(synth)) + kExtraSynth + which;
-}
-
-constexpr int kNumTargets = kExtraArpBase + (kNumArps - kLegacyArps) * kExtraArpTargets;
-
-// Which arp target a target is: arp index and one of kArpDensity..kArpVelocity,
-// kExtraCutoff or kExtraProb. False for anything else.
+// Which arp target a target is: arp index and one of kArpDensity..kArpProbability.
+// False for anything else.
 bool decodeArpTarget(int target, int& arp, int& which);
-// Which built-in synth target: sound-engine synth index and kSynthReso..kSynthDelay.
+// Which built-in synth target: sound-engine synth index and kSynthCutoff..kSynthDelay.
 bool decodeSynthTarget(int target, int& synth, int& which);
 
 std::string targetName(int target);

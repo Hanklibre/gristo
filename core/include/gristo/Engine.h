@@ -37,11 +37,17 @@ struct EngineParams
     std::array<ArpParams, kNumArps> arps {};
     ChordParams chords;
     float noteLengthBeats = 0.125f;
+    // Parts that make no sound (mute, or another part soloed). A silent part still
+    // runs: a muted drum keeps clocking the arps and chords that listen to it.
+    std::array<bool, kNumVoices + kNumArps + 1> partMute {};
 };
 
-// Output "voices" 0..5 are the drums; kArpVoiceBase + a is arp a; then the chords.
+// The ten parts, also the output "voices": 0..5 are the drums, kArpVoiceBase + a is
+// arp a, then the chords.
 constexpr int kArpVoiceBase = kNumVoices;
 constexpr int kChordVoice = kArpVoiceBase + kNumArps;
+constexpr int kNumParts = kChordVoice + 1;
+const char* partName(int part); // "Kick" ... "Arp 1" ... "Chords"
 
 // Fully resolved description of one voice at one step.
 struct HitInfo
@@ -198,6 +204,9 @@ private:
     std::vector<Pending> pending_;
     std::array<std::int64_t, kNumVoices> nextStep_ {};
     std::array<bool, kNumVoices> sounding_ {};
+    // Note-ons held back by partMute, so their note-offs are held back too.
+    std::array<int, kNumVoices> drumSuppressed_ {};
+    std::array<std::array<std::uint8_t, 128>, kNumArps + 1> noteSuppressed_ {};
     std::array<ArpState, kNumArps> arps_ {};
     ChordState chord_;
     // Drums-clocked chords: running count of clock hits (a cache, so lookups stay cheap).

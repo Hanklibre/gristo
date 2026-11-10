@@ -20,8 +20,19 @@ Engine::Engine(const DrumMapData& data) : map_(data), generator_(map_)
     pending_.reserve(256);
 }
 
+const char* partName(int part)
+{
+    static const char* const names[kNumArps + 1] = { "Arp 1", "Arp 2", "Arp 3", "Chords" };
+    if (part < kNumVoices)
+        return voiceName(part);
+    return names[std::clamp(part - kNumVoices, 0, kNumArps)];
+}
+
 void Engine::reset()
 {
+    drumSuppressed_.fill(0);
+    for (auto& n : noteSuppressed_)
+        n.fill(0);
     pending_.clear();
     sounding_.fill(false);
     for (ArpState& st : arps_)
@@ -691,6 +702,27 @@ void Engine::process(const BlockInfo& block, std::vector<OutputEvent>& out)
         // rounding down to the previous sample.
         const double offset = std::floor((p.beats - ppqStart) / beatsPerSample + 1e-6);
         const int sample = static_cast<int>(std::clamp(offset, 0.0, static_cast<double>(block.numSamples - 1)));
+        // Muted parts: hold back the note-on and, later, its note-off.
+        {
+            const bool drum = p.voice < kNumVoices;
+            const bool pitched = !drum && p.note >= 0 && p.note < 128;
+            int dummy = 0;
+            std::uint8_t dummy8 = 0;
+            int& held = drum ? drumSuppressed_[static_cast<size_t>(p.voice)] : dummy;
+            std::uint8_t& heldNote = pitched ? noteSuppressed_[static_cast<size_t>(p.voice - kArpVoiceBase)][static_cast<size_t>(p.note)] : dummy8;
+            if (p.noteOn && params_.partMute[static_cast<size_t>(std::clamp(p.voice, 0, kNumParts - 1))])
+            {
+                if (drum) ++held;
+                else if (pitched && heldNote < 255) ++heldNote;
+                continue;
+            }
+            if (!p.noteOn && (drum ? held > 0 : heldNote > 0))
+            {
+                if (drum) --held;
+                else --heldNote;
+                continue;
+            }
+        }
         out.push_back({ sample, p.voice, p.velocity, p.noteOn, p.note });
         if (p.voice < kNumVoices)
             sounding_[static_cast<size_t>(p.voice)] = p.noteOn;

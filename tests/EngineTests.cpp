@@ -500,3 +500,38 @@ TEST("modulation: shapes fill the lane in range")
     CHECK(pts[0] == 0.0f && pts[15] == 1.0f);
     CHECK(mod::targetName(mod::kProbability + Snare) == "Snare Probability");
 }
+
+TEST("engine: a muted part is silent but keeps clocking the others")
+{
+    auto run = [](bool muteKick) {
+        EngineParams p;
+        p.pattern.fill = { 0.6f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+        p.arps[0].enabled = true;
+        p.arps[0].mode = ArpMode::Generate;
+        p.arps[0].triggers[Kick] = true;
+        p.arps[0].density = 1.0f;
+        p.partMute[Kick] = muteKick;
+        Engine e;
+        e.setParams(p);
+        std::vector<OutputEvent> out;
+        int kickOn = 0, kickOff = 0, arpOn = 0, arpOff = 0;
+        double ppq = 0.0;
+        for (int b = 0; b < 3000; ++b)
+        {
+            out.clear();
+            e.process({ true, ppq, 120.0, 48000.0, 256 }, out);
+            for (const auto& ev : out)
+            {
+                if (ev.voice == Kick) (ev.noteOn ? kickOn : kickOff)++;
+                if (ev.voice == kArpVoiceBase) (ev.noteOn ? arpOn : arpOff)++;
+            }
+            ppq += 256 * 120.0 / (60.0 * 48000.0);
+        }
+        return std::array<int, 4> { kickOn, kickOff, arpOn, arpOff };
+    };
+    const auto open = run(false), muted = run(true);
+    CHECK(open[0] > 4);
+    CHECK(muted[0] == 0 && muted[1] == 0); // no kick notes, no stray note-offs
+    CHECK(muted[2] == open[2] && muted[2] > 4); // the arp plays on
+    CHECK(std::string(partName(kChordVoice)) == "Chords" && std::string(partName(7)) == "Arp 2");
+}

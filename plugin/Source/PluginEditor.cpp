@@ -91,7 +91,7 @@ GristoView::GristoView(GristoProcessor& proc)
         addAndMakeVisible(*velocityRanges_[v]);
         notes_[v] = std::make_unique<NoteSelector>(*proc.state.getParameter(p::voiceId(p::note, v)));
         addAndMakeVisible(*notes_[v]);
-        setupToggle(mutes_[v], p::voiceId(p::mute, v), "Mute");
+        setupToggle(mutes_[v], p::voiceId(p::partMute, v), "Mute");
     }
     setupChoice(timing_, p::timing, "Timing");
     setupKnob(shuffle_, p::shuffle, "Shuffle");
@@ -226,7 +226,7 @@ GristoView::GristoView(GristoProcessor& proc)
         setHelp(voiceDynamics_[v], name + " Dynamics", "Scales the master Dynamics for this voice: how much softer its weaker notes are.");
         setHelp(*velocityRanges_[v], name + " Velocity", "MIDI velocity range. Accents play at the top, ghost notes near the bottom. Drag the ends; double-click = 1-127.");
         setHelp(*notes_[v], name + " Note", "MIDI note this voice sends. Defaults are GM three octaves down (Pitch +36 in Live restores GM). Click for a list, scroll to step.");
-        setHelp(mutes_[v].button, name + " Mute", "Silence this voice. In Linear mode its slots go to the next voice in line.");
+        setHelp(mutes_[v].button, name + " Mute", "Silence this voice. It still clocks the arps and chords that listen to it.");
     }
     setHelp(timing_.box, "Timing", "How the 16ths move. Trip: tuplet snaps. Shake: MPC swing. Push: leans early. Clave: swings around 3-3-2.");
     setHelp(feeling_.box, "Feeling", "Tight: all together. Rolls: Hihat 2 plays rolls. Flam: kick and snare late. Slop: Flam, hats follow.");

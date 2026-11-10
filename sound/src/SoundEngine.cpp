@@ -5,7 +5,7 @@
 namespace gristo::sound {
 
 namespace {
-constexpr float kSynthPan[kNumSynths] = { -0.15f, 0.2f, 0.0f, -0.3f };
+constexpr float kSynthPan[kNumSynths] = { -0.15f, 0.2f, -0.3f, 0.0f };
 constexpr int kOpenHat = 3, kClosedHat = 2;
 } // namespace
 

@@ -99,7 +99,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(percentParam(voiceId(fillRandom, v), name + " Fill Random", 0.0f));
         layout.add(percentParam(voiceId(voiceHumanize, v), name + " Humanize", 1.0f, 2.0f));
         layout.add(percentParam(voiceId(voiceDynamics, v), name + " Dynamics", 1.0f, 2.0f));
-        layout.add(boolParam(voiceId(mute, v), name + " Mute", false));
+
         layout.add(percentParam(voiceId(probabilityRandom, v), name + " Probability Random", 0.0f));
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMin, v), kVersion }, name + " Velocity Min", 1, 127,
                                                              juce::roundToInt(dyn.velMin[static_cast<size_t>(v)] * 127.0f)));
@@ -184,6 +184,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             juce::AudioParameterIntAttributes().withStringFromValueFunction(
                 [](int v, int) { return (v > 0 ? "+" : "") + juce::String(v) + " st"; })));
     }
+    for (int part = 0; part < kNumParts; ++part)
+    {
+        layout.add(boolParam(voiceId(partMute, part), juce::String(partName(part)) + " Mute", false));
+        layout.add(boolParam(voiceId(partSolo, part), juce::String(partName(part)) + " Solo", false));
+    }
     layout.add(boolParam(kitOn, "Sound On", true));
     layout.add(floatParam(kitGain, "Sound Level", { 0.0f, 1.0f }, 0.7f));
 
@@ -225,7 +230,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             layout.add(percentParam(laneId(synthGlide, a), name + "Glide", 0.3f));
             layout.add(percentParam(laneId(synthLevel, a), name + "Level", 0.7f));
             layout.add(percentParam(laneId(synthReverb, a), name + "Reverb", a == 0 ? 0.1f : a == 1 ? 0.25f : 0.3f));
-            layout.add(percentParam(laneId(synthDelay, a), name + "Delay", a == 1 || a == 3 ? 0.2f : 0.0f));
+            layout.add(percentParam(laneId(synthDelay, a), name + "Delay", a == 1 || a == 2 ? 0.2f : 0.0f));
         }
         // Chord sequencer
         {
@@ -264,7 +269,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                 juce::AudioParameterIntAttributes().withStringFromValueFunction(
                     [](int v, int) { return (v > 0 ? "+" : "") + juce::String(v) + " st"; })));
             // Default progression: i VI III VII (A minor: Am F C G).
-            const int defaultDegrees[kMaxChordSlots] = { 0, 5, 2, 6, 0, 0, 0, 0 };
+            const int defaultDegrees[kMaxChordSlots] = { 0, 5, 2, 6 };
             for (int i = 0; i < kMaxChordSlots; ++i)
             {
                 const juce::String n = "Chord Slot " + juce::String(i + 1) + " ";
@@ -334,7 +339,6 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         p.pattern.fillRandom[i] = load(s, voiceId(fillRandom, v));
         p.humanize.voiceAmount[i] = load(s, voiceId(voiceHumanize, v));
         p.dynamics.voiceDynamics[i] = load(s, voiceId(voiceDynamics, v));
-        p.pattern.mute[i] = load(s, voiceId(mute, v)) > 0.5f;
         p.pattern.probabilityRandom[i] = load(s, voiceId(probabilityRandom, v));
         const float lo = load(s, voiceId(velMin, v)) / 127.0f;
         const float hi = load(s, voiceId(velMax, v)) / 127.0f;
@@ -395,6 +399,14 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         ap.velMin = std::min(lo, hi);
         ap.velMax = std::max(lo, hi);
     }
+
+    // Mute and solo: with any part soloed, only soloed parts sound.
+    bool anySolo = false;
+    for (int part = 0; part < kNumParts; ++part)
+        anySolo = anySolo || load(s, voiceId(partSolo, part)) > 0.5f;
+    for (int part = 0; part < kNumParts; ++part)
+        p.partMute[static_cast<size_t>(part)] = load(s, voiceId(partMute, part)) > 0.5f
+                                             || (anySolo && load(s, voiceId(partSolo, part)) <= 0.5f);
 
     ChordParams& c = p.chords;
     c.enabled = load(s, chordOn) > 0.5f;

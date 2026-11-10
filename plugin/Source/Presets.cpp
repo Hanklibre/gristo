@@ -6,13 +6,19 @@ namespace p = gristo::params;
 
 namespace {
 
-constexpr int kFormatVersion = 1;
+constexpr int kFormatVersion = 2; // 2: parts, synths and lane targets renumbered
 // Presets are a few kB; anything far bigger is the wrong file (a photo or video picked
 // by mistake) and reading it whole on the message thread could stall or kill the app.
 constexpr juce::int64 kMaxPresetBytes = 1 << 20;
 
 // Each id is matched without its trailing index (note0..note5 -> note).
-const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun", "freeTempo" };
+const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun", "freeTempo", "partSolo" };
+
+// Presets from before version 2 would load with scrambled routings: they're refused.
+bool isCurrentPreset(const juce::XmlElement* xml)
+{
+    return xml != nullptr && xml->hasTagName("GristoPreset") && xml->getIntAttribute("version", 1) == kFormatVersion;
+}
 
 juce::String withoutIndex(const juce::String& id)
 {
@@ -60,6 +66,41 @@ juce::Array<juce::File> PresetManager::userPresets() const
     } sorter;
     files.sort(sorter);
     return files;
+}
+
+Snapshot PresetManager::captureSnapshot() const
+{
+    Snapshot s;
+    for (auto* param : processor_.getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+            if (!isRoutingParameter(ranged->getParameterID()))
+                s.values.push_back(ranged->getValue());
+    s.lanePoints.reserve(gristo::kNumModLanes * gristo::kMaxModPoints);
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+        for (int k = 0; k < gristo::kMaxModPoints; ++k)
+            s.lanePoints.push_back(p::lanePoint(processor_.modPoints, lane, k).load());
+    return s;
+}
+
+void PresetManager::applySnapshot(const Snapshot& s)
+{
+    size_t i = 0;
+    for (auto* param : processor_.getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+            if (!isRoutingParameter(ranged->getParameterID()) && i < s.values.size())
+            {
+                const float v = s.values[i++];
+                if (std::abs(ranged->getValue() - v) > 1.0e-7f)
+                {
+                    ranged->beginChangeGesture();
+                    ranged->setValueNotifyingHost(v);
+                    ranged->endChangeGesture();
+                }
+            }
+    if (s.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints))
+        for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+            for (int k = 0; k < gristo::kMaxModPoints; ++k)
+                p::lanePoint(processor_.modPoints, lane, k).store(s.lanePoints[static_cast<size_t>(lane * gristo::kMaxModPoints + k)]);
 }
 
 juce::ValueTree PresetManager::capture(const juce::String& name) const
@@ -144,7 +185,7 @@ bool PresetManager::loadFile(const juce::File& file)
     if (file.getSize() > kMaxPresetBytes)
         return false;
     const auto xml = juce::XmlDocument::parse(file);
-    if (xml == nullptr || !xml->hasTagName("GristoPreset"))
+    if (!isCurrentPreset(xml.get()))
         return false;
     const auto preset = juce::ValueTree::fromXml(*xml);
     apply(preset);
@@ -171,7 +212,7 @@ juce::File PresetManager::importFile(const juce::File& source)
         return {};
     // Only real presets are copied in: a wrong file shouldn't land in My presets.
     const auto xml = juce::XmlDocument::parse(source);
-    if (xml == nullptr || !xml->hasTagName("GristoPreset"))
+    if (!isCurrentPreset(xml.get()))
         return {};
     auto target = userFolder().getChildFile(source.getFileName());
     if (target.existsAsFile())
@@ -195,7 +236,7 @@ juce::File PresetManager::importUrl(const juce::URL& source)
         return {};
     const auto text = data.toString();
     const auto xml = juce::parseXML(text);
-    if (xml == nullptr || !xml->hasTagName("GristoPreset"))
+    if (!isCurrentPreset(xml.get()))
         return {};
     auto name = juce::File::createLegalFileName(xml->getStringAttribute("name", "Imported"));
     auto target = userFolder().getChildFile(name + kExtension);

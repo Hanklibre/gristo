@@ -11,55 +11,20 @@ namespace mod {
 
 bool decodeArpTarget(int target, int& arp, int& which)
 {
-    if (target >= kArpBase && target < kArpCutoffBase)
-    {
-        arp = (target - kArpBase) / kArpTargetsPerArp;
-        which = (target - kArpBase) % kArpTargetsPerArp;
-        return true;
-    }
-    if (target >= kArpCutoffBase && target < kArpProbBase)
-    {
-        arp = target - kArpCutoffBase;
-        which = kExtraCutoff;
-        return true;
-    }
-    if (target >= kArpProbBase && target < kSoundBase)
-    {
-        arp = target - kArpProbBase;
-        which = kExtraProb;
-        return true;
-    }
-    if (target >= kExtraArpBase && target < kNumTargets)
-    {
-        const int w = (target - kExtraArpBase) % kExtraArpTargets;
-        if (w >= kExtraSynth)
-            return false;
-        arp = kLegacyArps + (target - kExtraArpBase) / kExtraArpTargets;
-        which = w;
-        return true;
-    }
-    return false;
+    if (target < kArpBase || target >= kSoundBase)
+        return false;
+    arp = (target - kArpBase) / kArpTargetsPerArp;
+    which = (target - kArpBase) % kArpTargetsPerArp;
+    return true;
 }
 
 bool decodeSynthTarget(int target, int& synth, int& which)
 {
-    const int legacy = target - kSoundBase - kKitTargets;
-    if (target >= kSoundBase + kKitTargets && target < kChordCutoffTarget)
-    {
-        synth = legacy / kSynthTargets;
-        which = legacy % kSynthTargets;
-        return true;
-    }
-    if (target >= kExtraArpBase && target < kNumTargets)
-    {
-        const int w = (target - kExtraArpBase) % kExtraArpTargets;
-        if (w < kExtraSynth)
-            return false;
-        synth = synthOfArp(kLegacyArps + (target - kExtraArpBase) / kExtraArpTargets);
-        which = w - kExtraSynth;
-        return true;
-    }
-    return false;
+    if (target < kSynthBase || target >= kFxSizeTarget)
+        return false;
+    synth = (target - kSynthBase) / kSynthTargets;
+    which = (target - kSynthBase) % kSynthTargets;
+    return true;
 }
 
 std::string targetName(int target)
@@ -70,13 +35,13 @@ std::string targetName(int target)
     int arp = 0, synth = 0, which = 0;
     if (decodeArpTarget(target, arp, which))
     {
-        static const char* const names[kArpTargetsPerArp + 2] = { "Density", "Accent", "Slide", "Gate", "Octaves",
-                                                                  "Length", "Transpose", "Velocity", "Cutoff", "Probability" };
+        static const char* const names[kArpTargetsPerArp] = { "Density", "Accent", "Slide", "Gate", "Octaves",
+                                                              "Length", "Transpose", "Velocity", "Probability" };
         return "Arp " + std::to_string(arp + 1) + " " + names[which];
     }
     if (decodeSynthTarget(target, synth, which))
     {
-        static const char* const names[kSynthTargets] = { "Resonance", "Env", "Attack", "Release", "Level", "Reverb", "Delay" };
+        static const char* const names[kSynthTargets] = { "Cutoff", "Resonance", "Env", "Attack", "Release", "Level", "Reverb", "Delay" };
         const int owner = arpOfSynth(synth);
         return (owner < 0 ? std::string("Chords") : "Arp " + std::to_string(owner + 1)) + " " + names[which];
     }
@@ -93,7 +58,6 @@ std::string targetName(int target)
         case kShuffle: return "Shuffle";
         case kFlamMs: return "Flam ms";
         case kHumanize: return "Humanize";
-        case kChordCutoffTarget: return "Chords Cutoff";
         case kFxSizeTarget: return "Reverb Size";
         case kFxFeedbackTarget: return "Delay Feedback";
         default: return "None";
