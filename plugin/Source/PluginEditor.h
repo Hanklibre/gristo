@@ -5,12 +5,12 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
-// The whole UI at its design size (1280 x 760). GristoEditor scales it.
+// The whole UI at its design size (1280 x 790). GristoEditor scales it.
 class GristoView : public juce::Component, public juce::DragAndDropContainer, private juce::Timer
 {
 public:
     static constexpr int kWidth = 1280;
-    static constexpr int kHeight = 760;
+    static constexpr int kHeight = 790;
 
     explicit GristoView(GristoProcessor&);
     ~GristoView() override;
@@ -73,7 +73,7 @@ private:
     void timerCallback() override;
     void mouseMove(const juce::MouseEvent&) override;
     void mouseEnter(const juce::MouseEvent&) override;
-    void mouseDown(const juce::MouseEvent& e) override { showHelpFor(e.originalComponent); } // touch has no hover
+    void mouseDown(const juce::MouseEvent& e) override;
     void showHelpFor(juce::Component* component);
     static void setHelp(juce::Component& component, const juce::String& title, const juce::String& text);
     static void setHelp(Knob& knob, const juce::String& title, const juce::String& text);
@@ -138,6 +138,19 @@ private:
     juce::ComboBox dragBars_;
     DragOutHandle dragPart_, dragAll_;
     void setupPartStrip();
+    // Undo, dice, scenes, macros
+    juce::TextButton undoButton_ { "Undo" }, redoButton_ { "Redo" }, diceAllButton_ { "Dice" };
+    juce::TextButton diceButtons_[GristoProcessor::NumSections], keepButtons_[GristoProcessor::NumSections];
+    juce::TextButton sceneButtons_[GristoProcessor::kNumScenes], chainButton_ { "Chain" };
+    juce::ComboBox chainBars_, sourceBox_;
+    Knob macros_[gristo::kNumMacros];
+    int selectedSource_ = 0; // routing rows: lane 0..3 or macro 4..11
+    void setupPerformance();
+    void showMacroMenu(int macro);
+    void showSceneMenu(int scene);
+    void selectSource(int source);
+    void assignSource(int source, int target);
+    static juce::Colour sourceColour(int source);
     void dragMidi(int part);
     static juce::Colour partColour(int part);
     static int pageOfPart(int part);

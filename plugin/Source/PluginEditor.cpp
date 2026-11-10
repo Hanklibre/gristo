@@ -15,24 +15,25 @@ constexpr bool kIsMobile = true;
 #else
 constexpr bool kIsMobile = false;
 #endif
-constexpr int kTopBar = 48;
-constexpr int kPageX = 200, kPageY = 52, kPageW = 1072, kPageH = 500;
-constexpr int kTimelineY = 558;
-constexpr int partRowY(int part) { return 58 + part * 42 + (part >= 6 ? 8 : 0) + (part >= 9 ? 8 : 0) + (part >= 10 ? 8 : 0); }
+constexpr int kTopBar = 78; // two rows: transport, then scenes and the help line
+constexpr int kPageX = 200, kPageY = 82, kPageW = 1072, kPageH = 500;
+constexpr int kTimelineY = 588;
+constexpr int partRowY(int part) { return 88 + part * 36 + (part >= 6 ? 6 : 0) + (part >= 9 ? 6 : 0) + (part >= 10 ? 6 : 0); }
+constexpr int kMacroY = 506; // two rows of four macro knobs under the parts
 
 // Voices matrix geometry
 constexpr int kVoiceX0 = kPageX + 384;
 constexpr int kVoiceColW = 70;
-constexpr int kVoiceRowY[] = { 92, 136, 180, 224, 268, 312 };
+constexpr int kVoiceRowY[] = { 122, 166, 210, 254, 298, 342 };
 constexpr int kVoiceRowH = 44;
-constexpr int kVelocityRowY = 362;
-constexpr int kNoteRowY = 392;
-constexpr int kChannelRowY = 420;
+constexpr int kVelocityRowY = 392;
+constexpr int kNoteRowY = 422;
+constexpr int kChannelRowY = 450;
 const char* const kVoiceRowNames[] = { "Fill", "Random", "Probability", "Random", "Humanize", "Dynamics" };
 
 // The arp and chord blocks keep their own 952-wide layout (from x = 24), moved into the page.
 constexpr int kBlockDx = kPageX - 24 + (kPageW - 952) / 2;
-constexpr int kModY = 30;
+constexpr int kModY = 60;
 constexpr int kSlotX = 972;
 constexpr int kModRowY = kModY + 34;      // the block's first row
 constexpr int kSlotRowY[] = { kTimelineY + 34, kTimelineY + 72, kTimelineY + 110, kTimelineY + 148 };
@@ -109,7 +110,7 @@ GristoView::GristoView(GristoProcessor& proc)
     setupRandomKnob(feelRandom_, p::feelRandom, "Random");
     setupKnob(humanize_, p::humanize, "Humanize");
     setupKnob(dynamics_, p::dynamics, "Dynamics");
-    setupToggle(lock_, p::humanizeLock, "Lock");
+    setupToggle(lock_, p::humanizeLock, "Lock humanize");
     setupToggle(linear_, p::linear, "Linear");
     setupToggle(kitOn_, p::kitOn, "Sound");
     setupKnob(kitGain_, p::kitGain, "Level");
@@ -285,6 +286,7 @@ GristoView::GristoView(GristoProcessor& proc)
     laneTabs_[0].setToggleState(true, juce::dontSendNotification);
     selectLane(0);
     setupPartStrip();
+    setupPerformance();
     partSelect_[0].setToggleState(true, juce::dontSendNotification);
     showPage(0);
 
@@ -323,7 +325,7 @@ void GristoView::showHelpFor(juce::Component* component)
             {
                 helpTitle_ = title;
                 helpText_ = text;
-                repaint(840, 0, 270, kTopBar);
+                repaint(520, 40, 760, 34);
                 if (onHelpChanged)
                     onHelpChanged();
             }
@@ -334,6 +336,14 @@ void GristoView::showHelpFor(juce::Component* component)
 
 void GristoView::mouseMove(const juce::MouseEvent& e) { showHelpFor(e.originalComponent); }
 void GristoView::mouseEnter(const juce::MouseEvent& e) { showHelpFor(e.originalComponent); }
+void GristoView::mouseDown(const juce::MouseEvent& e)
+{
+    showHelpFor(e.originalComponent); // touch has no hover
+    if (e.mods.isPopupMenu())
+        for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
+            if (e.originalComponent == &sceneButtons_[i])
+                showSceneMenu(i);
+}
 
 void GristoView::setupKnob(Knob& k, const juce::String& paramId, const juce::String& text)
 {
@@ -406,28 +416,36 @@ void GristoView::makeTarget(juce::Component&, ModDropTarget& dropTarget, int tar
 
 void GristoView::showModMenu(int target, juce::Component& knob)
 {
-    // Which slot of each lane (if any) is routed to this knob.
-    auto slotOf = [this, target](int lane) {
+    // Which slot of each source (if any) is routed to this knob.
+    auto slotOf = [this, target](int source) {
         for (int s = 0; s < gristo::kModSlotsPerLane; ++s)
-            if (static_cast<int>(processor_.state.getRawParameterValue(p::slotId(p::modTarget, lane, s))->load()) == target)
+            if (static_cast<int>(processor_.state.getRawParameterValue(p::sourceTargetId(source, s))->load()) == target)
                 return s;
         return -1;
     };
-    juce::PopupMenu menu;
+    juce::PopupMenu menu, macros;
     menu.addSectionHeader(mod::targetName(target));
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
         menu.addItem(lane + 1, "Modulate with lane " + juce::String(lane + 1), true, slotOf(lane) >= 0);
+    bool anyMacro = false;
+    for (int m = 0; m < gristo::kNumMacros; ++m)
+    {
+        const bool routed = slotOf(gristo::kNumModLanes + m) >= 0;
+        anyMacro = anyMacro || routed;
+        macros.addItem(gristo::kNumModLanes + m + 1, "Macro " + juce::String(m + 1), true, routed);
+    }
+    menu.addSubMenu("Control with macro", macros, true, nullptr, anyMacro);
     juce::Component::SafePointer<GristoView> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&knob), [safe, slotOf, target](int result) {
         if (safe == nullptr || result <= 0)
             return;
-        const int lane = result - 1, slot = slotOf(lane);
+        const int source = result - 1, slot = slotOf(source);
         if (slot < 0)
-            safe->assignLane(lane, target);
+            safe->assignSource(source, target);
         else
         {
-            safe->setParameter(p::slotId(p::modTarget, lane, slot), static_cast<float>(mod::kNone));
-            safe->setParameter(p::slotId(p::modAmount, lane, slot), 0.0f);
+            safe->setParameter(p::sourceTargetId(source, slot), static_cast<float>(mod::kNone));
+            safe->setParameter(p::sourceAmountId(source, slot), 0.0f);
         }
     });
 }
@@ -442,10 +460,10 @@ void GristoView::setParameter(const juce::String& id, float value)
     }
 }
 
-void GristoView::assignLane(int lane, int target)
+void GristoView::assignSource(int source, int target)
 {
     auto targetOf = [&](int slot) {
-        return static_cast<int>(processor_.state.getRawParameterValue(p::slotId(p::modTarget, lane, slot))->load());
+        return static_cast<int>(processor_.state.getRawParameterValue(p::sourceTargetId(source, slot))->load());
     };
     int slot = -1;
     for (int s = 0; s < gristo::kModSlotsPerLane && slot < 0; ++s)
@@ -458,8 +476,8 @@ void GristoView::assignLane(int lane, int target)
         slot = gristo::kModSlotsPerLane - 1; // all slots taken: reuse the last one
 
     const bool alreadyRouted = targetOf(slot) == target;
-    const float amount = processor_.state.getRawParameterValue(p::slotId(p::modAmount, lane, slot))->load();
-    setParameter(p::slotId(p::modTarget, lane, slot), static_cast<float>(target));
+    const float amount = processor_.state.getRawParameterValue(p::sourceAmountId(source, slot))->load();
+    setParameter(p::sourceTargetId(source, slot), static_cast<float>(target));
     if (!alreadyRouted || std::abs(amount) < 1.0e-6f)
     {
         // Start with an audible amount that points into the knob's free travel: a knob
@@ -475,11 +493,19 @@ void GristoView::assignLane(int lane, int target)
             start = -0.5f;
         else if (mod::decodeArpTarget(target, arp, which) && which == mod::kArpTranspose)
             start = 7.0f / 12.0f; // up a fifth
-        setParameter(p::slotId(p::modAmount, lane, slot), start);
+        setParameter(p::sourceAmountId(source, slot), start);
     }
-    laneTabs_[lane].setToggleState(true, juce::dontSendNotification);
-    selectLane(lane);
+    if (source < gristo::kNumModLanes)
+    {
+        laneTabs_[source].setToggleState(true, juce::dontSendNotification);
+        selectLane(source);
+    }
+    else
+        selectSource(source);
 }
+
+void GristoView::assignLane(int lane, int target) { assignSource(lane, target); }
+
 
 void GristoView::selectLane(int lane)
 {
@@ -489,16 +515,26 @@ void GristoView::selectLane(int lane)
     laneLengthAttachment_.reset();
     laneLengthAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         processor_.state, p::laneId(p::modBars, lane), laneLength_);
+    selectSource(lane);
+}
+
+juce::Colour GristoView::sourceColour(int source) { return source < gristo::kNumModLanes ? laneColours[source] : colours::accent; }
+
+void GristoView::selectSource(int source)
+{
+    // The routing rows show one source: a drawn lane or a macro.
+    selectedSource_ = source;
+    sourceBox_.setSelectedId(source + 1, juce::dontSendNotification);
     for (int s = 0; s < gristo::kModSlotsPerLane; ++s)
     {
         auto& slot = slots_[s];
         slot.targetAttachment.reset();
         slot.amountAttachment.reset();
         slot.targetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-            processor_.state, p::slotId(p::modTarget, lane, s), slot.target);
+            processor_.state, p::sourceTargetId(source, s), slot.target);
         slot.amountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-            processor_.state, p::slotId(p::modAmount, lane, s), slot.amount);
-        slot.amount.setColour(juce::Slider::trackColourId, laneColours[lane]);
+            processor_.state, p::sourceAmountId(source, s), slot.amount);
+        slot.amount.setColour(juce::Slider::trackColourId, sourceColour(source));
     }
     repaint();
 }
@@ -519,12 +555,12 @@ void GristoView::updateModulationDisplay(const gristo::EngineParams& params)
     arpView_.transposeLanes.clear();
 
     bool mapModulated = false;
-    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+    for (int lane = 0; lane < gristo::kNumModSources; ++lane)
         for (const auto& slot : params.modulation.lanes[static_cast<size_t>(lane)].slots)
         {
             if (slot.target <= mod::kNone || slot.target >= mod::kNumTargets || std::abs(slot.amount) < 1.0e-6f)
                 continue;
-            const auto colour = laneColours[lane];
+            const auto colour = sourceColour(lane);
             if (auto* s = targetSliders_[static_cast<size_t>(slot.target)])
             {
                 // Every target's full modulation range equals its knob range, so the
@@ -846,6 +882,23 @@ void GristoView::timerCallback()
         if (std::abs(next - a) > 0.01f)
             repaint(84, partRowY(part) + 4, 10, 10);
         a = next < 0.02f ? 0.0f : next;
+    }
+    undoButton_.setEnabled(processor_.canUndo());
+    redoButton_.setEnabled(processor_.canRedo());
+    {
+        const int current = processor_.currentScene.load(), pending = processor_.pendingScene.load();
+        const bool blink = (juce::Time::getMillisecondCounter() / 250) % 2 == 0;
+        for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
+        {
+            const auto colour = i == pending ? (blink ? colours::accent : colours::cool)
+                              : i == current ? colours::accent
+                              : processor_.sceneUsed(i) ? colours::cool : colours::background;
+            if (sceneButtons_[i].findColour(juce::TextButton::buttonColourId) != colour)
+            {
+                sceneButtons_[i].setColour(juce::TextButton::buttonColourId, colour);
+                sceneButtons_[i].setColour(juce::TextButton::textColourOffId, i == current || (i == pending && blink) ? colours::background : colours::text);
+            }
+        }
     }
     mapPad_.repaint();
     nodeLabel_.setText("Near: " + mapPad_.nearestNodeName(), juce::dontSendNotification);
@@ -1482,6 +1535,141 @@ void GristoView::setupPartStrip()
     setHelp(dragAll_, "Drag MIDI (all)", "Drag onto your DAW: every sounding part as its own MIDI track.");
 }
 
+void GristoView::setupPerformance()
+{
+    // Undo / redo / dice
+    undoButton_.onClick = [this] { processor_.undo(); };
+    redoButton_.onClick = [this] { processor_.redo(); };
+    diceAllButton_.onClick = [this] { processor_.diceAll(); };
+    for (auto* b : { &undoButton_, &redoButton_, &diceAllButton_ })
+        addAndMakeVisible(*b);
+    setHelp(undoButton_, "Undo", "Steps back through your edits, preset loads, scene recalls and dice rolls.");
+    setHelp(redoButton_, "Redo", "Steps forward again.");
+    setHelp(diceAllButton_, "Dice", "New values for every section that isn't set to Keep. Undo brings the old ones back.");
+    const char* const sectionNames[GristoProcessor::NumSections] = { "the map and fills", "the groove", "the kit", "this arp's notes",
+                                                                     "this arp's notes", "this arp's notes", "the progression",
+                                                                     "this sound", "this sound", "this sound", "this sound" };
+    for (int section = 0; section < GristoProcessor::NumSections; ++section)
+    {
+        auto& dice = diceButtons_[section];
+        dice.setButtonText("Dice");
+        dice.onClick = [this, section] { processor_.dice(section); };
+        addAndMakeVisible(dice);
+        setHelp(dice, "Dice", juce::String("Rolls new values for ") + sectionNames[section] + ". Undo brings the old ones back.");
+        auto& keep = keepButtons_[section];
+        keep.setButtonText("Keep");
+        keep.setClickingTogglesState(true);
+        keep.setColour(juce::TextButton::buttonOnColourId, colours::accent);
+        keep.setColour(juce::TextButton::textColourOnId, colours::background);
+        keep.setToggleState((processor_.diceLocks.load() & (1 << section)) != 0, juce::dontSendNotification);
+        keep.onClick = [this, section] {
+            const int bit = 1 << section;
+            processor_.diceLocks.store(keepButtons_[section].getToggleState() ? (processor_.diceLocks.load() | bit)
+                                                                              : (processor_.diceLocks.load() & ~bit));
+        };
+        addAndMakeVisible(keep);
+        setHelp(keep, "Keep", "The big Dice button in the top bar leaves this section alone.");
+    }
+
+    // Scenes
+    for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
+    {
+        auto& b = sceneButtons_[i];
+        b.setButtonText(juce::String(i + 1));
+        b.onClick = [this, i] {
+            if (juce::ModifierKeys::currentModifiers.isShiftDown() || !processor_.sceneUsed(i))
+                processor_.storeScene(i);
+            else
+                processor_.recallScene(i);
+        };
+        b.addMouseListener(this, false);
+        addAndMakeVisible(b);
+        setHelp(b, "Scene " + juce::String(i + 1),
+                "Empty: click to store everything as it is now. Stored: click to recall (on the next bar while playing). "
+                "Right-click to store again or clear. MIDI: channel 16, C1 upwards.");
+    }
+    chainButton_.setClickingTogglesState(true);
+    chainButton_.setColour(juce::TextButton::buttonOnColourId, colours::accent);
+    chainButton_.setColour(juce::TextButton::textColourOnId, colours::background);
+    chainButton_.setToggleState(processor_.chainScenes.load(), juce::dontSendNotification);
+    chainButton_.onClick = [this] { processor_.chainScenes.store(chainButton_.getToggleState()); };
+    addAndMakeVisible(chainButton_);
+    setHelp(chainButton_, "Chain", "Plays the stored scenes one after the other, each for the number of bars next to this: a simple song.");
+    for (int bars : { 1, 2, 4, 8, 16 })
+        chainBars_.addItem(juce::String(bars) + (bars == 1 ? " bar" : " bars"), bars);
+    chainBars_.setSelectedId(processor_.chainBars.load(), juce::dontSendNotification);
+    chainBars_.onChange = [this] { processor_.chainBars.store(std::max(1, chainBars_.getSelectedId())); };
+    addAndMakeVisible(chainBars_);
+    setHelp(chainBars_, "Chain length", "How long each scene plays in a chain.");
+
+    // Macros
+    for (int m = 0; m < gristo::kNumMacros; ++m)
+    {
+        setupSmallKnob(macros_[m], p::laneId(p::macroValue, m), {});
+        macros_[m].label.setVisible(false);
+        macros_[m].slider.setColour(juce::Slider::rotarySliderFillColourId, colours::accent);
+        macros_[m].slider.onContextMenu = [this, m] { showMacroMenu(m); };
+        setHelp(macros_[m], "Macro " + juce::String(m + 1),
+                "One knob for several settings: right-click any knob and choose Control with macro. Right-click here for MIDI learn.");
+    }
+
+    // Routing source: a lane or a macro
+    for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
+        sourceBox_.addItem("Lane " + juce::String(lane + 1), lane + 1);
+    for (int m = 0; m < gristo::kNumMacros; ++m)
+        sourceBox_.addItem("Macro " + juce::String(m + 1), gristo::kNumModLanes + m + 1);
+    sourceBox_.onChange = [this] {
+        const int source = sourceBox_.getSelectedId() - 1;
+        if (source < 0 || source == selectedSource_)
+            return;
+        if (source < gristo::kNumModLanes)
+            laneTabs_[source].triggerClick();
+        else
+            selectSource(source);
+    };
+    addAndMakeVisible(sourceBox_);
+    setHelp(sourceBox_, "Routing of", "Which lane's or macro's destinations the four rows below show.");
+    selectSource(selectedSource_);
+}
+
+void GristoView::showMacroMenu(int macro)
+{
+    juce::PopupMenu menu;
+    const int cc = processor_.macroCc[static_cast<size_t>(macro)].load();
+    menu.addSectionHeader("Macro " + juce::String(macro + 1) + (cc >= 0 ? "  (CC " + juce::String(cc) + ")" : juce::String()));
+    menu.addItem(1, "Show its routing");
+    menu.addItem(2, processor_.learnMacro.load() == macro ? "Waiting for a MIDI controller..." : "Learn MIDI controller (move one now)");
+    menu.addItem(3, "Forget MIDI controller", cc >= 0);
+    juce::Component::SafePointer<GristoView> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&macros_[macro].slider), [safe, macro](int result) {
+        if (safe == nullptr)
+            return;
+        if (result == 1)
+            safe->selectSource(gristo::kNumModLanes + macro);
+        else if (result == 2)
+            safe->processor_.learnMacro.store(macro);
+        else if (result == 3)
+            safe->processor_.macroCc[static_cast<size_t>(macro)].store(-1);
+    });
+}
+
+void GristoView::showSceneMenu(int scene)
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader("Scene " + juce::String(scene + 1));
+    menu.addItem(1, "Store the current state here");
+    menu.addItem(2, "Clear", processor_.sceneUsed(scene));
+    juce::Component::SafePointer<GristoView> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&sceneButtons_[scene]), [safe, scene](int result) {
+        if (safe == nullptr)
+            return;
+        if (result == 1)
+            safe->processor_.storeScene(scene);
+        else if (result == 2)
+            safe->processor_.clearScene(scene);
+    });
+}
+
 juce::Colour GristoView::partColour(int part)
 {
     if (part < gristo::kNumVoices)
@@ -1585,6 +1773,16 @@ void GristoView::showPage(int page)
     kitGain_.label.setVisible(false);
     freeTempo_.slider.setVisible(false);
     freeTempo_.label.setVisible(false);
+    for (int section = 0; section < GristoProcessor::NumSections; ++section)
+    {
+        const bool show = section <= GristoProcessor::DiceKit ? page == 0
+                        : section <= GristoProcessor::DiceArp3 ? page == 1 + section - GristoProcessor::DiceArp1
+                        : section == GristoProcessor::DiceChords ? page == kChordsPage
+                        : section == GristoProcessor::DiceSound4 ? page == kChordsPage
+                                                                 : page == 1 + section - GristoProcessor::DiceSound1;
+        diceButtons_[section].setVisible(show);
+        keepButtons_[section].setVisible(show);
+    }
     dragPart_.text = selectedPart_ < gristo::kNumVoices ? juce::String("Drums")
                    : selectedPart_ < gristo::kNumParts ? juce::String(gristo::partName(selectedPart_)) : juce::String("All parts");
     resized();
@@ -1727,29 +1925,35 @@ void GristoView::paint(juce::Graphics& g)
     g.fillAll(colours::background);
     g.setColour(colours::text);
     g.setFont(juce::FontOptions(22.0f, juce::Font::bold));
-    g.drawText("GRISTO", 16, 0, 100, kTopBar, juce::Justification::centredLeft);
+    g.drawText("GRISTO", 16, 0, 100, 44, juce::Justification::centredLeft);
+    g.setColour(colours::dim);
+    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.drawText("SCENES", 16, 44, 60, 28, juce::Justification::centredLeft);
 
-    // Help box
-    const juce::Rectangle<int> help { 846, 5, 258, 38 };
+    // Help line
+    const juce::Rectangle<int> help { 524, 44, 748, 28 };
     g.setColour(colours::panel);
     g.fillRoundedRectangle(help.toFloat(), 6.0f);
-    g.setColour(colours::outline);
-    g.drawRoundedRectangle(help.toFloat().reduced(0.5f), 6.0f, 1.0f);
-    auto helpArea = help.reduced(8, 2);
+    auto helpArea = help.reduced(10, 0);
     g.setColour(colours::accent);
-    g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
-    g.drawText(helpTitle_, helpArea.removeFromTop(13), juce::Justification::centredLeft);
+    g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+    const int titleWidth = juce::GlyphArrangement::getStringWidthInt(juce::FontOptions(12.0f, juce::Font::bold), helpTitle_) + 12;
+    g.drawText(helpTitle_, helpArea.removeFromLeft(titleWidth), juce::Justification::centredLeft);
     g.setColour(colours::text);
-    g.setFont(juce::FontOptions(10.5f));
-    g.drawFittedText(helpText_, helpArea, juce::Justification::topLeft, 2, 0.75f);
+    g.setFont(juce::FontOptions(11.5f));
+    g.drawFittedText(helpText_, helpArea, juce::Justification::centredLeft, 2, 0.8f);
 
     // Part strip
     drawPanel(g, { 8, kPageY, 184, kPageH }, {});
     for (int part = 0; part < gristo::kNumParts; ++part)
     {
         g.setColour(partColour(part));
-        g.fillRoundedRectangle(juce::Rectangle<float>(12.0f, static_cast<float>(partRowY(part)) + 4.0f, 3.0f, 30.0f), 1.5f);
+        g.fillRoundedRectangle(juce::Rectangle<float>(12.0f, static_cast<float>(partRowY(part)) + 3.0f, 3.0f, 26.0f), 1.5f);
     }
+    g.setColour(colours::dim);
+    g.setFont(juce::FontOptions(9.5f));
+    for (int m = 0; m < gristo::kNumMacros; ++m) // macro numbers under their knobs
+        g.drawText("M" + juce::String(m + 1), 14 + (m % 4) * 44, kMacroY + (m / 4) * 38 + 26, 44, 10, juce::Justification::centred);
 
     const int px = kPageX, py = kPageY;
     if (page_ == 0)
@@ -1816,9 +2020,9 @@ void GristoView::paint(juce::Graphics& g)
     drawPanel(g, { 8, kTimelineY, kWidth - 16, kHeight - kTimelineY - 6 }, {});
     g.setColour(colours::dim);
     g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-    g.drawText("ROUTING  (LANE " + juce::String(selectedLane_ + 1) + ")", kSlotX, kTimelineY + 10, 200, 14, juce::Justification::centredLeft);
+    g.drawText("ROUTING OF", kSlotX, kTimelineY + 8, 80, 24, juce::Justification::centredLeft);
     g.drawText("MIDI", 648, kTimelineY + 8, 40, 24, juce::Justification::centredLeft);
-    g.setColour(laneColours[selectedLane_]);
+    g.setColour(sourceColour(selectedSource_));
     g.fillRoundedRectangle(juce::Rectangle<float>(static_cast<float>(kSlotX) - 8.0f, static_cast<float>(kSlotRowY[0]), 3.0f, 148.0f), 1.5f);
 }
 
@@ -1831,7 +2035,7 @@ void GristoView::paintOverChildren(juce::Graphics& g)
         if (a < 0.02f)
             continue;
         g.setColour(juce::Colours::white.withAlpha(juce::jlimit(0.0f, 1.0f, a)));
-        g.fillEllipse(86.0f, static_cast<float>(partRowY(part)) + 6.0f, 6.0f, 6.0f);
+        g.fillEllipse(86.0f, static_cast<float>(partRowY(part)) + 4.0f, 6.0f, 6.0f);
     }
 }
 
@@ -1861,7 +2065,7 @@ void GristoView::armLane(int lane)
         h->setArmed(h->lane() == lane);
     helpTitle_ = "Route lane " + juce::String(lane + 1);
     helpText_ = "Tap a knob, a Velocity range or the map to route this lane there. Tap anywhere else to cancel.";
-    repaint(840, 0, 270, kTopBar);
+    repaint(520, 40, 760, 34);
     if (onHelpChanged)
         onHelpChanged();
     if (onArmChanged)
@@ -1891,38 +2095,62 @@ void GristoView::resized()
         k.label.setBounds(area.removeFromBottom(14));
         k.slider.setBounds(area);
     };
-    // Top bar
-    presetPrev_.setBounds(118, 10, 26, 28);
-    presetName_.setBounds(146, 10, 170, 28);
-    presetNext_.setBounds(318, 10, 26, 28);
-    presetSave_.setBounds(348, 10, 48, 28);
-    presetShare_.setBounds(400, 10, 52, 28);
-    freeRun_.button.setBounds(466, 10, 64, 28);
-    tempoBar_.setBounds(536, 10, 104, 28);
-    levelBar_.setBounds(652, 10, 110, 28);
-    kitOn_.button.setBounds(768, 10, 66, 28);
-    keysButton_.setBounds(1112, 10, 56, 28);
-    sizeButton_.setBounds(1174, 10, 96, 28);
+    // Top bar, row 1: presets and transport
+    presetPrev_.setBounds(118, 8, 26, 28);
+    presetName_.setBounds(146, 8, 170, 28);
+    presetNext_.setBounds(318, 8, 26, 28);
+    presetSave_.setBounds(348, 8, 48, 28);
+    presetShare_.setBounds(400, 8, 52, 28);
+    freeRun_.button.setBounds(466, 8, 64, 28);
+    tempoBar_.setBounds(536, 8, 104, 28);
+    levelBar_.setBounds(652, 8, 110, 28);
+    kitOn_.button.setBounds(768, 8, 66, 28);
+    undoButton_.setBounds(856, 8, 54, 28);
+    redoButton_.setBounds(914, 8, 54, 28);
+    diceAllButton_.setBounds(984, 8, 60, 28);
+    keysButton_.setBounds(1112, 8, 56, 28);
+    sizeButton_.setBounds(1174, 8, 96, 28);
+    // Row 2: scenes (the help line is painted to their right)
+    for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
+        sceneButtons_[i].setBounds(78 + i * 34, 45, 30, 26);
+    chainButton_.setBounds(360, 45, 60, 26);
+    chainBars_.setBounds(424, 45, 88, 26);
 
     // Part strip
     for (int part = 0; part < gristo::kNumParts; ++part)
     {
         const int y = partRowY(part);
-        partSelect_[part].setBounds(18, y, 78, 38);
-        partMute_[part].button.setBounds(100, y + 6, 24, 26);
-        partSolo_[part].button.setBounds(126, y + 6, 24, 26);
-        partLevel_[part].slider.setBounds(152, y + 2, 36, 34);
+        partSelect_[part].setBounds(18, y, 78, 32);
+        partMute_[part].button.setBounds(100, y + 4, 24, 24);
+        partSolo_[part].button.setBounds(126, y + 4, 24, 24);
+        partLevel_[part].slider.setBounds(152, y, 36, 32);
     }
-    partSelect_[gristo::kNumParts].setBounds(18, partRowY(gristo::kNumParts), 170, 32);
+    partSelect_[gristo::kNumParts].setBounds(18, partRowY(gristo::kNumParts), 170, 28);
+    for (int m = 0; m < gristo::kNumMacros; ++m)
+        macros_[m].slider.setBounds(18 + (m % 4) * 44, kMacroY + (m / 4) * 38 - 4, 36, 32);
 
-    const int px = kPageX, py = kPageY;
+    const int px = kPageX, py = kPageY, gy0 = kPageY + 400;
     // Drums page: map
     mapPad_.setBounds(px + 12, py + 24, 276, 276);
     nodeLabel_.setBounds(px + 12, py + 304, 276, 18);
     placeKnob(chaos_, { px + 12, py + 326, 92, 108 });
     placeKnob(mapRandom_, { px + 104, py + 338, 92, 92 });
     placeKnob(variation_, { px + 196, py + 326, 92, 108 });
-    linear_.button.setBounds(px + 12, py + 452, 110, 28);
+    linear_.button.setBounds(px + 12, py + 452, 100, 28);
+    auto placeDice = [this](int section, int x, int y) {
+        diceButtons_[section].setBounds(x, y, 54, 28);
+        keepButtons_[section].setBounds(x + 58, y, 54, 28);
+    };
+    placeDice(GristoProcessor::DicePattern, px + 172, py + 452);
+    placeDice(GristoProcessor::DiceGroove, px + 952, gy0 + 8);
+    placeDice(GristoProcessor::DiceKit, px + 952, py + 26);
+    for (int a = 0; a < gristo::kNumArps; ++a)
+    {
+        placeDice(GristoProcessor::DiceArp1 + a, px + 24, py + 252);
+        placeDice(GristoProcessor::DiceSound1 + a, px + 24, py + 392);
+    }
+    placeDice(GristoProcessor::DiceChords, px + 24, py + 252);
+    placeDice(GristoProcessor::DiceSound4, px + 24, py + 392);
 
     // Voices matrix: one column per voice, one row per parameter
     for (int v = 0; v < gristo::kNumVoices; ++v)
@@ -1937,7 +2165,7 @@ void GristoView::resized()
     }
 
     // Kit
-    soundKit_.box.setBounds(px + 832, py + 26, 228, 28);
+    soundKit_.box.setBounds(px + 832, py + 26, 114, 28);
     {
         Knob* kitKnobs[] = { &kitTune_, &kitDecay_, &kitTone_, &kitDrive_, &kitReverb_, &kitDelay_ };
         for (int i = 0; i < 6; ++i)
@@ -1956,7 +2184,7 @@ void GristoView::resized()
     placeKnob(feelRandom_, { px + 682, gy + 14, 64, 82 });
     placeKnob(humanize_, { px + 770, gy + 2, 84, 96 });
     placeKnob(dynamics_, { px + 860, gy + 2, 84, 96 });
-    lock_.button.setBounds(px + 956, gy + 36, 100, 28);
+    lock_.button.setBounds(px + 952, gy + 56, 112, 28);
 
     // Master page
     placeLabeled(fxSize_, { px + 24, py + 40, 110, 130 });
@@ -1988,6 +2216,7 @@ void GristoView::resized()
     dragAll_.setBounds(886, ty, 74, 24);
     timelineView_.setBounds(20, ty + 30, 940, 90);
     laneEditor_.setBounds(20 + TimelineView::kLabelWidth, ty + 124, 940 - TimelineView::kLabelWidth, 58); // same time axis
+    sourceBox_.setBounds(kSlotX + 84, kTimelineY + 8, 120, 24);
     for (int s = 0; s < gristo::kModSlotsPerLane; ++s)
     {
         slots_[s].target.setBounds(kSlotX, kSlotRowY[s], 190, 28);

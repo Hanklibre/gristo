@@ -17,7 +17,7 @@ green CI build (Windows VST3 + Android APK) for testing before the next starts.
 - MIDI export core: render any part (or all) for N bars to a MIDI file, tested
   against the live output. The drag handle arrives with the new UI.
 
-## Phase 3: New UI
+## Phase 3: New UI (done)
 - One resizable landscape layout (about 1280 x 760) for desktop and tablet.
 - Top bar: presets, play, tempo, undo/redo, master level.
 - Left: part strip (activity, mute, solo, level; tap to select).
@@ -27,7 +27,7 @@ green CI build (Windows VST3 + Android APK) for testing before the next starts.
 - Drag MIDI to the DAW from each part and from the whole pattern.
 - Checkpoint: screenshots for approval after the shell and first part page.
 
-## Phase 4: Performance features
+## Phase 4: Performance features (done)
 - Undo / redo.
 - Scenes: 8 snapshots, switch on the bar, MIDI-note trigger, chain into a song.
 - Dice and locks per section.
