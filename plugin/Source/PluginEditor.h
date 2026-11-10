@@ -114,6 +114,8 @@ private:
     std::unique_ptr<VelocityRange> velocityRanges_[gristo::kNumVoices];
     std::unique_ptr<NoteSelector> notes_[gristo::kNumVoices];
     Toggle mutes_[gristo::kNumVoices];
+    juce::TextButton sampleButtons_[gristo::kNumVoices]; // your own one-shot per drum
+    void showSampleMenu(int voice);
 
     Choice timing_, feeling_;
     Knob shuffle_, shuffleRandom_, feelMs_, feelRandom_;

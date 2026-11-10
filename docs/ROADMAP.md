@@ -33,7 +33,7 @@ green CI build (Windows VST3 + Android APK) for testing before the next starts.
 - Dice and locks per section.
 - 8 macro knobs with MIDI learn.
 
-## Phase 5: Sound
+## Phase 5: Sound (done)
 - User one-shot samples per drum voice.
 - Kick ducking (sidechain amount per synth).
 - Lanes as tempo-synced LFOs (shape, rate, phase) besides drawn curves.

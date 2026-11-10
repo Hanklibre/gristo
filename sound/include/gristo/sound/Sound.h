@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 // Gristo's built-in sounds: synthesized drum kits, a small poly synth per arp, and a
 // shared reverb + delay. Host-independent (no JUCE) so the plugin, the standalone /
@@ -68,6 +69,13 @@ struct FxParams
     double bpm = 120.0;
 };
 
+// A one-shot sample that replaces a drum voice's synthesized sound.
+struct SampleData
+{
+    std::vector<float> left, right; // same length
+    double sampleRate = 44100.0;
+};
+
 // Optional separate outputs. A part with buffers here is written to them (stereo,
 // centred, soft-clipped) and left out of the main mix; null pointers stay in the mix.
 struct Stems
@@ -92,6 +100,10 @@ public:
     void setSynth(int synth, const SynthParams& params);
     void setFx(const FxParams& params);
 
+    // A drum voice plays this sample instead of its synthesized sound (nullptr: back to
+    // the kit). The caller keeps the data alive while it is set. Tune, Decay (shorter
+    // below 50 %), the voice's level and the kit bus still apply.
+    void setDrumSample(int voice, const SampleData* sample);
     void triggerDrum(int voice, float velocity); // velocity 0..1
     // `id` identifies the note for its note-off (the MIDI out note); `pitch` is
     // what it sounds like (MIDI note number, fractional allowed).

@@ -507,3 +507,37 @@ TEST("sound: Duck makes the kick push a synth down, and it comes back")
     CHECK(on[1] < on[0] * 0.35f);   // pushed down right after the kick
     CHECK(on[2] > on[0] * 0.85f);   // and back up
 }
+
+TEST("sound: a drum voice can play a user sample instead of its synth")
+{
+    SampleData sample;
+    sample.sampleRate = 24000.0; // half the engine's rate: played at the right speed
+    const int n = 2400;          // 0.1 s
+    for (int i = 0; i < n; ++i)
+    {
+        const float s = 0.6f * std::sin(6.2831853f * 200.0f * static_cast<float>(i) / 24000.0f);
+        sample.left.push_back(s);
+        sample.right.push_back(s);
+    }
+    SoundEngine e;
+    dryEngine(e);
+    KitParams kit;
+    kit.reverbSend = 0.0f;
+    e.setKit(kit);
+    e.setDrumSample(1, &sample);
+    e.triggerDrum(1, 1.0f);
+    Rendered out;
+    renderInto(e, out, 0.3);
+    CHECK(out.finite && out.peak > 0.1f);
+    // 200 Hz for 0.1 s: about 40 zero crossings, then silence.
+    const int crossings = zeroCrossings(out.left, 0, static_cast<size_t>(0.1 * kRate));
+    CHECK_MSG(crossings >= 36 && crossings <= 44, crossings << " crossings");
+    CHECK(out.rms(static_cast<size_t>(0.15 * kRate), out.left.size()) < 2.0e-3f);
+    CHECK(!e.drumActive(1));
+    // Other voices keep their synth; clearing brings this one's back.
+    e.setDrumSample(1, nullptr);
+    e.triggerDrum(1, 1.0f);
+    Rendered synth;
+    renderInto(e, synth, 0.05);
+    CHECK(synth.peak > 0.05f && e.drumActive(1));
+}

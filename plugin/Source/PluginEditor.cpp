@@ -24,11 +24,12 @@ constexpr int kMacroY = 506; // two rows of four macro knobs under the parts
 // Voices matrix geometry
 constexpr int kVoiceX0 = kPageX + 384;
 constexpr int kVoiceColW = 70;
-constexpr int kVoiceRowY[] = { 122, 166, 210, 254, 298, 342 };
-constexpr int kVoiceRowH = 44;
-constexpr int kVelocityRowY = 392;
-constexpr int kNoteRowY = 422;
-constexpr int kChannelRowY = 450;
+constexpr int kVoiceRowY[] = { 122, 162, 202, 242, 282, 322 };
+constexpr int kVoiceRowH = 40;
+constexpr int kVelocityRowY = 366;
+constexpr int kNoteRowY = 394;
+constexpr int kChannelRowY = 420;
+constexpr int kSampleRowY = 446;
 const char* const kVoiceRowNames[] = { "Fill", "Random", "Probability", "Random", "Humanize", "Dynamics" };
 
 // The arp and chord blocks keep their own 952-wide layout (from x = 24), moved into the page.
@@ -101,6 +102,10 @@ GristoView::GristoView(GristoProcessor& proc)
         notes_[v] = std::make_unique<NoteSelector>(*proc.state.getParameter(p::voiceId(p::note, v)));
         addAndMakeVisible(*notes_[v]);
         setupToggle(mutes_[v], p::voiceId(p::partMute, v), "Mute");
+        sampleButtons_[v].onClick = [this, v] { showSampleMenu(v); };
+        addAndMakeVisible(sampleButtons_[v]);
+        setHelp(sampleButtons_[v], juce::String(gristo::voiceName(v)) + " sample",
+                "Load your own one-shot for this drum instead of the kit's sound. Kit Tune, Decay (below 50% = shorter) and level still apply.");
     }
     setupChoice(timing_, p::timing, "Timing");
     setupKnob(shuffle_, p::shuffle, "Shuffle");
@@ -903,6 +908,13 @@ void GristoView::timerCallback()
         laneRate_.setVisible(lfo);
         shapesButton_.setVisible(!lfo);
     }
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        const auto name = processor_.drumSampleName(v);
+        const auto text = name.isEmpty() ? juce::String("Kit") : juce::File::createLegalFileName(name).upToLastOccurrenceOf(".", false, false);
+        if (sampleButtons_[v].getButtonText() != text)
+            sampleButtons_[v].setButtonText(text);
+    }
     undoButton_.setEnabled(processor_.canUndo());
     redoButton_.setEnabled(processor_.canRedo());
     {
@@ -1692,6 +1704,48 @@ void GristoView::showSceneMenu(int scene)
     });
 }
 
+void GristoView::showSampleMenu(int voice)
+{
+    juce::PopupMenu menu;
+    const auto current = processor_.drumSampleName(voice);
+    menu.addSectionHeader(juce::String(gristo::voiceName(voice)) + (current.isEmpty() ? juce::String() : ": " + current));
+    menu.addItem(1, "Load a sample...");
+    menu.addItem(2, "Back to the kit's sound", current.isNotEmpty());
+    // Samples used before, straight from the samples folder.
+    const auto files = GristoProcessor::samplesFolder().findChildFiles(juce::File::findFiles, false, "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
+    if (!files.isEmpty())
+        menu.addSeparator();
+    for (int i = 0; i < std::min(files.size(), 40); ++i)
+        menu.addItem(100 + i, files[i].getFileNameWithoutExtension(), true, files[i].getFileName() == current);
+    juce::Component::SafePointer<GristoView> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&sampleButtons_[voice]), [safe, voice, files](int result) {
+        if (safe == nullptr || result <= 0)
+            return;
+        auto failed = [safe] {
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Sample",
+                                                   "That file couldn't be read as audio (WAV, AIFF, FLAC, OGG or MP3).", "OK", safe.getComponent());
+        };
+        if (result == 2)
+            safe->processor_.clearDrumSample(voice);
+        else if (result >= 100)
+        {
+            if (!safe->processor_.loadDrumSample(voice, juce::URL(files[result - 100])))
+                failed();
+        }
+        else if (result == 1)
+        {
+            safe->chooser_ = std::make_unique<juce::FileChooser>("Load a drum sample", juce::File(),
+                                                                 kIsMobile ? juce::String() : juce::String("*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3"));
+            safe->chooser_->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                                        [safe, voice, failed](const juce::FileChooser& fc) {
+                                            const auto url = fc.getURLResult();
+                                            if (safe != nullptr && !url.isEmpty() && !safe->processor_.loadDrumSample(voice, url))
+                                                failed();
+                                        });
+        }
+    });
+}
+
 juce::Colour GristoView::partColour(int part)
 {
     if (part < gristo::kNumVoices)
@@ -1735,6 +1789,7 @@ std::vector<juce::Component*> GristoView::drumsPageComponents()
         list.push_back(velocityRanges_[v].get());
         list.push_back(notes_[v].get());
         list.push_back(channels_[v].get());
+        list.push_back(&sampleButtons_[v]);
     }
     return list;
 }
@@ -2010,6 +2065,7 @@ void GristoView::paint(juce::Graphics& g)
         g.drawText("Velocity", px + 318, kVelocityRowY + 3, 66, 16, juce::Justification::centredLeft);
         g.drawText("Note", px + 318, kNoteRowY + 3, 66, 16, juce::Justification::centredLeft);
         g.drawText("Channel", px + 318, kChannelRowY + 3, 66, 16, juce::Justification::centredLeft);
+        g.drawText("Sample", px + 318, kSampleRowY + 3, 66, 16, juce::Justification::centredLeft);
     }
     else if (page_ == kMasterPage)
     {
@@ -2184,6 +2240,7 @@ void GristoView::resized()
         velocityRanges_[v]->setBounds(x + 3, kVelocityRowY, kVoiceColW - 6, 24);
         notes_[v]->setBounds(x + 3, kNoteRowY, kVoiceColW - 6, 22);
         channels_[v]->setBounds(x + 10, kChannelRowY, kVoiceColW - 20, 22);
+        sampleButtons_[v].setBounds(x + 3, kSampleRowY, kVoiceColW - 6, 22);
     }
 
     // Kit

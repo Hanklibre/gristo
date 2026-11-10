@@ -123,6 +123,7 @@ juce::ValueTree PresetManager::capture(const juce::String& name) const
     processor_.writeLanes(lanes);
     preset.appendChild(lanes, nullptr);
     processor_.writeScenes(preset);
+    processor_.writeSamples(preset);
     return preset;
 }
 
@@ -155,6 +156,7 @@ void PresetManager::apply(const juce::ValueTree& preset)
     else
         processor_.resetLanes();
     processor_.readScenes(preset);
+    processor_.readSamples(preset);
 }
 
 void PresetManager::loadInit()

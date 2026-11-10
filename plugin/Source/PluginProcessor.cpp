@@ -231,6 +231,17 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     midi.clear(); // MIDI in is consumed (it feeds the arps); the output is Gristo's own
 
     refreshSettings();
+    if (samplesChanged_.load(std::memory_order_relaxed))
+    {
+        // Picked up without waiting: if the message thread is busy swapping, next block.
+        const juce::SpinLock::ScopedTryLockType lock(sampleLock_);
+        if (lock.isLocked())
+        {
+            for (int v = 0; v < gristo::kNumVoices; ++v)
+                sound_.setDrumSample(v, samples_[static_cast<size_t>(v)].get());
+            samplesChanged_.store(false, std::memory_order_relaxed);
+        }
+    }
     for (int a = 0; a < gristo::kNumArps; ++a)
     {
         const bool latch = settings_.latch[a];
@@ -483,6 +494,7 @@ void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
     presets.writeTo(tree);
     tree.removeChild(tree.getChildWithName("SCENES"), nullptr);
     writeScenes(tree);
+    writeSamples(tree);
     juce::StringArray ccs;
     for (const auto& cc : macroCc)
         ccs.add(juce::String(cc.load()));
@@ -518,6 +530,7 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
             paramGeneration_.fetch_add(1);
             presets.readFrom(tree);
             readScenes(tree);
+            readSamples(tree);
             const auto ccs = juce::StringArray::fromTokens(tree.getProperty("macroCc", "").toString(), ",", {});
             for (int k = 0; k < gristo::kNumMacros; ++k)
                 macroCc[static_cast<size_t>(k)].store(k < ccs.size() ? juce::jlimit(-1, 127, ccs[k].getIntValue()) : -1);
@@ -690,6 +703,125 @@ juce::File GristoProcessor::exportMidiToTempFile(int bars, int part) const
         return {};
     out.flush();
     return file;
+}
+
+// ---------------------------------------------------------------------------------
+// Drum samples (message thread)
+
+juce::File GristoProcessor::samplesFolder()
+{
+    auto folder = PresetManager::userFolder().getSiblingFile("Samples");
+    folder.createDirectory();
+    return folder;
+}
+
+bool GristoProcessor::setDrumSampleFile(int voice, const juce::File& file)
+{
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+    if (reader == nullptr || reader->lengthInSamples <= 0 || reader->sampleRate <= 0.0)
+        return false;
+    // One-shots: anything longer than 20 s is cut there.
+    const auto length = static_cast<int>(std::min<juce::int64>(reader->lengthInSamples, static_cast<juce::int64>(reader->sampleRate * 20.0)));
+    juce::AudioBuffer<float> buffer(2, length);
+    reader->read(&buffer, 0, length, 0, true, true);
+    auto data = std::make_shared<gristo::sound::SampleData>();
+    data->sampleRate = reader->sampleRate;
+    const float* l = buffer.getReadPointer(0);
+    const float* r = buffer.getReadPointer(reader->numChannels > 1 ? 1 : 0);
+    data->left.resize(static_cast<size_t>(length) + 1, 0.0f); // one extra sample, so it ends at zero
+    data->right.resize(static_cast<size_t>(length) + 1, 0.0f);
+    for (int i = 0; i < length; ++i)
+    {
+        data->left[static_cast<size_t>(i)] = std::isfinite(l[i]) ? juce::jlimit(-4.0f, 4.0f, l[i]) : 0.0f;
+        data->right[static_cast<size_t>(i)] = std::isfinite(r[i]) ? juce::jlimit(-4.0f, 4.0f, r[i]) : 0.0f;
+    }
+    {
+        const juce::SpinLock::ScopedLockType lock(sampleLock_);
+        if (samples_[static_cast<size_t>(voice)] != nullptr)
+            retiredSamples_.push_back(samples_[static_cast<size_t>(voice)]);
+        if (retiredSamples_.size() > 12)
+            retiredSamples_.erase(retiredSamples_.begin());
+        samples_[static_cast<size_t>(voice)] = std::move(data);
+        sampleNames_[static_cast<size_t>(voice)] = file.getFileName();
+    }
+    samplesChanged_.store(true);
+    return true;
+}
+
+bool GristoProcessor::loadDrumSample(int voice, const juce::URL& source)
+{
+    if (voice < 0 || voice >= gristo::kNumVoices)
+        return false;
+    // Keep a copy in the samples folder, so the patch finds it again.
+    juce::File file = source.isLocalFile() ? source.getLocalFile() : juce::File();
+    if (!file.existsAsFile() || !file.isAChildOf(samplesFolder()))
+    {
+        const auto name = juce::File::createLegalFileName(source.isLocalFile() ? file.getFileName() : source.getFileName());
+        const auto target = samplesFolder().getChildFile(name.isNotEmpty() ? name : juce::String("sample.wav"));
+        if (file.existsAsFile())
+        {
+            if (file.getSize() > 64 * 1024 * 1024 || (!target.existsAsFile() && !file.copyFileTo(target)))
+                return false;
+        }
+        else
+        {
+            std::unique_ptr<juce::InputStream> in(source.createInputStream(juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)));
+            if (in == nullptr || in->getTotalLength() > 64 * 1024 * 1024)
+                return false;
+            juce::MemoryBlock data;
+            in->readIntoMemoryBlock(data, 64 * 1024 * 1024 + 1);
+            if (data.getSize() == 0 || data.getSize() > 64 * 1024 * 1024 || !target.replaceWithData(data.getData(), data.getSize()))
+                return false;
+        }
+        file = target;
+    }
+    return setDrumSampleFile(voice, file);
+}
+
+void GristoProcessor::clearDrumSample(int voice)
+{
+    if (voice < 0 || voice >= gristo::kNumVoices)
+        return;
+    {
+        const juce::SpinLock::ScopedLockType lock(sampleLock_);
+        if (samples_[static_cast<size_t>(voice)] != nullptr)
+            retiredSamples_.push_back(samples_[static_cast<size_t>(voice)]);
+        samples_[static_cast<size_t>(voice)].reset();
+        sampleNames_[static_cast<size_t>(voice)].clear();
+    }
+    samplesChanged_.store(true);
+}
+
+juce::String GristoProcessor::drumSampleName(int voice) const
+{
+    const juce::SpinLock::ScopedLockType lock(sampleLock_);
+    return voice >= 0 && voice < gristo::kNumVoices ? sampleNames_[static_cast<size_t>(voice)] : juce::String();
+}
+
+void GristoProcessor::writeSamples(juce::ValueTree& parent) const
+{
+    parent.removeChild(parent.getChildWithName("SAMPLES"), nullptr);
+    juce::ValueTree samples("SAMPLES");
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        samples.setProperty("voice" + juce::String(v), drumSampleName(v), nullptr);
+    parent.appendChild(samples, nullptr);
+}
+
+void GristoProcessor::readSamples(const juce::ValueTree& parent)
+{
+    const auto samples = parent.getChildWithName("SAMPLES");
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        // Names only, looked up in the samples folder: a missing file means the kit's own sound.
+        const auto name = juce::File::createLegalFileName(samples.getProperty("voice" + juce::String(v), "").toString());
+        if (name == drumSampleName(v))
+            continue;
+        const auto file = samplesFolder().getChildFile(name);
+        if (name.isEmpty() || !file.existsAsFile() || !setDrumSampleFile(v, file))
+            clearDrumSample(v);
+    }
 }
 
 // ---------------------------------------------------------------------------------

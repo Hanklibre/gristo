@@ -4,6 +4,7 @@
 #include "TestFramework.h"
 
 #include "PluginProcessor.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 namespace p = gristo::params;
 
@@ -394,6 +395,43 @@ TEST("plugin: dice gives new, playable settings and respects locks")
         CHECK_MSG(run.nonFinite == 0 && run.peak <= 1.0f, "dice round " << i);
     }
     CHECK(proc->presets.captureSnapshot() != before);
+}
+
+TEST("plugin: a drum sample loads, plays and comes back with the project")
+{
+    // A short 440 Hz one-shot as a WAV file.
+    const auto wav = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gristo_test_shot.wav");
+    wav.deleteFile();
+    {
+        juce::AudioBuffer<float> buffer(1, 4410);
+        for (int i = 0; i < 4410; ++i)
+            buffer.setSample(0, i, 0.5f * std::sin(6.2831853f * 440.0f * static_cast<float>(i) / 44100.0f));
+        juce::WavAudioFormat format;
+        std::unique_ptr<juce::AudioFormatWriter> writer(format.createWriterFor(new juce::FileOutputStream(wav), 44100.0, 1, 16, {}, 0));
+        CHECK(writer != nullptr);
+        if (writer != nullptr)
+            writer->writeFromAudioSampleBuffer(buffer, 0, 4410);
+    }
+    auto proc = makeProcessor();
+    CHECK(!proc->loadDrumSample(0, juce::URL(juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("gristo_no_such.wav"))));
+    CHECK(proc->loadDrumSample(0, juce::URL(wav)));
+    CHECK(proc->drumSampleName(0) == "gristo_test_shot.wav");
+    CHECK(GristoProcessor::samplesFolder().getChildFile("gristo_test_shot.wav").existsAsFile()); // copied in
+    Run run = play(*proc, 600);
+    CHECK(run.nonFinite == 0 && run.peak > 0.05f);
+
+    juce::MemoryBlock state;
+    proc->getStateInformation(state);
+    GristoProcessor other;
+    other.prepareToPlay(48000.0, 256);
+    other.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    CHECK(other.drumSampleName(0) == "gristo_test_shot.wav");
+    proc->clearDrumSample(0);
+    CHECK(proc->drumSampleName(0).isEmpty());
+    run = play(*proc, 200, 256, &run);
+    CHECK(run.nonFinite == 0);
+    GristoProcessor::samplesFolder().getChildFile("gristo_test_shot.wav").deleteFile();
+    wav.deleteFile();
 }
 
 int main()

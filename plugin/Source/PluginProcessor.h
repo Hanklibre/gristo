@@ -101,6 +101,15 @@ public:
     void diceAll();
     std::atomic<int> diceLocks { 0 }; // bit per Section
 
+    // --- Your own drum samples: a one-shot per voice, kept in Documents/Gristo/Samples
+    // (files chosen elsewhere are copied there) and remembered by name.
+    static juce::File samplesFolder();
+    bool loadDrumSample(int voice, const juce::URL& source); // message thread; false if it can't be read
+    void clearDrumSample(int voice);
+    juce::String drumSampleName(int voice) const; // empty: the kit's own sound
+    void writeSamples(juce::ValueTree& parent) const;
+    void readSamples(const juce::ValueTree& parent);
+
     // --- Macro MIDI learn: the next CC on MIDI in is bound to the macro.
     std::atomic<int> learnMacro { -1 };
     std::array<std::atomic<int>, gristo::kNumMacros> macroCc;
@@ -147,6 +156,13 @@ private:
     Snapshot lastSnapshot_;
     int historyTick_ = 0;
     std::array<Snapshot, kNumScenes> scenes_;
+
+    bool setDrumSampleFile(int voice, const juce::File& file);
+    mutable juce::SpinLock sampleLock_;
+    std::array<std::shared_ptr<gristo::sound::SampleData>, gristo::kNumVoices> samples_;
+    std::array<juce::String, gristo::kNumVoices> sampleNames_;
+    std::vector<std::shared_ptr<gristo::sound::SampleData>> retiredSamples_; // still in use by the audio thread for a moment
+    std::atomic<bool> samplesChanged_ { false };
     std::int64_t sceneRequestBar_ = -1, chainQueuedBar_ = -1;
     int lastPending_ = -1;
     std::array<std::atomic<float>, gristo::kNumMacros> macroCcValue; // -1 = nothing new

@@ -16,6 +16,17 @@ struct SoundEngine::Impl
     FxParams fx;
     SynthParams synthParams[kNumSynths];
     DrumVoice drums[kNumDrumVoices];
+    // User samples: one player per drum voice.
+    struct SamplePlayer
+    {
+        const SampleData* data = nullptr;
+        double position = 0.0, increment = 1.0;
+        float gain = 0.0f, fade = 1.0f, fadeCoef = 1.0f;
+        bool active = false, choked = false;
+    };
+    const SampleData* samples[kNumDrumVoices] {};
+    SamplePlayer players[kNumDrumVoices];
+    float chokeCoef = 0.999f;
     Synth synths[kNumSynths];
     Reverb reverb;
     Delay delay;
@@ -73,6 +84,7 @@ void SoundEngine::prepare(double sampleRate)
         m.chorus[s].prepare(m.sampleRate, 0.25f * static_cast<float>(s)); // staggered LFOs
     m.glue.prepare(m.sampleRate);
     m.sendCoef = 1.0f - std::exp(-1.0f / (0.012f * m.sampleRate));
+    m.chokeCoef = dsp::decayCoef(0.03f, m.sampleRate);
     m.duckRelease = std::exp(-1.0f / (0.11f * m.sampleRate)); // back up over ~250 ms
     m.duckAttack = 1.0f - std::exp(-1.0f / (0.004f * m.sampleRate));
     m.configuredTone = m.configuredLowpass = -1.0f;
@@ -89,6 +101,8 @@ void SoundEngine::reset()
     }
     for (auto& s : m.synths)
         s.reset();
+    for (auto& player : m.players)
+        player.active = false;
     m.reverb.reset();
     m.delay.reset();
     for (auto& c : m.chorus)
@@ -151,6 +165,18 @@ void SoundEngine::setFx(const FxParams& params)
     m.delay.set(static_cast<float>(fx.delayBeats * 60.0 / bpm), fx.delayFeedback);
 }
 
+void SoundEngine::setDrumSample(int voice, const SampleData* sample)
+{
+    auto& m = *impl_;
+    if (voice < 0 || voice >= kNumDrumVoices || m.samples[voice] == sample)
+        return;
+    if (sample != nullptr && (sample->left.empty() || sample->right.size() != sample->left.size()))
+        sample = nullptr;
+    m.samples[voice] = sample;
+    m.players[voice].active = false; // never keep reading data that may go away
+    m.players[voice].data = nullptr;
+}
+
 void SoundEngine::triggerDrum(int voice, float velocity)
 {
     auto& m = *impl_;
@@ -158,8 +184,25 @@ void SoundEngine::triggerDrum(int voice, float velocity)
         return;
     if (voice == kClosedHat && m.drums[kOpenHat].active())
         m.drums[kOpenHat].choke(); // closed hat chokes the open one
+    if (voice == kClosedHat)
+        m.players[kOpenHat].choked = true;
     if (voice == 0)
         m.duckEnv = std::max(m.duckEnv, 0.35f + 0.65f * dsp::clamp01(velocity));
+    if (const SampleData* sample = m.samples[voice])
+    {
+        auto& player = m.players[voice];
+        const float v = dsp::clamp01(velocity);
+        player.data = sample;
+        player.position = 0.0;
+        player.increment = sample->sampleRate / static_cast<double>(m.sampleRate) * std::exp2(std::clamp(m.kit.tune, -12.0f, 12.0f) / 12.0f);
+        player.gain = 0.1f + 0.9f * v * v;
+        player.fade = 1.0f;
+        // Decay below 50 % shortens the sample (from about 2 s down to 60 ms); above, it plays out.
+        player.fadeCoef = m.kit.decay < 0.5f ? dsp::decayCoef(dsp::macroLog(m.kit.decay * 2.0f, 0.06f, 0.4f, 2.0f), m.sampleRate) : 1.0f;
+        player.choked = false;
+        player.active = true;
+        return;
+    }
     const KitPatch& patch = kitPatch(m.kit.kit);
     const float decayScale = dsp::macroLog(m.kit.decay, 0.3f, 1.0f, 2.5f);
     m.drums[voice].trigger(patch.voices[voice], dsp::clamp01(velocity), std::clamp(m.kit.tune, -12.0f, 12.0f), decayScale);
@@ -229,6 +272,25 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             const float pan = m.drums[v].pan();
             kl += s * (1.0f - pan);
             kr += s * (1.0f + pan);
+        }
+        for (int v = 0; v < kNumDrumVoices; ++v)
+        {
+            auto& player = m.players[v];
+            if (!player.active)
+                continue;
+            const auto& data = *player.data;
+            const auto index = static_cast<size_t>(player.position);
+            if (index + 1 >= data.left.size() || player.fade < 1.0e-4f)
+            {
+                player.active = false;
+                continue;
+            }
+            const float frac = static_cast<float>(player.position - static_cast<double>(index));
+            const float g = player.gain * player.fade * m.kit.level[static_cast<size_t>(v)];
+            kl += (data.left[index] + (data.left[index + 1] - data.left[index]) * frac) * g;
+            kr += (data.right[index] + (data.right[index + 1] - data.right[index]) * frac) * g;
+            player.position += player.increment;
+            player.fade *= player.choked ? m.chokeCoef : player.fadeCoef;
         }
         // Kit bus: colour (lo-fi), tone, drive.
         if (colour)
