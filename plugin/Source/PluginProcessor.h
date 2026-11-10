@@ -58,6 +58,18 @@ public:
     // Pitches are the musical ones, ready to drop on an instrument track: arps and
     // chords without their Out Shift, drums moved up from the split range to GM.
     // Message thread.
+    // Every note of every part between two positions, as it plays now (for the
+    // timeline). Muted parts are included. Message thread.
+    struct NoteSpan
+    {
+        int part = 0;
+        double start = 0.0, end = 0.0; // beats
+        float velocity = 0.0f;
+        int pitch = -1; // arps and chords
+    };
+    std::vector<NoteSpan> renderSpans(double startBeats, double endBeats) const;
+    std::uint32_t parameterGeneration() const { return paramGeneration_.load(std::memory_order_relaxed); }
+
     static constexpr int kAllParts = -1, kAllDrums = -2;
     juce::MidiFile exportMidi(int bars, int part) const;
     juce::File exportMidiToTempFile(int bars, int part) const; // for drag and drop; empty on failure

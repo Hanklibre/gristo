@@ -1054,3 +1054,112 @@ void DragOutHandle::paint(juce::Graphics& g)
     g.setFont(juce::FontOptions(12.0f));
     g.drawFittedText(text, getLocalBounds().withTrimmedLeft(20).withTrimmedRight(4), juce::Justification::centredLeft, 1, 0.8f);
 }
+
+// ---------------------------------------------------------------------------------
+
+void TimelineView::update(double ppq, bool playing, int bars, int selectedPart)
+{
+    bars = std::max(1, bars);
+    const double length = bars * 4.0;
+    const double windowStart = playing ? std::floor(ppq / length) * length : 0.0;
+    // Notes held on MIDI in change what the arps play.
+    std::int64_t inputKey = 0;
+    for (int a = 0; a < gristo::kNumArps; ++a)
+    {
+        const int count = processor_.displayArpInputCount[static_cast<size_t>(a)].load();
+        inputKey = inputKey * 31 + count;
+        for (int i = 0; i < std::min(count, static_cast<int>(gristo::kMaxHeldNotes)); ++i)
+            inputKey = inputKey * 131 + processor_.displayArpInput[static_cast<size_t>(a)][static_cast<size_t>(i)].load();
+    }
+    const auto generation = processor_.parameterGeneration();
+    if (generation != generation_ || inputKey != inputKey_ || bars != bars_ || !juce::exactlyEqual(windowStart, windowStart_))
+        stale_ = true;
+    generation_ = generation;
+    inputKey_ = inputKey;
+    const bool moved = !juce::exactlyEqual(ppq, ppq_) || playing != playing_ || selectedPart != selectedPart_;
+    ppq_ = ppq;
+    playing_ = playing;
+    bars_ = bars;
+    selectedPart_ = selectedPart;
+    windowStart_ = windowStart;
+    // Re-rendering the window is cheap but not free: at most a few times a second
+    // while knobs move (a new window while playing is rendered at once).
+    const auto now = juce::Time::getMillisecondCounter();
+    if (stale_ && (now - renderedAt_ > 200 || spans_.empty()))
+    {
+        spans_ = processor_.renderSpans(windowStart_, windowStart_ + length);
+        renderedAt_ = now;
+        stale_ = false;
+        repaint();
+    }
+    else if (moved)
+        repaint();
+}
+
+void TimelineView::mouseDown(const juce::MouseEvent& e)
+{
+    const int part = juce::jlimit(0, gristo::kNumParts - 1, e.y * gristo::kNumParts / std::max(1, getHeight()));
+    if (onSelect)
+        onSelect(part);
+}
+
+void TimelineView::paint(juce::Graphics& g)
+{
+    using namespace gristo;
+    const auto area = getLocalBounds().toFloat();
+    const auto grid = area.withTrimmedLeft(static_cast<float>(kLabelWidth));
+    const float rowH = grid.getHeight() / kNumParts;
+    const double length = bars_ * 4.0;
+    auto xOf = [&](double beats) { return grid.getX() + static_cast<float>((beats - windowStart_) / length) * grid.getWidth(); };
+    auto colourOf = [](int part) {
+        return part < kNumVoices ? voiceColours[part] : part < kChordVoice ? arpColours[part - kNumVoices] : colours::random;
+    };
+
+    g.setColour(colours::background.brighter(0.02f));
+    g.fillRect(grid);
+    for (int part = 0; part < kNumParts; ++part)
+    {
+        const auto row = grid.withY(grid.getY() + part * rowH).withHeight(rowH);
+        if (part == selectedPart_)
+        {
+            g.setColour(colourOf(part).withAlpha(0.10f));
+            g.fillRect(row);
+        }
+        g.setColour(part == selectedPart_ ? colourOf(part) : colours::dim);
+        g.setFont(juce::FontOptions(std::min(10.5f, rowH + 1.5f)));
+        g.drawText(partName(part), juce::Rectangle<float>(area.getX(), row.getY(), kLabelWidth - 6.0f, rowH), juce::Justification::centredRight);
+        if (part == kNumVoices || part == kChordVoice)
+        {
+            g.setColour(colours::outline.withAlpha(0.6f));
+            g.drawHorizontalLine(juce::roundToInt(row.getY()), grid.getX(), grid.getRight());
+        }
+    }
+    const int steps = bars_ * kStepsPerBar;
+    for (int s = 0; s <= steps; ++s)
+    {
+        const bool bar = s % kStepsPerBar == 0, beat = s % kStepsPerBeat == 0;
+        if (!beat && bars_ > 2)
+            continue;
+        g.setColour(colours::outline.withAlpha(bar ? 1.0f : beat ? 0.55f : 0.18f));
+        g.drawVerticalLine(juce::roundToInt(grid.getX() + grid.getWidth() * static_cast<float>(s) / static_cast<float>(steps)), grid.getY(), grid.getBottom());
+    }
+
+    const float minW = std::max(2.0f, grid.getWidth() / static_cast<float>(steps) * 0.45f);
+    for (const auto& span : spans_)
+    {
+        if (span.part < 0 || span.part >= kNumParts)
+            continue;
+        const float y = grid.getY() + span.part * rowH;
+        const float x = xOf(span.start);
+        const bool drum = span.part < kNumVoices;
+        const float w = drum ? minW : std::max(minW, xOf(span.end) - x - 1.0f);
+        g.setColour(colourOf(span.part).withAlpha(0.4f + 0.6f * juce::jlimit(0.0f, 1.0f, span.velocity)));
+        g.fillRoundedRectangle(juce::Rectangle<float>(x, y + 1.0f, w, std::max(2.0f, rowH - 2.0f)).getIntersection(grid), 1.5f);
+    }
+
+    if (playing_)
+    {
+        g.setColour(colours::accent);
+        g.drawVerticalLine(juce::roundToInt(xOf(ppq_)), grid.getY(), grid.getBottom());
+    }
+}

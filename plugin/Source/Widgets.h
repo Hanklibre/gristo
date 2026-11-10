@@ -65,7 +65,7 @@ protected:
 };
 
 // Rotary knob that can show modulation rings and a live-value dot, and accepts lanes.
-class ModSlider : public juce::Slider, public ModDropTarget
+class ModSlider : public juce::Slider, public ModDropTarget, private juce::Timer
 {
 public:
     std::vector<ModRing> rings;
@@ -74,16 +74,40 @@ public:
     std::function<void()> onContextMenu; // right-click: "Modulate with lane..."
 
     void paint(juce::Graphics&) override;
+    // Right-click, or press and hold without moving (touch), opens the menu.
     void mouseDown(const juce::MouseEvent& e) override
     {
         if (e.mods.isPopupMenu() && onContextMenu)
+        {
             onContextMenu();
-        else
-            juce::Slider::mouseDown(e);
+            return;
+        }
+        if (onContextMenu)
+            startTimer(600);
+        juce::Slider::mouseDown(e);
+    }
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (e.getDistanceFromDragStart() > 5)
+            stopTimer();
+        juce::Slider::mouseDrag(e);
+    }
+    void mouseUp(const juce::MouseEvent& e) override
+    {
+        stopTimer();
+        juce::Slider::mouseUp(e);
     }
 
 protected:
     void setDropHover(bool hover) override;
+
+private:
+    void timerCallback() override
+    {
+        stopTimer();
+        if (onContextMenu && isMouseButtonDown())
+            onContextMenu();
+    }
 };
 
 // Per-voice MIDI note: click for a menu (octaves, GM drum names), scroll to step.
@@ -257,6 +281,31 @@ private:
     double ppq_ = 0.0;
     double bpm_ = 120.0;
     bool playing_ = false;
+};
+
+// All ten parts over the bars the selected lane spans, each note where it will
+// sound, with the playhead. Sits right above the lane editor, on the same time axis.
+class TimelineView : public juce::Component
+{
+public:
+    static constexpr int kLabelWidth = 64;
+    explicit TimelineView(GristoProcessor& processor) : processor_(processor) {}
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    // Called from the editor's timer.
+    void update(double ppq, bool playing, int bars, int selectedPart);
+    std::function<void(int part)> onSelect;
+
+private:
+    GristoProcessor& processor_;
+    std::vector<GristoProcessor::NoteSpan> spans_;
+    double ppq_ = 0.0, windowStart_ = 0.0;
+    bool playing_ = false;
+    int bars_ = 1, selectedPart_ = 0;
+    std::uint32_t generation_ = 0;
+    std::int64_t inputKey_ = -1;
+    juce::uint32 renderedAt_ = 0;
+    bool stale_ = true;
 };
 
 // Massive-style performer lane: draw one value per 16th with the mouse.

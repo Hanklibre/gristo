@@ -100,6 +100,7 @@ private:
 
     MapPad mapPad_;
     PatternView patternView_;
+    TimelineView timelineView_;
     juce::Label nodeLabel_;
     juce::TextButton sizeButton_, keysButton_ { "Keys" };
 

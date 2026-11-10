@@ -482,6 +482,53 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
         }
 }
 
+std::vector<GristoProcessor::NoteSpan> GristoProcessor::renderSpans(double startBeats, double endBeats) const
+{
+    constexpr int kBlock = 512;
+    constexpr double kRate = 48000.0;
+    gristo::EngineParams params = p::readEngineParams(state, modPoints);
+    params.partMute.fill(false);
+    gristo::Engine engine;
+    engine.setParams(params);
+    for (int a = 0; a < gristo::kNumArps; ++a)
+    {
+        int notes[gristo::kMaxHeldNotes] {};
+        const int count = juce::jlimit(0, static_cast<int>(gristo::kMaxHeldNotes), displayArpInputCount[static_cast<size_t>(a)].load());
+        for (int i = 0; i < count; ++i)
+            notes[i] = displayArpInput[static_cast<size_t>(a)][static_cast<size_t>(i)].load();
+        engine.setArpInput(a, notes, count);
+    }
+    const double tempo = juce::jlimit(20.0, 400.0, displayBpm.load());
+    const double beatsPerBlock = kBlock * tempo / (60.0 * kRate);
+    std::vector<NoteSpan> spans;
+    std::vector<gristo::OutputEvent> events;
+    auto close = [&spans](int part, int pitch, double beats) {
+        for (auto it = spans.rbegin(); it != spans.rend(); ++it)
+            if (it->part == part && it->pitch == pitch && it->end < 0.0)
+            {
+                it->end = beats;
+                return;
+            }
+    };
+    for (double ppq = startBeats; ppq < endBeats; ppq += beatsPerBlock)
+    {
+        events.clear();
+        engine.process({ true, ppq, tempo, kRate, kBlock }, events);
+        for (const auto& ev : events)
+        {
+            const double beats = ppq + ev.sampleOffset * tempo / (60.0 * kRate);
+            if (!ev.noteOn)
+                close(ev.voice, ev.note, beats);
+            else if (beats < endBeats)
+                spans.push_back({ ev.voice, beats, -1.0, ev.velocity, ev.note });
+        }
+    }
+    for (auto& span : spans)
+        if (span.end < 0.0)
+            span.end = endBeats;
+    return spans;
+}
+
 juce::MidiFile GristoProcessor::exportMidi(int bars, int part) const
 {
     constexpr int kTicksPerBeat = 960, kBlock = 512;

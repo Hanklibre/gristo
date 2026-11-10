@@ -47,12 +47,15 @@ const float kScales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.25f };
 // View
 
 GristoView::GristoView(GristoProcessor& proc)
-    : processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_), arpView_(proc), laneEditor_(proc)
+    : processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_), timelineView_(proc), arpView_(proc), laneEditor_(proc)
 {
     setLookAndFeel(&lookAndFeel_);
 
     addAndMakeVisible(mapPad_);
-    addAndMakeVisible(patternView_);
+    addChildComponent(patternView_); // replaced by the timeline
+    addAndMakeVisible(timelineView_);
+    timelineView_.onSelect = [this](int part) { partSelect_[part].triggerClick(); };
+    setHelp(timelineView_, "Timeline", "Every part over the bars of the selected lane, each note where it will sound. Click a row to open that part.");
     nodeLabel_.setJustificationType(juce::Justification::centredLeft);
     nodeLabel_.setFont(juce::FontOptions(13.0f));
     addAndMakeVisible(nodeLabel_);
@@ -846,7 +849,8 @@ void GristoView::timerCallback()
     }
     mapPad_.repaint();
     nodeLabel_.setText("Near: " + mapPad_.nearestNodeName(), juce::dontSendNotification);
-    patternView_.setPlayhead(processor_.displayPpq.load(), processor_.displayBpm.load(), processor_.displayPlaying.load());
+    timelineView_.update(processor_.displayPpq.load(), processor_.displayPlaying.load(),
+                         params.modulation.lanes[static_cast<size_t>(selectedLane_)].bars, selectedPart_);
     laneEditor_.repaint();
     if (++presetRefresh_ >= 8) // a few times a second is plenty
     {
@@ -1982,8 +1986,8 @@ void GristoView::resized()
     dragBars_.setBounds(684, ty, 80, 24);
     dragPart_.setBounds(770, ty, 110, 24);
     dragAll_.setBounds(886, ty, 74, 24);
-    patternView_.setBounds(20, ty + 30, 940, 64);
-    laneEditor_.setBounds(84, ty + 98, 876, 84); // under the pattern's grid (its labels take 64 px)
+    timelineView_.setBounds(20, ty + 30, 940, 90);
+    laneEditor_.setBounds(20 + TimelineView::kLabelWidth, ty + 124, 940 - TimelineView::kLabelWidth, 58); // same time axis
     for (int s = 0; s < gristo::kModSlotsPerLane; ++s)
     {
         slots_[s].target.setBounds(kSlotX, kSlotRowY[s], 190, 28);
@@ -2068,6 +2072,7 @@ void GristoView::resized()
     for (auto* c : arpPageComponents())
         if (c != nullptr)
             c->setBounds(c->getBounds().translated(kBlockDx, 0));
+    arpView_.setBounds(arpView_.getBounds().withRight(kPageX + kPageW - 12)); // the note view takes the spare width
     for (auto* c : chordPageComponents())
         if (c != nullptr)
             c->setBounds(c->getBounds().translated(kBlockDx, 0));
