@@ -36,7 +36,7 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   add9 or 11, with inversions. For chords from outside the key, **Quality**
   (Major, Minor, Dominant, Dim, Half-dim, Aug) and the **b / #** root buttons
   give secondary dominants (E7 in C shows as V7/vi), tritone subs (bII7),
-  7sus4s and so on. Up to 8 chords of 1/2, 1 or 2 bars, or changing every N
+  7sus4s and so on. Up to 16 chords of 1/2, 1 or 2 bars, or changing every N
   hits of a drum voice. There's a progression library (pop, soul, lo-fi, trap,
   reggaeton, house, ...; Harold Budd-inspired ambient colours; Satie
   (Gymnopedie, Gnossienne, Sarabande ninths); classical (Pachelbel, Bach's C
@@ -88,6 +88,45 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   notes three octaves down on channel 10 by default, so the drums sit below the
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
+
+### Gristo 2
+
+The window is now one landscape layout (1280 wide, the same on desktop and
+tablet): a **part strip** on the left (six drums, three arps, chords; select,
+mute, solo and level for each, plus Master / FX), the selected part's **page**
+in the middle, and a **timeline** at the bottom that shows what every part
+plays and holds the modulation lanes.
+
+* **Scenes:** eight snapshots of the whole patch. Click to recall (on the bar
+  line while playing), right-click to store, **Chain** steps through them every
+  1-8 bars. MIDI channel 16, C1-G1, recalls them from a keyboard or clip.
+* **Macros:** eight knobs that each move up to four parameters. Right-click
+  (long-press on a tablet) any knob: *Control with macro* or *Modulate with
+  lane*. Right-click a macro for MIDI learn.
+* **Dice / Keep:** randomise a section (pattern, groove, kit, an arp, the
+  chords, a sound) or everything; Keep locks a section. **Undo / Redo** cover
+  every edit.
+* **Lanes** can be drawn or run as tempo-synced LFOs (sine, triangle, ramps,
+  square, random; 1/8 note to 8 bars).
+* **Drums:** the grid has two tabs. *Pattern*: Fill, Probability, **Ratchet**
+  (a hit becomes two or three quick ones) and **Length** (a drum loops after
+  1-32 steps: polymeter). *Play*: Humanize, Dynamics, **Swing** (how much of
+  the shuffle this drum follows), velocity, note, channel and **Sample** (your
+  own WAV / AIFF / FLAC one-shot instead of the kit's sound; kept in
+  `Documents/Gristo/Samples`).
+* **Arps:** *Step on* every hit or every 2nd, 3rd, 4th, 6th, 8th trigger hit.
+* **Chords:** **Voicing** (as written, Smooth: every chord in one octave so
+  notes move as little as possible, or Smooth + bass), **Strum** (ms between
+  notes; up, down or alternating), and the **Keys** clock: no progression,
+  you play the chords yourself, one per white key from C1 (MIDI in or the
+  on-screen Keys). Arps set to Chords follow the key you hold.
+* **Sound:** each synth has **Duck** (pumps with the kick). **Separate
+  outputs** (Master / FX page) gives Kit, Arp 1-3, Chords and FX their own
+  plugin outputs.
+* **MIDI to the DAW:** drag the handles in the timeline bar onto a track to
+  drop 1-8 bars of the selected part or of everything as a MIDI clip.
+
+Presets and projects from before Gristo 2 don't load in it.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for how it works and
 [docs/map.md](docs/map.md) for the current map.
