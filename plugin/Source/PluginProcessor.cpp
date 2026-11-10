@@ -242,6 +242,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             samplesChanged_.store(false, std::memory_order_relaxed);
         }
     }
+    engine_.setChordKey(chordKeyCount_ > 0 ? chordKeys_[static_cast<size_t>(chordKeyCount_ - 1)] : -1);
     for (int a = 0; a < gristo::kNumArps; ++a)
     {
         const bool latch = settings_.latch[a];
@@ -390,8 +391,24 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     }
 }
 
+int GristoProcessor::chordKeyIndex(int note)
+{
+    // The white keys from C1 (36) up: one per chord slot.
+    static const int white[12] = { 0, -2, 1, -2, 2, 3, -2, 4, -2, 5, -2, 6 };
+    if (note < 36)
+        return -1;
+    const int index = white[(note - 36) % 12];
+    if (index < 0)
+        return note < 36 + 27 ? -2 : -1;
+    const int slot = (note - 36) / 12 * 7 + index;
+    return slot < gristo::kMaxChordSlots ? slot : -1;
+}
+
 void GristoProcessor::handleMidiInput(const juce::MidiBuffer& midi)
 {
+    const bool chordKeys = settings_.engine.chords.enabled && settings_.engine.chords.clock == gristo::ChordClock::Keys;
+    if (!chordKeys)
+        chordKeyCount_ = 0;
     auto remove = [](std::array<int, gristo::kMaxHeldNotes>& list, int& count, int note) {
         for (int i = 0; i < count; ++i)
             if (list[static_cast<size_t>(i)] == note)
@@ -433,6 +450,18 @@ void GristoProcessor::handleMidiInput(const juce::MidiBuffer& midi)
                 pendingScene.store(m.getNoteNumber() - 36);
             continue;
         }
+        if (chordKeys && (m.isNoteOn() || m.isNoteOff()) && chordKeyIndex(m.getNoteNumber()) != -1)
+        {
+            // These keys pick a chord; they are not notes for the arps.
+            const int index = chordKeyIndex(m.getNoteNumber());
+            if (index >= 0)
+            {
+                remove(chordKeys_, chordKeyCount_, index);
+                if (m.isNoteOn())
+                    add(chordKeys_, chordKeyCount_, index);
+            }
+            continue;
+        }
         if (m.isNoteOn())
         {
             // A key pressed after all keys were released starts a new latched chord.
@@ -448,6 +477,7 @@ void GristoProcessor::handleMidiInput(const juce::MidiBuffer& midi)
         else if (m.isAllNotesOff() || m.isAllSoundOff())
         {
             heldCount_ = 0;
+            chordKeyCount_ = 0;
         }
     }
 }

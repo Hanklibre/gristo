@@ -183,10 +183,14 @@ private:
 
     // MIDI in: notes held now (press order) and the last chord, for Latch.
     void handleMidiInput(const juce::MidiBuffer& midi);
+    static int chordKeyIndex(int note); // -1: not a chord key, -2: a black key between them
     std::array<int, gristo::kMaxHeldNotes> held_ {};
     int heldCount_ = 0;
     std::array<int, gristo::kMaxHeldNotes> latched_ {};
     int latchedCount_ = 0;
+    // Chords' Keys clock: the white keys from C1 held now (index of the chord, press order).
+    std::array<int, gristo::kMaxHeldNotes> chordKeys_ {};
+    int chordKeyCount_ = 0;
     bool wasFreeRunning_ = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GristoProcessor)

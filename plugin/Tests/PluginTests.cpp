@@ -448,3 +448,38 @@ int main()
     std::cout << "\n" << ran << " plugin tests, " << gt::failures() << " failures\n";
     return gt::failures() == 0 ? 0 : 1;
 }
+
+TEST("plugin: with the Keys clock a white key from C1 plays its chord")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::chordOn, 1.0f);
+    setParam(*proc, p::chordClock, 2.0f);
+    setParam(*proc, p::chordStrum, 20.0f);
+    setParam(*proc, p::chordVoicing, 2.0f);
+    proc->pump(2);
+    const int channel = static_cast<int>(getParam(*proc, p::chordChannel));
+    juce::AudioBuffer<float> buffer(2, 256);
+    auto run = [&](int note, bool on, int blocks) {
+        int ons = 0, offs = 0;
+        for (int b = 0; b < blocks; ++b)
+        {
+            juce::MidiBuffer midi;
+            if (b == 0 && note >= 0)
+                midi.addEvent(on ? juce::MidiMessage::noteOn(1, note, 0.8f) : juce::MidiMessage::noteOff(1, note), 0);
+            proc->processBlock(buffer, midi);
+            for (const auto meta : midi)
+                if (meta.getMessage().getChannel() == channel)
+                {
+                    ons += meta.getMessage().isNoteOn() ? 1 : 0;
+                    offs += meta.getMessage().isNoteOff() ? 1 : 0;
+                }
+        }
+        return std::make_pair(ons, offs);
+    };
+    CHECK(run(-1, false, 100) == std::make_pair(0, 0)); // nothing until a key goes down
+    CHECK(run(38, true, 100) == std::make_pair(4, 0));  // D1: the second chord, triad + bass
+    CHECK(run(40, true, 100) == std::make_pair(4, 4));  // E1 takes over
+    CHECK(run(40, false, 100) == std::make_pair(4, 4)); // back to D1, still held
+    CHECK(run(38, false, 100) == std::make_pair(0, 4));
+    CHECK(run(37, true, 50) == std::make_pair(0, 0));   // black keys in the zone do nothing
+}

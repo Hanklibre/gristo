@@ -38,7 +38,7 @@ green CI build (Windows VST3 + Android APK) for testing before the next starts.
 - Kick ducking (sidechain amount per synth).
 - Lanes as tempo-synced LFOs (shape, rate, phase) besides drawn curves.
 
-## Phase 6: Chords
+## Phase 6: Chords (done)
 - Voice-leading, strum, one-key chord play from MIDI in.
 
 ## Phase 7: Engine extras

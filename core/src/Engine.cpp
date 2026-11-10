@@ -243,6 +243,16 @@ ChordPosition Engine::chordPositionAt(std::int64_t step) const
 ChordPosition Engine::computeChordPosition(std::int64_t step) const
 {
     const ChordParams& cp = params_.chords;
+    if (cp.clock == ChordClock::Keys)
+    {
+        ChordPosition pos;
+        pos.serial = chordKeySerial_;
+        int seen = 0;
+        for (int i = 0; i < kMaxChordSlots && chordKey_ >= 0; ++i)
+            if (cp.slots[static_cast<size_t>(i)].used && seen++ == chordKey_)
+                pos.slot = i;
+        return pos;
+    }
     if (cp.clock == ChordClock::Drums)
     {
         const int voice = std::clamp(cp.clockVoice, 0, kNumVoices - 1);
@@ -260,13 +270,74 @@ Chord Engine::chordAt(std::int64_t step) const
     return Chords::build(params_.chords, Chords::played(params_.chords, pos));
 }
 
+void Engine::setChordKey(int usedIndex)
+{
+    if (usedIndex == chordKey_)
+        return;
+    chordKey_ = usedIndex;
+    ++chordKeySerial_;
+    ++chordGeneration_;
+}
+
 void Engine::releaseHeldChord(double beats)
 {
     if (!chord_.haveChord)
         return;
     for (int i = 0; i < chord_.held.count; ++i)
-        pending_.push_back({ beats, kChordVoice, 0.0f, false, chord_.held.notes[static_cast<size_t>(i)] });
+    {
+        // A strummed note that has not started yet is taken back instead of ended.
+        const int note = chord_.held.notes[static_cast<size_t>(i)];
+        const auto late = std::find_if(pending_.begin(), pending_.end(), [&](const Pending& p) {
+            return p.noteOn && p.voice == kChordVoice && p.note == note && p.beats > beats;
+        });
+        if (late != pending_.end())
+            pending_.erase(late);
+        else
+            pending_.push_back({ beats, kChordVoice, 0.0f, false, note });
+    }
     chord_.haveChord = false;
+}
+
+// Stabs: strummed notes that have not started by `beats` are dropped with their offs.
+void Engine::dropChordOnsAfter(double beats)
+{
+    for (size_t i = 0; i < pending_.size();)
+    {
+        const Pending on = pending_[i];
+        if (!(on.noteOn && on.voice == kChordVoice && on.beats > beats))
+        {
+            ++i;
+            continue;
+        }
+        pending_.erase(pending_.begin() + static_cast<std::ptrdiff_t>(i));
+        const auto off = std::find_if(pending_.begin(), pending_.end(), [&](const Pending& p) {
+            return !p.noteOn && p.voice == kChordVoice && p.note == on.note && p.beats >= on.beats;
+        });
+        if (off != pending_.end())
+        {
+            if (static_cast<size_t>(off - pending_.begin()) < i)
+                --i;
+            pending_.erase(off);
+        }
+    }
+}
+
+// Note-ons of a chord, spread by the strum. offBeats < 0: no note-offs (held chord).
+void Engine::startChordNotes(const Chord& chord, double beats, float velocity, double bpm, double offBeats)
+{
+    const ChordParams& cp = params_.chords;
+    const double gap = static_cast<double>(std::clamp(cp.strumMs, 0.0f, 200.0f)) / 1000.0 * bpm / 60.0;
+    const bool down = cp.strumDirection == StrumDirection::Down
+                      || (cp.strumDirection == StrumDirection::Alternate && (chord_.strums & 1) != 0);
+    ++chord_.strums;
+    for (int i = 0; i < chord.count; ++i)
+    {
+        const double on = beats + gap * (down ? chord.count - 1 - i : i);
+        const int note = chord.notes[static_cast<size_t>(i)];
+        pending_.push_back({ on, kChordVoice, velocity, true, note });
+        if (offBeats >= 0.0)
+            pending_.push_back({ std::max(offBeats, on + 0.02), kChordVoice, 0.0f, false, note });
+    }
 }
 
 void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
@@ -294,16 +365,18 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
         return out;
     };
 
+    const bool byKeys = cp.clock == ChordClock::Keys && cp.play == ChordPlay::Held;
     for (int guard = 0; guard < kMaxStepsPerBlock; ++guard)
     {
         const std::int64_t s = st.nextStep;
-        if (static_cast<double>(s) / kStepsPerBeat - kMaxEarlyBeats >= ppqEnd)
+        if (!byKeys && static_cast<double>(s) / kStepsPerBeat - kMaxEarlyBeats >= ppqEnd)
             break;
 
         if (cp.play == ChordPlay::Held)
         {
-            const double beats = gridAt(s);
-            if (beats >= ppqEnd)
+            // Played from keys, the chord answers at once instead of on the next 16th.
+            const double beats = byKeys ? ppqStart : gridAt(s);
+            if (beats >= ppqEnd && !byKeys)
                 break;
             const ChordPosition pos = chordPositionAt(s);
             const Chord chord = pos.slot >= 0 ? outNotes(Chords::build(cp, Chords::played(cp, pos))) : Chord {};
@@ -314,15 +387,20 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
                 releaseHeldChord(beats);
                 // Stabs still sounding (Play switched from Stabs): end them here, so the
                 // held chord doesn't double their notes and their offs don't cut it.
+                dropChordOnsAfter(beats);
                 for (Pending& p : pending_)
                     if (!p.noteOn && p.voice == kChordVoice && p.beats > beats)
                         p.beats = beats;
                 const float velocity = std::clamp(lo + (hi - lo) * 0.7f, kMinVelocity, 1.0f);
-                for (int i = 0; i < chord.count; ++i)
-                    pending_.push_back({ beats, kChordVoice, velocity, true, chord.notes[static_cast<size_t>(i)] });
+                startChordNotes(chord, beats, velocity, bpm, -1.0);
                 st.held = chord;
                 st.haveChord = chord.count > 0;
                 st.lastSerial = pos.serial;
+            }
+            if (byKeys)
+            {
+                st.nextStep = static_cast<std::int64_t>(std::ceil(ppqEnd * kStepsPerBeat - 1e-9));
+                break;
             }
         }
         else // Stabs: the chord plays on hits of the stab voices
@@ -349,16 +427,13 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
             {
                 const Chord chord = outNotes(chordAt(s));
                 // A new stab cuts the previous one.
+                dropChordOnsAfter(best.timeBeats);
                 for (Pending& p : pending_)
                     if (!p.noteOn && p.voice == kChordVoice)
                         p.beats = std::min(p.beats, best.timeBeats);
                 const float velocity = std::clamp(lo + (hi - lo) * best.velocityNorm, kMinVelocity, 1.0f);
                 const double off = best.timeBeats + std::max(0.02, static_cast<double>(cp.stabGateSteps) / kStepsPerBeat);
-                for (int i = 0; i < chord.count; ++i)
-                {
-                    pending_.push_back({ best.timeBeats, kChordVoice, velocity, true, chord.notes[static_cast<size_t>(i)] });
-                    pending_.push_back({ off, kChordVoice, 0.0f, false, chord.notes[static_cast<size_t>(i)] });
-                }
+                startChordNotes(chord, best.timeBeats, velocity, bpm, off);
             }
         }
         ++st.nextStep;

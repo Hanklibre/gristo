@@ -230,6 +230,21 @@ Chord Chords::build(const ChordParams& p, const ChordSlot& s)
     if (notes.front() >= tonic + 12)
         for (int& n : notes)
             n -= 12;
+    if (p.voicing != ChordVoicing::Written)
+    {
+        // One fixed octave for every chord: shared notes stay put, the rest move by steps.
+        const int rootClass = floorMod(root, 12);
+        for (int& n : notes)
+            n = p.lowestNote + floorMod(n - p.lowestNote, 12);
+        std::sort(notes.begin(), notes.end());
+        notes.erase(std::unique(notes.begin(), notes.end()), notes.end());
+        if (p.voicing == ChordVoicing::SmoothBass)
+        {
+            if (static_cast<int>(notes.size()) >= kMaxChordNotes)
+                notes.pop_back();
+            notes.insert(notes.begin(), p.lowestNote - 12 + floorMod(rootClass - p.lowestNote, 12));
+        }
+    }
     std::sort(notes.begin(), notes.end());
     c.count = std::min(static_cast<int>(notes.size()), kMaxChordNotes);
     for (int i = 0; i < c.count; ++i)

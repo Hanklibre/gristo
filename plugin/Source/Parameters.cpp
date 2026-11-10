@@ -259,7 +259,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             layout.add(std::make_unique<juce::AudioParameterBool>(pid(chordOn), "Chords On", false));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordKey), "Chord Key", keys, 9));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordScale), "Chord Scale", chordScales, 1));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordClock), "Chord Clock", juce::StringArray { "Bars", "Drum hits" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordClock), "Chord Clock", juce::StringArray { "Bars", "Drum hits", "Keys" }, 0));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordClockVoice), "Chord Clock Voice", voices, 0));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordHits), "Chord Hits per Chord", 1, 16, 4));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordReset), "Chord Reset",
@@ -271,6 +271,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             for (int v = 0; v < kNumVoices; ++v)
                 layout.add(std::make_unique<juce::AudioParameterBool>(pid(voiceId(chordStab, v)), "Chord Stab " + juce::String(voiceName(v)), v == Snare));
             layout.add(floatParam(chordGate, "Chord Stab Gate", { 0.25f, 8.0f, 0.25f }, 2.0f, "16ths"));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordVoicing), "Chord Voicing", juce::StringArray { "As written", "Smooth", "Smooth + bass" }, 0));
+            layout.add(floatParam(chordStrum, "Chord Strum", { 0.0f, 80.0f, 1.0f }, 0.0f, "ms"));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordStrumDir), "Chord Strum Direction", juce::StringArray { "Up", "Down", "Alternate" }, 0));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordVelMin), "Chord Velocity Min", 1, 127, 50));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordVelMax), "Chord Velocity Max", 1, 127, 100));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordChannel), "Chord MIDI Channel", 1, 16, 3));
@@ -457,7 +460,10 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
     c.enabled = load(s, chordOn) > 0.5f;
     c.key = static_cast<int>(load(s, chordKey));
     c.scale = static_cast<ChordScale>(juce::jlimit(0, static_cast<int>(ChordScale::Count) - 1, static_cast<int>(load(s, chordScale))));
-    c.clock = load(s, chordClock) > 0.5f ? ChordClock::Drums : ChordClock::Bars;
+    c.clock = static_cast<ChordClock>(juce::jlimit(0, 2, static_cast<int>(load(s, chordClock))));
+    c.voicing = static_cast<ChordVoicing>(juce::jlimit(0, 2, static_cast<int>(load(s, chordVoicing))));
+    c.strumMs = load(s, chordStrum);
+    c.strumDirection = static_cast<StrumDirection>(juce::jlimit(0, 2, static_cast<int>(load(s, chordStrumDir))));
     c.clockVoice = static_cast<int>(load(s, chordClockVoice));
     c.hitsPerChord = static_cast<int>(load(s, chordHits));
     c.resetBars = kResetBarChoices[juce::jlimit(0, 4, static_cast<int>(load(s, chordReset)))];

@@ -195,7 +195,7 @@ private:
     void newChordProgression();
     Toggle chordOn_;
     Toggle chordStabs_[gristo::kNumVoices];
-    Choice chordKey_, chordScale_, chordClock_, chordClockVoice_, chordReset_, chordPlay_, chordOctave_;
+    Choice chordKey_, chordScale_, chordClock_, chordClockVoice_, chordReset_, chordPlay_, chordOctave_, chordVoicing_, chordStrumDir_;
     std::unique_ptr<NumberSelector> chordHits_, chordChannel_, chordShift_;
     std::unique_ptr<VelocityRange> chordVelocity_;
     juce::TextButton chordLibrary_ { "Library" }, chordNew_ { "New" }, chordClear_ { "Clear" };
@@ -204,7 +204,7 @@ private:
     juce::ComboBox chordQuality_;
     int shownQualitySlot_ = -1, shownQuality_ = -1; // what the combo was last set to by the timer
     juce::TextButton chordFlat_ { "b" }, chordSharp_ { "#" };
-    Knob chordMutate_, chordGate_;
+    Knob chordMutate_, chordGate_, chordStrum_;
     juce::Label chordOutLabel_;
     ChordSlotsView chordSlots_;
     ChordPadsView chordPads_;

@@ -1211,6 +1211,10 @@ void GristoView::setupChordPage()
     setupChoice(chordOctave_, p::chordOctave, "Octave");
     for (Choice* c : { &chordKey_, &chordScale_, &chordClock_, &chordClockVoice_, &chordReset_, &chordPlay_, &chordOctave_ })
         c->label.setVisible(false);
+    setupChoice(chordVoicing_, p::chordVoicing, "Voicing");
+    setupChoice(chordStrumDir_, p::chordStrumDir, "Strum");
+    setHelp(chordVoicing_.box, "Voicing", "As written: root position or the inversion you picked. Smooth: every chord in one octave, so notes move as little as possible. + bass: the root underneath.");
+    setHelp(chordStrumDir_.box, "Strum direction", "Which way the Strum knob rolls the chord: low to high, high to low, or back and forth.");
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         setupToggle(chordStabs_[v], p::voiceId(p::chordStab, v), kTriggerNames[v]);
@@ -1226,6 +1230,8 @@ void GristoView::setupChordPage()
         addAndMakeVisible(c);
     setupSmallKnob(chordMutate_, p::chordMutate, "Mutate");
     setupSmallKnob(chordGate_, p::chordGate, "Gate");
+    setupSmallKnob(chordStrum_, p::chordStrum, "Strum");
+    setHelp(chordStrum_, "Strum", "Time between the notes of a chord, in ms. 0 = all together.");
     chordOutLabel_.setFont(juce::FontOptions(11.0f));
     chordOutLabel_.setColour(juce::Label::textColourId, colours::dim);
 
@@ -1298,7 +1304,7 @@ void GristoView::setupChordPage()
     setHelp(chordOn_.button, "Chords on", "Switch the chord sequencer on. Arps with Chords on their page follow it.");
     setHelp(chordKey_.box, "Key", "The key's tonic.");
     setHelp(chordScale_.box, "Scale", "The scale the chords are built from. Borrowed chords come from the parallel major / minor.");
-    setHelp(chordClock_.box, "Clock", "Bars: each chord lasts its length. Drum hits: the chord changes every N hits of a drum voice.");
+    setHelp(chordClock_.box, "Clock", "Bars: each chord lasts its length. Drum hits: the chord changes every N hits of a drum voice. Keys: you play the chords, one per white key from C1 (MIDI in or the Keys keyboard).");
     setHelp(*chordHits_, "Hits per chord", "Drum hits clock: how many hits of the voice before the next chord.");
     setHelp(chordClockVoice_.box, "Clock voice", "Drum hits clock: the drum voice that is counted.");
     setHelp(chordReset_.box, "Reset", "Drum hits clock: the progression starts over every N bars.");
@@ -1323,7 +1329,9 @@ std::vector<juce::Component*> GristoView::chordPageComponents()
                                          &chordReset_.box, &chordPlay_.box, &chordOctave_.box, chordHits_.get(), chordChannel_.get(),
                                          chordShift_.get(), chordVelocity_.get(), &chordLibrary_, &chordNew_, &chordClear_,
                                          &chordSlots_, &chordPads_, &chordOutLabel_, &chordMutate_.slider, &chordMutate_.label,
-                                         &chordGate_.slider, &chordGate_.label, &chordQuality_, &chordFlat_, &chordSharp_ };
+                                         &chordGate_.slider, &chordGate_.label, &chordQuality_, &chordFlat_, &chordSharp_,
+                                         &chordStrum_.slider, &chordStrum_.label, &chordVoicing_.box, &chordVoicing_.label,
+                                         &chordStrumDir_.box, &chordStrumDir_.label };
     for (auto& t : chordStabs_)
         list.push_back(&t.button);
     for (auto& b : chordTypes_)
@@ -2356,6 +2364,11 @@ void GristoView::resized()
         chordSlots_.setBounds(24, y + 32, 840, 48);
         placeSmallKnob(chordMutate_, 874, y + 32);
         placeSmallKnob(chordGate_, 922, y + 32);
+        placeSmallKnob(chordStrum_, 970, y + 32);
+        chordVoicing_.label.setBounds(170, kModBottomY + 32, 52, 24);
+        chordVoicing_.box.setBounds(222, kModBottomY + 32, 136, 24);
+        chordStrumDir_.label.setBounds(372, kModBottomY + 32, 44, 24);
+        chordStrumDir_.box.setBounds(416, kModBottomY + 32, 104, 24);
         chordPads_.setBounds(24, y + 88, 420, 104);
         for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
             chordTypes_[t].setBounds(456 + t * 58, y + 88, 54, 48);

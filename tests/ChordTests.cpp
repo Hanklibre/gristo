@@ -562,3 +562,121 @@ TEST("arps: Mutate stays cheap however far into the song")
         differs = differs || a.steps[static_cast<size_t>(i)].pitch != b.steps[static_cast<size_t>(i)].pitch;
     CHECK(differs);
 }
+
+TEST("chords: Smooth voicing keeps every chord in one octave, with the root below if asked")
+{
+    ChordParams c = cMajor();
+    c.voicing = ChordVoicing::Smooth;
+    const Chord one = Chords::build(c, slot(0)), four = Chords::build(c, slot(3)), five = Chords::build(c, slot(4, ChordType::Seventh));
+    CHECK(notesOf(one) == (std::vector<int> { 48, 52, 55 }));
+    CHECK(notesOf(four) == (std::vector<int> { 48, 53, 57 })); // C stays, E-F and G-A move a step
+    CHECK(notesOf(five) == (std::vector<int> { 50, 53, 55, 59 }));
+    c.voicing = ChordVoicing::SmoothBass;
+    CHECK(notesOf(Chords::build(c, slot(3))) == (std::vector<int> { 41, 48, 53, 57 }));
+    for (int d = 0; d < 7; ++d)
+        for (int t = 0; t < static_cast<int>(ChordType::Count); ++t)
+        {
+            const Chord ch = Chords::build(c, slot(d, static_cast<ChordType>(t)));
+            CHECK(ch.count >= 4 && ch.count <= kMaxChordNotes);
+            CHECK(ch.notes[0] >= 36 && ch.notes[0] < 48 && ch.notes[ch.count - 1] < 60);
+        }
+}
+
+TEST("chords: strum spreads the notes, in either direction, and stays paired")
+{
+    for (int play = 1; play <= 2; ++play)
+        for (int dir = 0; dir < 3; ++dir)
+        {
+            EngineParams p = fourOnFloor();
+            p.pattern.fill = { 0, 1, 0, 0, 0, 0 }; // snare on every 16th: stabs closer than the strum
+            ChordParams& c = p.chords;
+            c = cMajor();
+            for (int i = 0; i < 4; ++i)
+                c.slots[static_cast<size_t>(i)] = slot(i, ChordType::Seventh, 8);
+            c.play = static_cast<ChordPlay>(play);
+            c.strumMs = 40.0f;
+            c.strumDirection = static_cast<StrumDirection>(dir);
+            c.shift = 0;
+            Engine e;
+            e.setParams(p);
+            PairCheck check;
+            std::vector<OutputEvent> out;
+            std::vector<std::pair<double, int>> firstOns;
+            double ppq = 0.0;
+            for (int b = 0; b < 800; ++b)
+            {
+                out.clear();
+                e.process({ true, ppq, 120.0, 48000.0, 256 }, out);
+                for (const auto& ev : out)
+                    if (ev.voice == kChordVoice)
+                    {
+                        check.add(ev);
+                        if (ev.noteOn && firstOns.size() < 4)
+                            firstOns.push_back({ ppq + ev.sampleOffset * 120.0 / (60.0 * 48000.0), ev.note });
+                    }
+                ppq += 256 * 120.0 / (60.0 * 48000.0);
+            }
+            out.clear();
+            e.process({ false, 0.0, 120.0, 48000.0, 256 }, out);
+            for (const auto& ev : out)
+                if (ev.voice == kChordVoice)
+                    check.add(ev);
+            int left = 0;
+            for (const auto& kv : check.on)
+                left += kv.second;
+            CHECK_MSG(check.violations == 0 && left == 0, "play " << play << " dir " << dir << ": " << check.violations << " unpaired, " << left << " hanging");
+            if (play == 1) // held: the first chord's four notes, 40 ms = 0.08 beats apart
+            {
+                CHECK(firstOns.size() == 4);
+                if (firstOns.size() == 4)
+                {
+                    CHECK(std::abs(firstOns[1].first - firstOns[0].first - 0.08) < 0.002);
+                    CHECK(dir == 1 ? firstOns[0].second > firstOns[3].second : firstOns[0].second < firstOns[3].second);
+                }
+            }
+        }
+}
+
+TEST("chords: Keys clock plays the chord of the key, at once, and feeds the arps")
+{
+    EngineParams p = fourOnFloor();
+    ChordParams& c = p.chords;
+    c = cMajor();
+    c.slots[0] = slot(0);
+    c.slots[2] = slot(3); // slot 1 unused: key 1 is the second used chord
+    c.clock = ChordClock::Keys;
+    c.play = ChordPlay::Held;
+    c.shift = 0;
+    Engine e;
+    e.setParams(p);
+    std::vector<OutputEvent> out;
+    std::set<int> sounding;
+    double ppq = 0.3; // off the grid
+    auto block = [&] {
+        out.clear();
+        e.process({ true, ppq, 120.0, 48000.0, 256 }, out);
+        int ons = 0;
+        for (const auto& ev : out)
+            if (ev.voice == kChordVoice)
+            {
+                if (ev.noteOn) { sounding.insert(ev.note); ++ons; }
+                else sounding.erase(ev.note);
+            }
+        ppq += 256 * 120.0 / (60.0 * 48000.0);
+        return ons;
+    };
+    CHECK(block() == 0 && sounding.empty());
+    e.setChordKey(1);
+    CHECK(block() == 3); // in the very next block
+    CHECK(sounding == (std::set<int> { 53, 57, 60 }));
+    CHECK(notesOf(e.chordAt(5)) == (std::vector<int> { 53, 57, 60 }));
+    for (int i = 0; i < 50; ++i)
+        CHECK(block() == 0);
+    e.setChordKey(0);
+    block();
+    CHECK(sounding == (std::set<int> { 48, 52, 55 }));
+    e.setChordKey(-1);
+    block();
+    CHECK(sounding.empty());
+    CHECK(e.chordAt(5).count == 0);
+}

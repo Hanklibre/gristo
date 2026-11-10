@@ -126,6 +126,9 @@ public:
 
     // Notes currently feeding arp `arp` (held or latched on MIDI in), in press order.
     void setArpInput(int arp, const int* notes, int count);
+    // Keys clock: the chord being played, as an index into the used slots (-1 = none).
+    // Every call with a new value starts the chord again.
+    void setChordKey(int usedIndex);
     // Advances since the arp's last reset (for the UI).
     std::int64_t arpCount(int arp) const { return arps_[static_cast<size_t>(arp)].count; }
 
@@ -176,6 +179,7 @@ private:
         std::int64_t lastSerial = 0;
         bool haveChord = false;
         Chord held;                 // notes of the held chord (MIDI out notes)
+        std::int64_t strums = 0;    // chords started (Alternate strum direction)
         std::array<bool, 128> sounding {};
     };
 
@@ -184,6 +188,8 @@ private:
     std::int64_t clockHitsBefore(std::int64_t step) const;
     ChordPosition computeChordPosition(std::int64_t step) const;
     void releaseHeldChord(double beats);
+    void dropChordOnsAfter(double beats);
+    void startChordNotes(const Chord& chord, double beats, float velocity, double bpm, double offBeats);
     void processChords(double ppqStart, double ppqEnd, double bpm);
     double gridAt(std::int64_t step) const;
     void schedule(const HitInfo& hit, int voice);
@@ -211,6 +217,8 @@ private:
     std::array<std::array<std::uint8_t, 128>, kNumArps + 1> noteSuppressed_ {};
     std::array<ArpState, kNumArps> arps_ {};
     ChordState chord_;
+    int chordKey_ = -1;
+    std::int64_t chordKeySerial_ = 0;
     // Drums-clocked chords: running count of clock hits (a cache, so lookups stay cheap).
     mutable std::int64_t hitsMemoCycle_ = -1, hitsMemoStep_ = 0, hitsMemoHits_ = 0;
     // Chord position per step for the current parameters: chords and both arps ask

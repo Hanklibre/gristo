@@ -15,7 +15,7 @@ namespace gristo {
 // and/or play as its own part.
 
 constexpr int kMaxChordSlots = 16;
-constexpr int kMaxChordNotes = 5;
+constexpr int kMaxChordNotes = 6;
 
 enum class ChordScale : int { Major = 0, Minor, Dorian, Phrygian, Lydian, Mixolydian, HarmonicMinor, Count };
 // New types are appended so saved slots keep their meaning.
@@ -23,7 +23,12 @@ enum class ChordType : int { Triad = 0, Seventh, Ninth, Sus2, Sus4, Sixth, SixNi
 // Scale: the chord the scale gives. The others override it for chromatic chords
 // (secondary dominants like the III7 in jazz turnarounds, tritone subs, ...).
 enum class ChordQuality : int { Scale = 0, Major, Minor, Dominant, Diminished, HalfDiminished, Augmented, Count };
-enum class ChordClock : int { Bars = 0, Drums };
+// Keys: no progression; the chord is the one picked with setChordKey (one key per chord).
+enum class ChordClock : int { Bars = 0, Drums, Keys };
+// Smooth folds every chord into one octave so the notes move as little as possible
+// from chord to chord; SmoothBass adds the root underneath.
+enum class ChordVoicing : int { Written = 0, Smooth, SmoothBass };
+enum class StrumDirection : int { Up = 0, Down, Alternate };
 enum class ChordPlay : int { Off = 0, Held, Stabs };
 
 const char* chordScaleName(ChordScale scale);
@@ -64,6 +69,10 @@ struct ChordParams
     float stabGateSteps = 2.0f;
     float velMin = 50.0f / 127.0f, velMax = 100.0f / 127.0f;
     int shift = 0; // semitones added to the MIDI out (see ArpParams::shift)
+
+    ChordVoicing voicing = ChordVoicing::Written;
+    float strumMs = 0.0f; // time between the notes of a chord (0 = together)
+    StrumDirection strumDirection = StrumDirection::Up;
 };
 
 struct Chord
