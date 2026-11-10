@@ -97,9 +97,9 @@ mute, solo and level for each, plus Master / FX), the selected part's **page**
 in the middle, and a **timeline** at the bottom that shows what every part
 plays and holds the modulation lanes.
 
-* **Scenes:** eight snapshots of the whole patch. Click to recall (on the bar
-  line while playing), right-click to store, **Chain** steps through them every
-  1-8 bars. MIDI channel 16, C1-G1, recalls them from a keyboard or clip.
+* **Scenes:** eight snapshots of the whole patch. Click an empty one to store, a
+  stored one to recall (on the bar line while playing), right-click to store
+  again or clear. **Chain** steps through them every 1-16 bars. MIDI channel 16, C1-G1, recalls them from a keyboard or clip.
 * **Macros:** eight knobs that each move up to four parameters. Right-click
   (long-press on a tablet) any knob: *Control with macro* or *Modulate with
   lane*. Right-click a macro for MIDI learn.
