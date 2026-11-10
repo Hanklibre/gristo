@@ -479,3 +479,31 @@ TEST("sound: stems take their part out of the mix")
     CHECK(peak(mix) < 1.0e-4f); // nothing else is playing
     CHECK(peak(kit) > 0.1f && peak(synth) > 0.1f);
 }
+
+TEST("sound: Duck makes the kick push a synth down, and it comes back")
+{
+    auto levels = [](float duck) {
+        SoundEngine e;
+        dryEngine(e);
+        SynthParams p;
+        p.sound = SynthSound::Organ;
+        p.reverbSend = 0.0f;
+        p.duck = duck;
+        e.setSynth(kChordSynth, p);
+        KitParams kit;
+        kit.level[0] = 0.0f; // the kick itself is silent here: only its ducking counts
+        kit.reverbSend = 0.0f;
+        e.setKit(kit);
+        e.noteOn(kChordSynth, 60, 60.0f, 0.8f);
+        Rendered out;
+        renderInto(e, out, 0.5);
+        e.triggerDrum(0, 1.0f);
+        renderInto(e, out, 1.5);
+        const auto at = [&](double from, double to) { return out.rms(static_cast<size_t>(from * kRate), static_cast<size_t>(to * kRate)); };
+        return std::array<float, 3> { at(0.3, 0.5), at(0.51, 0.56), at(1.7, 2.0) };
+    };
+    const auto off = levels(0.0f), on = levels(1.0f);
+    CHECK(off[1] > off[0] * 0.8f);  // no ducking: steady
+    CHECK(on[1] < on[0] * 0.35f);   // pushed down right after the kick
+    CHECK(on[2] > on[0] * 0.85f);   // and back up
+}

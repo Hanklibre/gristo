@@ -240,6 +240,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             layout.add(percentParam(laneId(synthLevel, a), name + "Level", 0.7f));
             layout.add(percentParam(laneId(synthReverb, a), name + "Reverb", a == 0 ? 0.1f : a == 1 ? 0.25f : 0.3f));
             layout.add(percentParam(laneId(synthDelay, a), name + "Delay", a == 1 || a == 2 ? 0.2f : 0.0f));
+            layout.add(percentParam(laneId(synthDuck, a), name + "Duck", 0.0f));
         }
         // Chord sequencer
         {
@@ -311,6 +312,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         const juce::String laneName = "Lane " + juce::String(lane + 1);
         layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(modBars, lane), kVersion }, laneName + " Length",
                                                                 juce::StringArray { "1 bar", "2 bars", "4 bars" }, 0));
+        {
+            juce::StringArray waves, rates;
+            for (int w = 0; w < static_cast<int>(LaneWave::Count); ++w)
+                waves.add(laneWaveName(static_cast<LaneWave>(w)));
+            for (int r = 0; r < kNumLfoRates; ++r)
+                rates.add(lfoRateName(r));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(modWave, lane), kVersion }, laneName + " Mode", waves, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(modRate, lane), kVersion }, laneName + " LFO Rate", rates, 3));
+        }
         for (int slot = 0; slot < kModSlotsPerLane; ++slot)
         {
             const juce::String slotName = laneName + " Slot " + juce::String(slot + 1);
@@ -384,6 +394,8 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
     {
         ModLane& l = p.modulation.lanes[static_cast<size_t>(lane)];
         l.bars = barsForChoice(static_cast<int>(load(s, laneId(modBars, lane))));
+        l.wave = static_cast<LaneWave>(juce::jlimit(0, static_cast<int>(LaneWave::Count) - 1, static_cast<int>(load(s, laneId(modWave, lane)))));
+        l.lfoRate = juce::jlimit(0, kNumLfoRates - 1, static_cast<int>(load(s, laneId(modRate, lane))));
         for (int k = 0; k < kMaxModPoints; ++k)
             l.points[static_cast<size_t>(k)] = lanePoint(lanes, lane, k).load(std::memory_order_relaxed);
         for (int slot = 0; slot < kModSlotsPerLane; ++slot)
@@ -507,6 +519,7 @@ sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& s, 
     p.level = load(s, laneId(synthLevel, arp));
     p.reverbSend = load(s, laneId(synthReverb, arp));
     p.delaySend = load(s, laneId(synthDelay, arp));
+    p.duck = load(s, laneId(synthDuck, arp));
     return p;
 }
 

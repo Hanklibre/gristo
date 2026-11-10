@@ -93,6 +93,46 @@ float targetRange(int target)
 
 } // namespace mod
 
+const char* laneWaveName(LaneWave wave)
+{
+    switch (wave)
+    {
+        case LaneWave::Drawn: return "Drawn";
+        case LaneWave::Sine: return "LFO sine";
+        case LaneWave::Triangle: return "LFO triangle";
+        case LaneWave::RampUp: return "LFO ramp up";
+        case LaneWave::RampDown: return "LFO ramp down";
+        case LaneWave::Square: return "LFO square";
+        case LaneWave::Random: return "LFO random";
+        case LaneWave::Count: break;
+    }
+    return "";
+}
+
+const char* lfoRateName(int rate)
+{
+    static const char* const names[kNumLfoRates] = { "1/8", "1/4", "1/2", "1 bar", "2 bars", "4 bars", "8 bars" };
+    return names[std::clamp(rate, 0, kNumLfoRates - 1)];
+}
+
+float ModLane::lfoAt(std::int64_t absoluteStep) const
+{
+    const int cycle = kLfoCycleSteps[std::clamp(lfoRate, 0, kNumLfoRates - 1)];
+    const auto index = floorMod(absoluteStep, cycle);
+    const float x = static_cast<float>(index) / static_cast<float>(cycle); // 0 .. <1
+    switch (wave)
+    {
+        case LaneWave::Sine: return 0.5f - 0.5f * std::cos(6.28318530718f * x);
+        case LaneWave::Triangle: return 1.0f - std::abs(2.0f * x - 1.0f);
+        case LaneWave::RampUp: return cycle > 1 ? static_cast<float>(index) / static_cast<float>(cycle - 1) : 1.0f;
+        case LaneWave::RampDown: return cycle > 1 ? 1.0f - static_cast<float>(index) / static_cast<float>(cycle - 1) : 1.0f;
+        case LaneWave::Square: return x < 0.5f ? 1.0f : 0.0f;
+        case LaneWave::Random: // a new value every cycle, the same on every playthrough
+            return rnd::unit(rnd::hash(0x1f0u, static_cast<std::uint32_t>(lfoRate), floorDiv(absoluteStep, cycle)));
+        default: return 0.0f;
+    }
+}
+
 const char* modShapeName(ModShape shape)
 {
     switch (shape)

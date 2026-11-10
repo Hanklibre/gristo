@@ -418,7 +418,7 @@ bool sameClockInputs(const EngineParams& a, const EngineParams& b)
     for (int l = 0; l < kNumModSources; ++l)
     {
         const ModLane &x = a.modulation.lanes[static_cast<size_t>(l)], &y = b.modulation.lanes[static_cast<size_t>(l)];
-        if (x.bars != y.bars || x.points != y.points)
+        if (x.bars != y.bars || x.points != y.points || x.wave != y.wave || x.lfoRate != y.lfoRate)
             return false;
         for (int s = 0; s < kModSlotsPerLane; ++s)
             if (x.slots[static_cast<size_t>(s)].target != y.slots[static_cast<size_t>(s)].target

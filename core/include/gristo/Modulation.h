@@ -88,14 +88,29 @@ struct ModSlot
     float amount = 0.0f; // -1..1
 };
 
+// A lane plays its drawn curve, or runs as a tempo-synced LFO.
+enum class LaneWave : int { Drawn = 0, Sine, Triangle, RampUp, RampDown, Square, Random, Count };
+const char* laneWaveName(LaneWave wave);
+constexpr int kLfoCycleSteps[] = { 2, 4, 8, 16, 32, 64, 128 }; // 1/8, 1/4, 1/2 note, 1, 2, 4, 8 bars
+constexpr int kNumLfoRates = 7;
+const char* lfoRateName(int rate);
+
 struct ModLane
 {
     std::array<float, kMaxModPoints> points {}; // 0..1, one per 16th
     int bars = 1;                               // 1, 2 or 4
     std::array<ModSlot, kModSlotsPerLane> slots {};
+    LaneWave wave = LaneWave::Drawn;
+    int lfoRate = 3; // index into kLfoCycleSteps
 
     int numPoints() const { return std::clamp(bars, 1, kMaxModBars) * kModPointsPerBar; }
-    float valueAt(std::int64_t absoluteStep) const { return points[static_cast<size_t>(floorMod(absoluteStep, numPoints()))]; }
+    float valueAt(std::int64_t absoluteStep) const
+    {
+        if (wave == LaneWave::Drawn)
+            return points[static_cast<size_t>(floorMod(absoluteStep, numPoints()))];
+        return lfoAt(absoluteStep);
+    }
+    float lfoAt(std::int64_t absoluteStep) const; // 0..1, sampled at the 16th
 };
 
 struct ModulationParams

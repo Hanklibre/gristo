@@ -176,7 +176,7 @@ private:
     {
         juce::ComboBox sound;
         std::unique_ptr<ComboIdAttachment> soundAttachment; // the menu is grouped by category
-        Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay;
+        Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck;
     };
     Choice soundKit_, fxTime_;
     Knob kitTune_, kitDecay_, kitTone_, kitDrive_, kitReverb_, kitDelay_, fxSize_, fxFeedback_;
@@ -229,8 +229,8 @@ private:
     juce::TextButton laneTabs_[gristo::kNumModLanes];
     LaneHandle laneHandle_;
     LaneEditor laneEditor_;
-    juce::ComboBox laneLength_;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> laneLengthAttachment_;
+    juce::ComboBox laneLength_, laneWave_, laneRate_;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> laneLengthAttachment_, laneWaveAttachment_, laneRateAttachment_;
     juce::TextButton shapesButton_;
     SlotRow slots_[gristo::kModSlotsPerLane];
     int selectedLane_ = 0;

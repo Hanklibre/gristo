@@ -819,13 +819,20 @@ void LaneEditor::mouseDown(const juce::MouseEvent& e)
         return;
     }
     lastIndex_ = -1;
+    if (!drawn())
+        return;
     paintAt(e.position, false);
 }
 
 void LaneEditor::mouseDrag(const juce::MouseEvent& e)
 {
-    if (!e.mods.isPopupMenu())
+    if (!e.mods.isPopupMenu() && drawn())
         paintAt(e.position, true);
+}
+
+bool LaneEditor::drawn() const
+{
+    return static_cast<int>(processor_.state.getRawParameterValue(p::laneId(p::modWave, lane_))->load()) == 0;
 }
 
 void LaneEditor::mouseUp(const juce::MouseEvent&) { lastIndex_ = -1; }
@@ -852,10 +859,16 @@ void LaneEditor::paint(juce::Graphics& g)
     g.setColour(colours::outline.withAlpha(0.4f));
     g.drawHorizontalLine(juce::roundToInt(area.getCentreY()), area.getX(), area.getRight());
 
+    // An LFO lane shows its wave over the same bars (read-only).
+    gristo::ModLane lfo;
+    lfo.wave = static_cast<gristo::LaneWave>(static_cast<int>(processor_.state.getRawParameterValue(p::laneId(p::modWave, lane_))->load()));
+    lfo.lfoRate = static_cast<int>(processor_.state.getRawParameterValue(p::laneId(p::modRate, lane_))->load());
+    const auto playStep = static_cast<std::int64_t>(std::floor(processor_.displayPpq.load() * gristo::kStepsPerBeat));
+    const std::int64_t windowStart = processor_.displayPlaying.load() ? gristo::floorDiv(playStep, n) * n : 0;
     juce::Path line;
     for (int i = 0; i < n; ++i)
     {
-        const float v = p::lanePoint(processor_.modPoints, lane_, i).load();
+        const float v = lfo.wave == gristo::LaneWave::Drawn ? p::lanePoint(processor_.modPoints, lane_, i).load() : lfo.lfoAt(windowStart + i);
         const float x = area.getX() + i * stepW;
         const float y = area.getBottom() - v * area.getHeight();
         g.setColour(colour.withAlpha(0.28f));
@@ -879,7 +892,8 @@ void LaneEditor::paint(juce::Graphics& g)
 
     g.setColour(colours::dim);
     g.setFont(juce::FontOptions(10.0f));
-    g.drawText("draw with the mouse  -  right-click for shapes", getLocalBounds().reduced(8, 4), juce::Justification::topRight);
+    g.drawText(lfo.wave == gristo::LaneWave::Drawn ? "draw with the mouse  -  right-click for shapes" : "LFO: set to Drawn to draw",
+               getLocalBounds().reduced(8, 4), juce::Justification::topRight);
 }
 
 // ---------------------------------------------------------------------------------

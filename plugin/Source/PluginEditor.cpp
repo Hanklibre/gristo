@@ -183,6 +183,15 @@ GristoView::GristoView(GristoProcessor& proc)
                            });
     };
     addAndMakeVisible(shapesButton_);
+    for (int w = 0; w < static_cast<int>(gristo::LaneWave::Count); ++w)
+        laneWave_.addItem(gristo::laneWaveName(static_cast<gristo::LaneWave>(w)), w + 1);
+    for (int r = 0; r < gristo::kNumLfoRates; ++r)
+        laneRate_.addItem(gristo::lfoRateName(r), r + 1);
+    addAndMakeVisible(laneWave_);
+    addChildComponent(laneRate_);
+    setHelp(laneWave_, "Lane mode", "Drawn: the curve you draw. LFO: a wave that runs in time with the tempo instead.");
+    setHelp(laneRate_, "LFO rate", "How long one cycle of the LFO lasts.");
+
     juce::StringArray targetNames;
     for (int t = 0; t < mod::kNumTargets; ++t)
         targetNames.add(mod::targetName(t));
@@ -515,6 +524,12 @@ void GristoView::selectLane(int lane)
     laneLengthAttachment_.reset();
     laneLengthAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
         processor_.state, p::laneId(p::modBars, lane), laneLength_);
+    laneWaveAttachment_.reset();
+    laneWaveAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        processor_.state, p::laneId(p::modWave, lane), laneWave_);
+    laneRateAttachment_.reset();
+    laneRateAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+        processor_.state, p::laneId(p::modRate, lane), laneRate_);
     selectSource(lane);
 }
 
@@ -883,6 +898,11 @@ void GristoView::timerCallback()
             repaint(84, partRowY(part) + 4, 10, 10);
         a = next < 0.02f ? 0.0f : next;
     }
+    {
+        const bool lfo = params.modulation.lanes[static_cast<size_t>(selectedLane_)].wave != gristo::LaneWave::Drawn;
+        laneRate_.setVisible(lfo);
+        shapesButton_.setVisible(!lfo);
+    }
     undoButton_.setEnabled(processor_.canUndo());
     redoButton_.setEnabled(processor_.canRedo());
     {
@@ -1115,6 +1135,8 @@ void GristoView::setupSoundPage()
         setHelp(row.level, name + "Level", "Volume of this arp's synth.");
         setHelp(row.reverb, name + "Reverb", "How much of this synth goes to the reverb.");
         setHelp(row.delay, name + "Delay", "How much of this synth goes to the delay.");
+        setupSmallKnob(row.duck, p::laneId(p::synthDuck, a), "Duck");
+        setHelp(row.duck, name + "Duck", "Sidechain pumping: every kick pushes this sound down and it swells back.");
         if (arp >= 0)
         {
             makeTarget(row.cutoff.slider, row.cutoff.slider, mod::arpCutoffTarget(arp));
@@ -1437,7 +1459,7 @@ std::vector<juce::Component*> GristoView::soundPageComponents()
     for (auto& row : synthRows_)
     {
         list.push_back(&row.sound);
-        for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay })
+        for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck })
             addKnob(*k);
     }
     for (auto& h : soundLaneHandles_)
@@ -1727,7 +1749,7 @@ std::vector<juce::Component*> GristoView::synthComponents(int synth)
 {
     auto& row = synthRows_[synth];
     std::vector<juce::Component*> list { &row.sound };
-    for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay })
+    for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck })
     {
         list.push_back(&k->slider);
         list.push_back(&k->label);
@@ -2021,7 +2043,7 @@ void GristoView::paint(juce::Graphics& g)
     g.setColour(colours::dim);
     g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
     g.drawText("ROUTING OF", kSlotX, kTimelineY + 8, 80, 24, juce::Justification::centredLeft);
-    g.drawText("MIDI", 648, kTimelineY + 8, 40, 24, juce::Justification::centredLeft);
+    g.drawText("MIDI", 670, kTimelineY + 8, 30, 24, juce::Justification::centredLeft);
     g.setColour(sourceColour(selectedSource_));
     g.fillRoundedRectangle(juce::Rectangle<float>(static_cast<float>(kSlotX) - 8.0f, static_cast<float>(kSlotRowY[0]), 3.0f, 148.0f), 1.5f);
 }
@@ -2199,21 +2221,23 @@ void GristoView::resized()
     {
         auto& row = synthRows_[s];
         row.sound.setBounds(px + 24, py + 352, 190, 30);
-        Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay };
-        for (int i = 0; i < 9; ++i)
-            placeLabeled(*knobs[i], { px + 240 + i * 90 + (i >= 7 ? 16 : 0), py + 328, 84, 150 });
+        Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck };
+        for (int i = 0; i < 10; ++i)
+            placeLabeled(*knobs[i], { px + 232 + i * 82 + (i >= 7 ? 14 : 0), py + 332, 78, 142 });
     }
 
     // Timeline: lanes, the pattern, routing
     const int ty = kTimelineY + 8;
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
         laneTabs_[lane].setBounds(20 + lane * 60, ty, 56, 24);
-    laneHandle_.setBounds(268, ty, 160, 24);
-    laneLength_.setBounds(436, ty, 84, 24);
-    shapesButton_.setBounds(526, ty, 76, 24);
-    dragBars_.setBounds(684, ty, 80, 24);
-    dragPart_.setBounds(770, ty, 110, 24);
-    dragAll_.setBounds(886, ty, 74, 24);
+    laneHandle_.setBounds(262, ty, 120, 24);
+    laneLength_.setBounds(388, ty, 78, 24);
+    laneWave_.setBounds(470, ty, 112, 24);
+    shapesButton_.setBounds(586, ty, 66, 24); // Drawn: shapes; LFO: its rate
+    laneRate_.setBounds(586, ty, 76, 24);
+    dragBars_.setBounds(702, ty, 76, 24);
+    dragPart_.setBounds(782, ty, 96, 24);
+    dragAll_.setBounds(882, ty, 78, 24);
     timelineView_.setBounds(20, ty + 30, 940, 90);
     laneEditor_.setBounds(20 + TimelineView::kLabelWidth, ty + 124, 940 - TimelineView::kLabelWidth, 58); // same time axis
     sourceBox_.setBounds(kSlotX + 84, kTimelineY + 8, 120, 24);

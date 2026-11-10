@@ -23,6 +23,8 @@ inline const juce::String velMin = "velMin";
 inline const juce::String velMax = "velMax";
 // Modulation (performer lanes): bars per lane, and per lane x slot a target + amount.
 inline const juce::String modBars = "modBars";
+inline const juce::String modWave = "modWave"; // Drawn or an LFO shape
+inline const juce::String modRate = "modRate";
 inline const juce::String modTarget = "modTgt";
 inline const juce::String modAmount = "modAmt";
 inline const juce::String note = "note";
@@ -111,6 +113,7 @@ inline const juce::String synthGlide = "synGld";
 inline const juce::String synthLevel = "synLvl";
 inline const juce::String synthReverb = "synRev";
 inline const juce::String synthDelay = "synDly";
+inline const juce::String synthDuck = "synDuck";
 inline const juce::String fxSize = "fxSize";
 inline const juce::String fxTime = "fxTime";
 inline const juce::String fxFeedback = "fxFb";

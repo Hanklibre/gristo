@@ -535,3 +535,35 @@ TEST("engine: a muted part is silent but keeps clocking the others")
     CHECK(muted[2] == open[2] && muted[2] > 4); // the arp plays on
     CHECK(std::string(partName(kChordVoice)) == "Chords" && std::string(partName(7)) == "Arp 2");
 }
+
+TEST("modulation: a lane can run as a tempo-synced LFO")
+{
+    ModLane lane;
+    lane.points.fill(0.25f);
+    CHECK(lane.valueAt(5) == 0.25f); // drawn
+    lane.wave = LaneWave::RampUp;
+    lane.lfoRate = 3; // one bar
+    CHECK(lane.valueAt(0) == 0.0f);
+    CHECK_NEAR(lane.valueAt(15), 1.0f, 1e-6);
+    CHECK(lane.valueAt(16) == 0.0f); // next bar starts over
+    lane.wave = LaneWave::Square;
+    lane.lfoRate = 1; // a quarter note
+    CHECK(lane.valueAt(0) == 1.0f && lane.valueAt(1) == 1.0f && lane.valueAt(2) == 0.0f && lane.valueAt(4) == 1.0f);
+    lane.wave = LaneWave::Random;
+    lane.lfoRate = 2;
+    CHECK(lane.valueAt(0) == lane.valueAt(7)); // held for the cycle
+    CHECK(lane.valueAt(0) == lane.valueAt(0)); // and repeatable
+    bool varies = false;
+    for (int c = 1; c < 8; ++c)
+        varies = varies || lane.valueAt(c * 8) != lane.valueAt(0);
+    CHECK(varies);
+    for (int w = 1; w < static_cast<int>(LaneWave::Count); ++w)
+        for (int r = 0; r < kNumLfoRates; ++r)
+            for (std::int64_t s = -40; s < 300; ++s)
+            {
+                lane.wave = static_cast<LaneWave>(w);
+                lane.lfoRate = r;
+                const float v = lane.valueAt(s);
+                CHECK(v >= 0.0f && v <= 1.0f);
+            }
+}

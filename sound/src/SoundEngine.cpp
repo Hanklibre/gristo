@@ -21,6 +21,8 @@ struct SoundEngine::Impl
     Delay delay;
     Chorus chorus[kNumSynths];
     bool chorusOn[kNumSynths] {};
+    // Kick ducking: an envelope restarted by every kick, followed smoothly by each synth.
+    float duckEnv = 0.0f, duckRelease = 0.0f, duckAttack = 0.0f, duckGain[kNumSynths] { 1.0f, 1.0f, 1.0f, 1.0f };
     float tremoloPhase[kNumSynths] {};
     Glue glue;
     // Sends glide to new settings so lanes don't zipper: kit, then each synth.
@@ -71,6 +73,8 @@ void SoundEngine::prepare(double sampleRate)
         m.chorus[s].prepare(m.sampleRate, 0.25f * static_cast<float>(s)); // staggered LFOs
     m.glue.prepare(m.sampleRate);
     m.sendCoef = 1.0f - std::exp(-1.0f / (0.012f * m.sampleRate));
+    m.duckRelease = std::exp(-1.0f / (0.11f * m.sampleRate)); // back up over ~250 ms
+    m.duckAttack = 1.0f - std::exp(-1.0f / (0.004f * m.sampleRate));
     m.configuredTone = m.configuredLowpass = -1.0f;
     reset();
 }
@@ -125,7 +129,7 @@ void SoundEngine::setSynth(int synth, const SynthParams& params)
     for (auto [value, fallback] : { std::pair<float*, float> { &p.cutoff, d.cutoff }, { &p.resonance, d.resonance },
                                     { &p.envAmount, d.envAmount }, { &p.attack, d.attack }, { &p.release, d.release },
                                     { &p.glide, d.glide }, { &p.level, 0.0f }, { &p.reverbSend, 0.0f },
-                                    { &p.delaySend, 0.0f }, { &p.cutoffMod, 0.0f } })
+                                    { &p.delaySend, 0.0f }, { &p.cutoffMod, 0.0f }, { &p.duck, 0.0f } })
         *value = finite(*value, fallback);
     impl_->synthParams[synth] = p;
     impl_->synths[synth].setParams(p);
@@ -154,6 +158,8 @@ void SoundEngine::triggerDrum(int voice, float velocity)
         return;
     if (voice == kClosedHat && m.drums[kOpenHat].active())
         m.drums[kOpenHat].choke(); // closed hat chokes the open one
+    if (voice == 0)
+        m.duckEnv = std::max(m.duckEnv, 0.35f + 0.65f * dsp::clamp01(velocity));
     const KitPatch& patch = kitPatch(m.kit.kit);
     const float decayScale = dsp::macroLog(m.kit.decay, 0.3f, 1.0f, 2.5f);
     m.drums[voice].trigger(patch.voices[voice], dsp::clamp01(velocity), std::clamp(m.kit.tune, -12.0f, 12.0f), decayScale);
@@ -262,12 +268,15 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             l = r = 0.0f;
         }
 
+        m.duckEnv *= m.duckRelease;
         // Synths, each through its ensemble when the sound has one
         for (int s = 0; s < kNumSynths; ++s)
         {
+            const float duckTarget = 1.0f - dsp::clamp01(m.synthParams[s].duck) * m.duckEnv;
+            m.duckGain[s] += (duckTarget - m.duckGain[s]) * m.duckAttack;
             glide(m.revSend[1 + s], m.synthParams[s].reverbSend);
             glide(m.dlySend[1 + s], m.synthParams[s].delaySend);
-            const float y = m.synths[s].tick();
+            const float y = m.synths[s].tick() * m.duckGain[s];
             const float amount = m.synths[s].chorus();
             if (amount > 0.0f && !m.chorusOn[s])
                 m.chorus[s].reset(); // back to an ensemble sound: no stale audio from before

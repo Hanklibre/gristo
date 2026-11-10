@@ -324,6 +324,7 @@ public:
 
 private:
     int numPoints() const;
+    bool drawn() const; // false while the lane runs as an LFO
     juce::Rectangle<float> drawArea() const;
     void paintAt(juce::Point<float> pos, bool connectToLast);
 

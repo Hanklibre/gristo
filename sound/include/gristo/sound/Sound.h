@@ -57,6 +57,7 @@ struct SynthParams
     float reverbSend = 0.15f;
     float delaySend = 0.0f;
     float cutoffMod = 0.0f; // modulation lane offset, added to `cutoff`
+    float duck = 0.0f;      // 0..1: how far the kick pushes this synth down (sidechain pumping)
 };
 
 struct FxParams
