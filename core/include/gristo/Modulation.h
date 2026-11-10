@@ -12,6 +12,10 @@ namespace gristo {
 // loop over 1, 2 or 4 bars and are routed to parameters with bipolar amounts.
 
 constexpr int kNumModLanes = 4;
+// Macro knobs are modulation sources too: a "lane" that holds one value. Sources
+// 0..3 are the drawn lanes, 4..11 the macros.
+constexpr int kNumMacros = 8;
+constexpr int kNumModSources = kNumModLanes + kNumMacros;
 constexpr int kModSlotsPerLane = 4;
 constexpr int kModPointsPerBar = kStepsPerBar;
 constexpr int kMaxModBars = 4;
@@ -96,7 +100,8 @@ struct ModLane
 
 struct ModulationParams
 {
-    std::array<ModLane, kNumModLanes> lanes {};
+    std::array<ModLane, kNumModSources> lanes {}; // drawn lanes, then the macros
+    void setMacro(int macro, float value) { lanes[static_cast<size_t>(kNumModLanes + macro)].points.fill(std::clamp(value, 0.0f, 1.0f)); }
 };
 
 // Quick shapes for the lane editor (and the render tool).

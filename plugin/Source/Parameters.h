@@ -128,6 +128,12 @@ inline const juce::String feelRandom = "feelRnd";
 // Indexed ids ("fill2", "modTgt1_3"). Built once per thread and cached, so the audio
 // thread doesn't allocate a string for every parameter it reads each block.
 juce::String voiceId(const juce::String& base, int voice);
+// Macros: value macro<k>, slots macTgt<k>_<slot> / macAmt<k>_<slot>.
+inline const juce::String macroValue = "macro";
+inline const juce::String macroTarget = "macTgt";
+inline const juce::String macroAmount = "macAmt";
+juce::String sourceTargetId(int source, int slot); // source: lane 0..3, then macro 0..7
+juce::String sourceAmountId(int source, int slot);
 juce::String laneId(const juce::String& base, int lane);
 juce::String slotId(const juce::String& base, int lane, int slot);
 

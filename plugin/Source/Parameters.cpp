@@ -35,6 +35,14 @@ juce::String cachedId(const juce::String& base, int a, int b)
 juce::String voiceId(const juce::String& base, int voice) { return cachedId(base, voice, -1); }
 juce::String laneId(const juce::String& base, int lane) { return cachedId(base, lane, -1); }
 juce::String slotId(const juce::String& base, int lane, int slot) { return cachedId(base, lane, slot); }
+juce::String sourceTargetId(int source, int slot)
+{
+    return source < kNumModLanes ? slotId(modTarget, source, slot) : slotId(macroTarget, source - kNumModLanes, slot);
+}
+juce::String sourceAmountId(int source, int slot)
+{
+    return source < kNumModLanes ? slotId(modAmount, source, slot) : slotId(macroAmount, source - kNumModLanes, slot);
+}
 
 namespace {
 
@@ -317,6 +325,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                    attributes));
         }
     }
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        const juce::String name = "Macro " + juce::String(m + 1);
+        layout.add(percentParam(laneId(macroValue, m), name, 0.0f));
+        for (int slot = 0; slot < kModSlotsPerLane; ++slot)
+        {
+            const juce::String slotName = name + " Slot " + juce::String(slot + 1);
+            layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { slotId(macroTarget, m, slot), kVersion },
+                                                                    slotName + " Target", targetNames, 0));
+            layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID { slotId(macroAmount, m, slot), kVersion },
+                                                                   slotName + " Amount", juce::NormalisableRange<float> { -1.0f, 1.0f }, 0.0f));
+        }
+    }
     return layout;
 }
 
@@ -370,6 +391,17 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
             ModSlot& sl = l.slots[static_cast<size_t>(slot)];
             sl.target = static_cast<int>(load(s, slotId(modTarget, lane, slot)));
             sl.amount = load(s, slotId(modAmount, lane, slot));
+        }
+    }
+    for (int m = 0; m < kNumMacros; ++m)
+    {
+        ModLane& l = p.modulation.lanes[static_cast<size_t>(kNumModLanes + m)];
+        l.bars = 1;
+        p.modulation.setMacro(m, load(s, laneId(macroValue, m)));
+        for (int slot = 0; slot < kModSlotsPerLane; ++slot)
+        {
+            l.slots[static_cast<size_t>(slot)].target = static_cast<int>(load(s, slotId(macroTarget, m, slot)));
+            l.slots[static_cast<size_t>(slot)].amount = load(s, slotId(macroAmount, m, slot));
         }
     }
     for (int a = 0; a < kNumArps; ++a)

@@ -29,10 +29,17 @@ GristoProcessor::GristoProcessor()
     for (auto* param : getParameters())
         if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
             state.addParameterListener(withId->paramID, this);
+    for (auto& cc : macroCc)
+        cc.store(-1);
+    for (auto& v : macroCcValue)
+        v.store(-1.0f);
+    lastSnapshot_ = presets.captureSnapshot();
+    startTimerHz(100);
 }
 
 GristoProcessor::~GristoProcessor()
 {
+    stopTimer();
     for (auto* param : getParameters())
         if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
             state.removeParameterListener(withId->paramID, this);
@@ -103,8 +110,11 @@ void GristoProcessor::applySoundSettings(std::int64_t step, bool playing)
 {
     namespace mod = gristo::mod;
     const auto& c = settings_;
-    const bool modulate = playing && c.soundModulated;
-    auto lane = [&](int target) { return modulate ? engine_.modulationAt(target, step) * mod::targetRange(target) : 0.0f; };
+    // Stopped: the drawn lanes rest, the macros still act.
+    const int firstSource = playing ? 0 : gristo::kNumModLanes;
+    auto lane = [&](int target) {
+        return c.soundModulated ? engine_.modulationAt(target, step, firstSource) * mod::targetRange(target) : 0.0f;
+    };
     auto unit = [](float v) { return juce::jlimit(0.0f, 1.0f, v); };
 
     auto kit = c.kit;
@@ -391,6 +401,27 @@ void GristoProcessor::handleMidiInput(const juce::MidiBuffer& midi)
     for (const auto meta : midi)
     {
         const auto m = meta.getMessage();
+        if (m.isController())
+        {
+            const int cc = m.getControllerNumber();
+            const int learning = learnMacro.load(std::memory_order_relaxed);
+            if (learning >= 0 && learning < gristo::kNumMacros)
+            {
+                macroCc[static_cast<size_t>(learning)].store(cc);
+                learnMacro.store(-1);
+            }
+            for (int k = 0; k < gristo::kNumMacros; ++k)
+                if (macroCc[static_cast<size_t>(k)].load(std::memory_order_relaxed) == cc)
+                    macroCcValue[static_cast<size_t>(k)].store(static_cast<float>(m.getControllerValue()) / 127.0f);
+            continue;
+        }
+        if (m.getChannel() == 16 && (m.isNoteOn() || m.isNoteOff()))
+        {
+            // Channel 16, C1..G1: scene recall (not notes for the arps).
+            if (m.isNoteOn() && m.getNoteNumber() >= 36 && m.getNoteNumber() < 36 + kNumScenes)
+                pendingScene.store(m.getNoteNumber() - 36);
+            continue;
+        }
         if (m.isNoteOn())
         {
             // A key pressed after all keys were released starts a new latched chord.
@@ -450,6 +481,13 @@ void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
     tree.setProperty("uiScale", uiScale.load(), nullptr);
     tree.setProperty("showKeys", showKeys.load(), nullptr);
     presets.writeTo(tree);
+    tree.removeChild(tree.getChildWithName("SCENES"), nullptr);
+    writeScenes(tree);
+    juce::StringArray ccs;
+    for (const auto& cc : macroCc)
+        ccs.add(juce::String(cc.load()));
+    tree.setProperty("macroCc", ccs.joinIntoString(","), nullptr);
+    tree.setProperty("diceLocks", diceLocks.load(), nullptr);
     if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -479,6 +517,14 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
             state.replaceState(tree);
             paramGeneration_.fetch_add(1);
             presets.readFrom(tree);
+            readScenes(tree);
+            const auto ccs = juce::StringArray::fromTokens(tree.getProperty("macroCc", "").toString(), ",", {});
+            for (int k = 0; k < gristo::kNumMacros; ++k)
+                macroCc[static_cast<size_t>(k)].store(k < ccs.size() ? juce::jlimit(-1, 127, ccs[k].getIntValue()) : -1);
+            diceLocks.store(static_cast<int>(tree.getProperty("diceLocks", 0)));
+            lastSnapshot_ = presets.captureSnapshot(); // opening a project isn't an undo step
+            undo_.clear();
+            redo_.clear();
         }
 }
 
@@ -644,6 +690,273 @@ juce::File GristoProcessor::exportMidiToTempFile(int bars, int part) const
         return {};
     out.flush();
     return file;
+}
+
+// ---------------------------------------------------------------------------------
+// Undo, scenes, dice (message thread)
+
+void GristoProcessor::setValue(const juce::String& id, float value)
+{
+    if (auto* param = state.getParameter(id))
+        param->setValueNotifyingHost(param->convertTo0to1(value));
+}
+
+void GristoProcessor::timerCallback()
+{
+    // MIDI-learned macros.
+    for (int k = 0; k < gristo::kNumMacros; ++k)
+    {
+        const float v = macroCcValue[static_cast<size_t>(k)].exchange(-1.0f);
+        if (v >= 0.0f)
+            setValue(p::laneId(p::macroValue, k), v);
+    }
+
+    // Scenes: recall at once when stopped, else just before the next bar line.
+    const bool playing = displayPlaying.load();
+    const double ppq = displayPpq.load(), bpm = std::max(20.0, displayBpm.load());
+    const auto bar = static_cast<std::int64_t>(std::floor(ppq / 4.0));
+    if (chainScenes.load() && playing && pendingScene.load() < 0)
+    {
+        const int span = std::max(1, chainBars.load());
+        if ((bar + 1) % span == 0 && chainQueuedBar_ != bar)
+        {
+            chainQueuedBar_ = bar;
+            const int current = currentScene.load();
+            for (int step = 1; step <= kNumScenes; ++step)
+                if (const int next = ((current < 0 ? -1 : current) + step) % kNumScenes; sceneUsed(next))
+                {
+                    pendingScene.store(next);
+                    break;
+                }
+        }
+    }
+    const int pending = pendingScene.load();
+    if (pending != lastPending_)
+    {
+        lastPending_ = pending;
+        sceneRequestBar_ = bar;
+    }
+    if (pending >= 0)
+    {
+        const double secondsToBar = (4.0 - std::fmod(ppq, 4.0)) * 60.0 / bpm;
+        if (!sceneUsed(pending))
+            pendingScene.compare_exchange_strong(lastPending_, -1);
+        else if (!playing || secondsToBar <= 0.025 || bar != sceneRequestBar_)
+        {
+            presets.applySnapshot(scenes_[static_cast<size_t>(pending)]);
+            currentScene.store(pending);
+            int expected = pending;
+            pendingScene.compare_exchange_strong(expected, -1);
+        }
+    }
+
+    // Undo history: a few times a second, once the mouse is up, a changed state
+    // becomes a step.
+    if (++historyTick_ >= 25)
+    {
+        historyTick_ = 0;
+        if (!juce::ModifierKeys::currentModifiers.isAnyMouseButtonDown())
+        {
+            auto now = presets.captureSnapshot();
+            if (now != lastSnapshot_)
+            {
+                undo_.push_back(std::move(lastSnapshot_));
+                if (undo_.size() > 64)
+                    undo_.erase(undo_.begin());
+                redo_.clear();
+                lastSnapshot_ = std::move(now);
+            }
+        }
+    }
+}
+
+void GristoProcessor::undo()
+{
+    if (undo_.empty())
+        return;
+    redo_.push_back(presets.captureSnapshot());
+    lastSnapshot_ = std::move(undo_.back());
+    undo_.pop_back();
+    presets.applySnapshot(lastSnapshot_);
+    lastSnapshot_ = presets.captureSnapshot(); // exactly what the parameters hold now
+}
+
+void GristoProcessor::redo()
+{
+    if (redo_.empty())
+        return;
+    undo_.push_back(presets.captureSnapshot());
+    lastSnapshot_ = std::move(redo_.back());
+    redo_.pop_back();
+    presets.applySnapshot(lastSnapshot_);
+    lastSnapshot_ = presets.captureSnapshot();
+}
+
+void GristoProcessor::storeScene(int scene)
+{
+    if (scene < 0 || scene >= kNumScenes)
+        return;
+    scenes_[static_cast<size_t>(scene)] = presets.captureSnapshot();
+    currentScene.store(scene);
+}
+
+void GristoProcessor::clearScene(int scene)
+{
+    if (scene < 0 || scene >= kNumScenes)
+        return;
+    scenes_[static_cast<size_t>(scene)] = {};
+    int expected = scene;
+    currentScene.compare_exchange_strong(expected, -1);
+}
+
+void GristoProcessor::writeScenes(juce::ValueTree& parent) const
+{
+    juce::ValueTree scenes("SCENES");
+    auto encode = [](const std::vector<float>& v) { return juce::MemoryBlock(v.data(), v.size() * sizeof(float)).toBase64Encoding(); };
+    for (int i = 0; i < kNumScenes; ++i)
+        if (sceneUsed(i))
+        {
+            juce::ValueTree scene("SCENE");
+            scene.setProperty("index", i, nullptr);
+            scene.setProperty("values", encode(scenes_[static_cast<size_t>(i)].values), nullptr);
+            scene.setProperty("lanes", encode(scenes_[static_cast<size_t>(i)].lanePoints), nullptr);
+            scenes.appendChild(scene, nullptr);
+        }
+    scenes.setProperty("chain", chainScenes.load(), nullptr);
+    scenes.setProperty("chainBars", chainBars.load(), nullptr);
+    parent.appendChild(scenes, nullptr);
+}
+
+void GristoProcessor::readScenes(const juce::ValueTree& parent)
+{
+    for (auto& scene : scenes_)
+        scene = {};
+    currentScene.store(-1);
+    pendingScene.store(-1);
+    const auto scenes = parent.getChildWithName("SCENES");
+    chainScenes.store(static_cast<bool>(scenes.getProperty("chain", false)));
+    chainBars.store(juce::jlimit(1, 16, static_cast<int>(scenes.getProperty("chainBars", 4))));
+    const size_t expected = presets.captureSnapshot().values.size();
+    auto decode = [](const juce::String& text) {
+        juce::MemoryBlock block;
+        block.fromBase64Encoding(text);
+        std::vector<float> v(block.getSize() / sizeof(float));
+        if (!v.empty())
+            std::memcpy(v.data(), block.getData(), v.size() * sizeof(float));
+        for (float& x : v)
+            x = std::isfinite(x) ? juce::jlimit(0.0f, 1.0f, x) : 0.0f;
+        return v;
+    };
+    for (const auto& scene : scenes)
+    {
+        const int i = static_cast<int>(scene.getProperty("index", -1));
+        Snapshot snapshot { decode(scene["values"].toString()), decode(scene["lanes"].toString()) };
+        // Only scenes saved with this exact set of parameters fit.
+        if (i >= 0 && i < kNumScenes && snapshot.values.size() == expected
+            && snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints))
+            scenes_[static_cast<size_t>(i)] = std::move(snapshot);
+    }
+}
+
+void GristoProcessor::diceAll()
+{
+    const int locks = diceLocks.load();
+    for (int section = 0; section < NumSections; ++section)
+        if ((locks & (1 << section)) == 0)
+            dice(section);
+}
+
+void GristoProcessor::dice(int section)
+{
+    auto& r = juce::Random::getSystemRandom();
+    auto range = [&r](float lo, float hi) { return lo + (hi - lo) * r.nextFloat(); };
+    auto pick = [&r](std::initializer_list<float> options) { return *(options.begin() + r.nextInt(static_cast<int>(options.size()))); };
+    auto choices = [this](const juce::String& id) {
+        const auto* param = state.getParameter(id);
+        return param != nullptr ? param->getNumSteps() : 1;
+    };
+    if (section == DicePattern)
+    {
+        setValue(p::mapX, r.nextFloat());
+        setValue(p::mapY, r.nextFloat());
+        setValue(p::chaos, r.nextFloat() < 0.7f ? 0.0f : range(0.05f, 0.35f));
+        setValue(p::variation, static_cast<float>(r.nextInt(100)));
+        const float centres[gristo::kNumVoices] = { 0.58f, 0.52f, 0.6f, 0.35f, 0.4f, 0.35f };
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+            setValue(p::voiceId(p::fill, v), juce::jlimit(0.0f, 1.0f, centres[v] + range(-0.2f, 0.2f)));
+    }
+    else if (section == DiceGroove)
+    {
+        setValue(p::timing, static_cast<float>(r.nextInt(choices(p::timing))));
+        setValue(p::shuffle, r.nextFloat() < 0.3f ? 0.0f : range(0.5f, 4.5f));
+        setValue(p::feeling, r.nextFloat() < 0.5f ? 0.0f : static_cast<float>(r.nextInt(choices(p::feeling))));
+        setValue(p::feelMs, range(5.0f, 20.0f));
+        setValue(p::humanize, range(0.0f, 0.5f));
+    }
+    else if (section == DiceKit)
+    {
+        setValue(p::kitType, static_cast<float>(r.nextInt(choices(p::kitType))));
+        setValue(p::kitTune, static_cast<float>(juce::roundToInt(range(-3.0f, 3.0f))));
+        setValue(p::kitDecay, range(0.35f, 0.65f));
+        setValue(p::kitTone, range(0.35f, 0.65f));
+        setValue(p::kitDrive, r.nextFloat() < 0.5f ? 0.0f : range(0.05f, 0.4f));
+    }
+    else if (section >= DiceArp1 && section <= DiceArp3)
+    {
+        const int a = section - DiceArp1;
+        setValue(p::laneId(p::arpMode, a), 1.0f); // Generate
+        setValue(p::laneId(p::arpSeed, a), static_cast<float>(r.nextInt({ 1, 10000 })));
+        setValue(p::laneId(p::arpLength, a), pick({ 4.0f, 6.0f, 8.0f, 8.0f, 12.0f, 16.0f }));
+        setValue(p::laneId(p::arpDensity, a), range(0.5f, 0.95f));
+        setValue(p::laneId(p::arpAccent, a), range(0.1f, 0.4f));
+        setValue(p::laneId(p::arpSlide, a), r.nextFloat() < 0.4f ? 0.0f : range(0.05f, 0.35f));
+        setValue(p::laneId(p::arpOctaves, a), pick({ 1.0f, 1.0f, 2.0f }));
+        setValue(p::laneId(p::arpGate, a), pick({ 1.0f, 2.0f, 2.0f, 3.0f, 4.0f }));
+        const int first = r.nextInt(gristo::kNumVoices), second = r.nextFloat() < 0.4f ? r.nextInt(gristo::kNumVoices) : first;
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+            setValue(p::slotId(p::arpTrigger, a, v), v == first || v == second ? 1.0f : 0.0f);
+    }
+    else if (section == DiceChords)
+    {
+        const auto seed = static_cast<std::uint32_t>(r.nextInt({ 1, 10000 }));
+        const auto scale = static_cast<gristo::ChordScale>(static_cast<int>(state.getRawParameterValue(p::chordScale)->load()));
+        const auto slots = gristo::Chords::generate(seed, scale);
+        for (int i = 0; i < gristo::kMaxChordSlots; ++i)
+        {
+            const auto& slot = slots[static_cast<size_t>(i)];
+            setValue(p::voiceId(p::chordSlotUsed, i), slot.used ? 1.0f : 0.0f);
+            const gristo::ChordSlot s = slot.used ? slot : gristo::ChordSlot {};
+            setValue(p::voiceId(p::chordDegree, i), static_cast<float>(s.degree));
+            setValue(p::voiceId(p::chordBorrowed, i), s.borrowed ? 1.0f : 0.0f);
+            setValue(p::voiceId(p::chordType, i), static_cast<float>(s.type));
+            setValue(p::voiceId(p::chordInversion, i), static_cast<float>(s.inversion));
+            setValue(p::voiceId(p::chordQuality, i), static_cast<float>(s.quality));
+            setValue(p::voiceId(p::chordAlter, i), static_cast<float>(s.alter));
+            setValue(p::voiceId(p::chordLength, i), s.lengthSteps <= 8 ? 0.0f : s.lengthSteps >= 32 ? 2.0f : 1.0f);
+        }
+        setValue(p::chordSeed, static_cast<float>(seed));
+    }
+    else if (section >= DiceSound1 && section <= DiceSound4)
+    {
+        const int synth = section - DiceSound1;
+        // Arp 1 stays a bass; the others get any sound of the same family or a neighbour.
+        const int count = static_cast<int>(gristo::sound::SynthSound::Count);
+        int sound = r.nextInt(count);
+        for (int tries = 0; tries < 40; ++tries, sound = r.nextInt(count))
+        {
+            const juce::String category = gristo::sound::synthCategoryName(static_cast<gristo::sound::SynthSound>(sound));
+            if (synth == 0 ? category == "Bass" : synth == gristo::sound::kChordSynth ? (category == "Pads" || category == "Keys") : category != "Bass")
+                break;
+        }
+        setValue(p::laneId(p::synthSound, synth), static_cast<float>(sound));
+        setValue(p::laneId(p::synthCutoff, synth), range(0.35f, 0.75f));
+        setValue(p::laneId(p::synthResonance, synth), range(0.3f, 0.7f));
+        setValue(p::laneId(p::synthEnv, synth), range(0.3f, 0.7f));
+        setValue(p::laneId(p::synthAttack, synth), range(0.4f, 0.6f));
+        setValue(p::laneId(p::synthRelease, synth), range(0.4f, 0.65f));
+        setValue(p::laneId(p::synthReverb, synth), synth == 0 ? range(0.0f, 0.15f) : range(0.1f, 0.45f));
+        setValue(p::laneId(p::synthDelay, synth), r.nextFloat() < 0.5f ? 0.0f : range(0.1f, 0.35f));
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

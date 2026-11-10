@@ -415,7 +415,7 @@ bool sameClockInputs(const EngineParams& a, const EngineParams& b)
         return false;
     if (a.chords.clockVoice != b.chords.clockVoice || a.chords.resetBars != b.chords.resetBars)
         return false;
-    for (int l = 0; l < kNumModLanes; ++l)
+    for (int l = 0; l < kNumModSources; ++l)
     {
         const ModLane &x = a.modulation.lanes[static_cast<size_t>(l)], &y = b.modulation.lanes[static_cast<size_t>(l)];
         if (x.bars != y.bars || x.points != y.points)
@@ -447,13 +447,16 @@ void Engine::setParams(const EngineParams& p)
             }
 }
 
-float Engine::modulationAt(int target, std::int64_t step) const
+float Engine::modulationAt(int target, std::int64_t step, int firstSource) const
 {
     float sum = 0.0f;
-    for (const ModLane& lane : params_.modulation.lanes)
+    for (int source = std::max(0, firstSource); source < kNumModSources; ++source)
+    {
+        const ModLane& lane = params_.modulation.lanes[static_cast<size_t>(source)];
         for (const ModSlot& slot : lane.slots)
             if (slot.target == target && slot.amount != 0.0f)
                 sum += slot.amount * lane.valueAt(step);
+    }
     return sum;
 }
 

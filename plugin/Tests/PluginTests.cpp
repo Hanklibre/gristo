@@ -296,6 +296,106 @@ TEST("plugin: MIDI export matches what plays live")
     file.deleteFile();
 }
 
+TEST("plugin: a macro moves what it is routed to, also while stopped")
+{
+    auto kicks = [](float macro) {
+        auto proc = makeProcessor();
+        setParam(*proc, p::slotId(p::macroTarget, 0, 0), static_cast<float>(gristo::mod::kFill + gristo::Kick));
+        setParam(*proc, p::slotId(p::macroAmount, 0, 0), -1.0f);
+        setParam(*proc, p::laneId(p::macroValue, 0), macro);
+        for (int v = 1; v < gristo::kNumVoices; ++v)
+            setParam(*proc, p::voiceId(p::partMute, v), 1.0f);
+        Run run = play(*proc, 1600);
+        return run.noteOns[10];
+    };
+    CHECK(kicks(0.0f) > 4);
+    CHECK(kicks(1.0f) == 0); // fill pulled all the way down
+}
+
+TEST("plugin: undo and redo step through finished edits")
+{
+    auto proc = makeProcessor();
+    proc->pump(30);
+    CHECK(!proc->canUndo());
+    setParam(*proc, p::mapX, 0.2f);
+    proc->pump(30);
+    setParam(*proc, p::mapX, 0.9f);
+    proc->pump(30);
+    CHECK(proc->canUndo());
+    proc->undo();
+    CHECK(std::abs(getParam(*proc, p::mapX) - 0.2f) < 1.0e-4f);
+    proc->pump(30); // undoing isn't itself a new step
+    CHECK(proc->canRedo());
+    proc->undo();
+    CHECK(std::abs(getParam(*proc, p::mapX) - 0.5f) < 1.0e-4f);
+    proc->redo();
+    proc->redo();
+    CHECK(std::abs(getParam(*proc, p::mapX) - 0.9f) < 1.0e-4f);
+    CHECK(!proc->canRedo());
+}
+
+TEST("plugin: scenes store, recall and survive a project reload")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::freeRun, 0.0f); // stopped: a recall is immediate
+    setParam(*proc, p::mapX, 0.2f);
+    proc->storeScene(0);
+    setParam(*proc, p::mapX, 0.8f);
+    proc->storeScene(3);
+    CHECK(proc->sceneUsed(0) && proc->sceneUsed(3) && !proc->sceneUsed(1));
+    proc->recallScene(0);
+    proc->pump(3);
+    CHECK(std::abs(getParam(*proc, p::mapX) - 0.2f) < 1.0e-4f);
+    CHECK(proc->currentScene.load() == 0);
+    proc->recallScene(1); // empty: nothing happens
+    proc->pump(3);
+    CHECK(proc->currentScene.load() == 0);
+
+    juce::MemoryBlock state;
+    proc->getStateInformation(state);
+    GristoProcessor other;
+    other.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    CHECK(other.sceneUsed(0) && other.sceneUsed(3) && !other.sceneUsed(1));
+    other.recallScene(3);
+    other.pump(3);
+    CHECK(std::abs(getParam(other, p::mapX) - 0.8f) < 1.0e-4f);
+
+    // Playing: the recall waits for the bar line.
+    setParam(*proc, p::freeRun, 1.0f);
+    play(*proc, 40);
+    proc->recallScene(3);
+    proc->pump(2);
+    CHECK(std::abs(getParam(*proc, p::mapX) - 0.2f) < 1.0e-4f); // not yet
+    Run run;
+    for (int i = 0; i < 2000 && proc->pendingScene.load() >= 0; ++i)
+    {
+        run = play(*proc, 2, 256, &run);
+        proc->pump(1);
+    }
+    CHECK(std::abs(getParam(*proc, p::mapX) - 0.8f) < 1.0e-4f);
+    CHECK(std::fmod(proc->displayPpq.load() + 0.2, 4.0) < 0.5); // right at a bar line
+}
+
+TEST("plugin: dice gives new, playable settings and respects locks")
+{
+    auto proc = makeProcessor();
+    const Snapshot before = proc->presets.captureSnapshot();
+    proc->diceLocks.store((1 << GristoProcessor::NumSections) - 1);
+    proc->diceAll();
+    CHECK(proc->presets.captureSnapshot() == before); // everything locked
+    proc->diceLocks.store(0);
+    Run run;
+    for (int i = 0; i < 12; ++i)
+    {
+        proc->diceAll();
+        setParam(*proc, p::laneId(p::arpOn, i % 3), 1.0f);
+        setParam(*proc, p::chordOn, 1.0f);
+        run = play(*proc, 200, 256, &run);
+        CHECK_MSG(run.nonFinite == 0 && run.peak <= 1.0f, "dice round " << i);
+    }
+    CHECK(proc->presets.captureSnapshot() != before);
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juce;

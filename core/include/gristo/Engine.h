@@ -111,7 +111,9 @@ public:
     EngineParams effectiveParams(std::int64_t step) const;
 
     // Sum of (amount x lane value) routed to a target at a step (unscaled, -4..4).
-    float modulationAt(int target, std::int64_t step) const;
+    // `firstSource` = kNumModLanes leaves the drawn lanes out (macros only: they also
+    // act while the transport is stopped).
+    float modulationAt(int target, std::int64_t step, int firstSource = 0) const;
 
     // Maps a normalized velocity into a voice's velocity range.
     float mapVelocity(int voice, float normalized) const;

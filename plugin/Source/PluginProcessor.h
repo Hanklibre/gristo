@@ -7,7 +7,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_basics/juce_audio_basics.h>
 
-class GristoProcessor : public juce::AudioProcessor, private juce::AudioProcessorValueTreeState::Listener
+class GristoProcessor : public juce::AudioProcessor, private juce::AudioProcessorValueTreeState::Listener, private juce::Timer
 {
 public:
     GristoProcessor();
@@ -70,6 +70,41 @@ public:
     std::vector<NoteSpan> renderSpans(double startBeats, double endBeats) const;
     std::uint32_t parameterGeneration() const { return paramGeneration_.load(std::memory_order_relaxed); }
 
+    // Runs the message-thread housekeeping (undo history, scenes, macro CCs) `ticks`
+    // times, as its 100 Hz timer would. For tests, which have no message loop.
+    void pump(int ticks) { for (int i = 0; i < ticks; ++i) timerCallback(); }
+
+    // --- Undo: every finished edit (and preset / scene / dice) is one step back.
+    bool canUndo() const { return !undo_.empty(); }
+    bool canRedo() const { return !redo_.empty(); }
+    void undo();
+    void redo();
+
+    // --- Scenes: eight snapshots of everything musical. A recall waits for the next
+    // bar while playing. Chain plays the stored scenes in order, each for chainBars.
+    // MIDI: notes C1..G1 on channel 16 recall scenes 1..8.
+    static constexpr int kNumScenes = 8;
+    bool sceneUsed(int scene) const { return scene >= 0 && scene < kNumScenes && !scenes_[static_cast<size_t>(scene)].values.empty(); }
+    void storeScene(int scene);
+    void clearScene(int scene);
+    void recallScene(int scene) { if (sceneUsed(scene)) pendingScene.store(scene); }
+    std::atomic<int> currentScene { -1 }, pendingScene { -1 };
+    std::atomic<bool> chainScenes { false };
+    std::atomic<int> chainBars { 4 };
+    void writeScenes(juce::ValueTree& parent) const;
+    void readScenes(const juce::ValueTree& parent); // clears the scenes if there are none
+
+    // --- Dice: new values for one section, or for every section that isn't locked.
+    enum Section { DicePattern = 0, DiceGroove, DiceKit, DiceArp1, DiceArp2, DiceArp3, DiceChords,
+                   DiceSound1, DiceSound2, DiceSound3, DiceSound4, NumSections };
+    void dice(int section);
+    void diceAll();
+    std::atomic<int> diceLocks { 0 }; // bit per Section
+
+    // --- Macro MIDI learn: the next CC on MIDI in is bound to the macro.
+    std::atomic<int> learnMacro { -1 };
+    std::array<std::atomic<int>, gristo::kNumMacros> macroCc;
+
     static constexpr int kAllParts = -1, kAllDrums = -2;
     juce::MidiFile exportMidi(int bars, int part) const;
     juce::File exportMidiToTempFile(int bars, int part) const; // for drag and drop; empty on failure
@@ -105,6 +140,16 @@ private:
     void refreshSettings();
     void applySoundSettings(std::int64_t step, bool playing); // lanes applied to the sound knobs at `step`
     Settings settings_;
+
+    void timerCallback() override; // message thread: undo history, scenes, macro CCs
+    void setValue(const juce::String& id, float value);
+    std::vector<Snapshot> undo_, redo_;
+    Snapshot lastSnapshot_;
+    int historyTick_ = 0;
+    std::array<Snapshot, kNumScenes> scenes_;
+    std::int64_t sceneRequestBar_ = -1, chainQueuedBar_ = -1;
+    int lastPending_ = -1;
+    std::array<std::atomic<float>, gristo::kNumMacros> macroCcValue; // -1 = nothing new
     std::atomic<std::uint32_t> paramGeneration_ { 1 };
     std::uint32_t seenGeneration_ = 0;
 
