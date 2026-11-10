@@ -71,8 +71,16 @@ public:
     std::vector<ModRing> rings;
     float live = -1.0f; // proportion of the current modulated value, -1 = hidden
     bool dropHover = false;
+    std::function<void()> onContextMenu; // right-click: "Modulate with lane..."
 
     void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu() && onContextMenu)
+            onContextMenu();
+        else
+            juce::Slider::mouseDown(e);
+    }
 
 protected:
     void setDropHover(bool hover) override;
@@ -295,4 +303,25 @@ private:
     int lane_ = 0;
     bool compact_ = false;
     bool armed_ = false;
+};
+
+// A grip that starts a drag out of the plugin (MIDI to the DAW).
+class DragOutHandle : public juce::Component
+{
+public:
+    juce::String text;
+    std::function<void()> onDrag;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override { dragging_ = false; }
+    void mouseDrag(const juce::MouseEvent& e) override
+    {
+        if (!dragging_ && e.getDistanceFromDragStart() > 6 && onDrag)
+        {
+            dragging_ = true;
+            onDrag();
+        }
+    }
+
+private:
+    bool dragging_ = false;
 };

@@ -72,6 +72,7 @@ public:
     std::array<std::array<std::atomic<int>, gristo::kMaxHeldNotes>, gristo::kNumArps> displayArpInput {};
     std::array<std::atomic<int>, gristo::kNumArps> displayArpInputCount {};
     std::atomic<int> displayChordSlot { -1 }; // slot playing now (-1 = none / stopped)
+    std::array<std::atomic<float>, gristo::kNumParts> displayActivity {}; // velocity of the latest note-on; the editor clears it
 
 private:
     gristo::BlockInfo transportFor(int numSamples);

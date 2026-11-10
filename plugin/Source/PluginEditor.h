@@ -5,17 +5,18 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 
-// The whole UI at its design size (1000 x 1142). GristoEditor scales it.
+// The whole UI at its design size (1280 x 760). GristoEditor scales it.
 class GristoView : public juce::Component, public juce::DragAndDropContainer, private juce::Timer
 {
 public:
-    static constexpr int kWidth = 1000;
-    static constexpr int kHeight = 1142;
+    static constexpr int kWidth = 1280;
+    static constexpr int kHeight = 760;
 
     explicit GristoView(GristoProcessor&);
     ~GristoView() override;
 
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
 
     std::function<void(float)> onScaleChosen;
@@ -88,6 +89,7 @@ private:
     void selectLane(int lane);
     void assignLane(int lane, int target);
     void makeTarget(juce::Component& widget, ModDropTarget& dropTarget, int target);
+    void showModMenu(int target, juce::Component& knob); // right-click on a knob
     void updateModulationDisplay(const gristo::EngineParams& params);
     void setParameter(const juce::String& id, float value);
     void showSizeMenu();
@@ -123,6 +125,24 @@ private:
     // Bottom panel pages: 0 = modulation, 1..kNumArps = arps, then chords and sounds
     static constexpr int kChordsPage = 1 + gristo::kNumArps;
     static constexpr int kSoundsPage = 2 + gristo::kNumArps;
+    static constexpr int kMasterPage = kSoundsPage; // pages: 0 = drums, 1..3 = arps, chords, master
+    // Part strip: the ten parts and Master / FX; the selected one fills the page.
+    juce::TextButton partSelect_[gristo::kNumParts + 1];
+    Toggle partMute_[gristo::kNumParts], partSolo_[gristo::kNumParts], separateOuts_;
+    Knob partLevel_[gristo::kNumParts];
+    std::array<float, gristo::kNumParts> activity_ {};
+    int selectedPart_ = 0;
+    juce::Slider tempoBar_, levelBar_;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> tempoAttachment_, levelAttachment_;
+    juce::ComboBox dragBars_;
+    DragOutHandle dragPart_, dragAll_;
+    void setupPartStrip();
+    void dragMidi(int part);
+    static juce::Colour partColour(int part);
+    static int pageOfPart(int part);
+    std::vector<juce::Component*> drumsPageComponents();
+    std::vector<juce::Component*> masterPageComponents();
+    std::vector<juce::Component*> synthComponents(int synth);
     juce::TextButton pageTabs_[3 + gristo::kNumArps];
     bool isArpPage() const { return page_ >= 1 && page_ <= gristo::kNumArps; }
     int page_ = 0, lastArpPage_ = 1;
@@ -256,17 +276,8 @@ public:
     void mouseEnter(const juce::MouseEvent&) override;
 
 private:
-    // Mobile: pages show one region of the view, scaled to fill the screen.
-    enum MobilePage { Beat = 0, Groove, Arps, Chords, Sounds, NumMobilePages };
-    void showMobilePage(int page);
     void showSettings();
-    juce::Rectangle<int> mobileRegion() const;
-    juce::Component clip_;
-    juce::TextButton mobileTabs_[NumMobilePages];
-    LaneHandle barLanes_[gristo::kNumModLanes]; // always visible, so lanes reach targets on any page
-    int mobilePage_ = Beat;
     std::unique_ptr<juce::Component> settings_;
-    juce::Rectangle<int> helpBox_;
 
     void applyScale(float scale);
     void scrollBarMoved(juce::ScrollBar*, double newRangeStart) override;

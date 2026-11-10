@@ -1039,3 +1039,18 @@ void ChordPadsView::mouseDown(const juce::MouseEvent& e)
             }
 }
 
+void DragOutHandle::paint(juce::Graphics& g)
+{
+    const auto r = getLocalBounds().toFloat().reduced(0.5f);
+    g.setColour(colours::panel.brighter(isMouseOver() ? 0.12f : 0.05f));
+    g.fillRoundedRectangle(r, 5.0f);
+    g.setColour(colours::accent.withAlpha(0.8f));
+    g.drawRoundedRectangle(r, 5.0f, 1.0f);
+    // Grip dots, then the label.
+    for (int row = 0; row < 3; ++row)
+        for (int col = 0; col < 2; ++col)
+            g.fillEllipse(7.0f + col * 5.0f, r.getCentreY() - 6.0f + row * 5.0f, 2.5f, 2.5f);
+    g.setColour(colours::text);
+    g.setFont(juce::FontOptions(12.0f));
+    g.drawFittedText(text, getLocalBounds().withTrimmedLeft(20).withTrimmedRight(4), juce::Justification::centredLeft, 1, 0.8f);
+}

@@ -334,6 +334,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         renderWithSteps(ev.sampleOffset);
         if (ev.noteOn)
         {
+            displayActivity[static_cast<size_t>(ev.voice)].store(ev.velocity, std::memory_order_relaxed);
             const auto velocity = static_cast<juce::uint8>(juce::jlimit(1, 127, juce::roundToInt(ev.velocity * 127.0f)));
             midi.addEvent(juce::MidiMessage::noteOn(channel, note, velocity), ev.sampleOffset);
             if (kitOn)
