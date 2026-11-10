@@ -439,3 +439,43 @@ TEST("sound: non-finite settings never reach the output")
     CHECK(out.finite);
     CHECK(out.peak > 0.01f); // and it still plays
 }
+
+TEST("sound: stems take their part out of the mix")
+{
+    auto render = [](bool separate, std::vector<float>& mix, std::vector<float>& kit, std::vector<float>& synth) {
+        SoundEngine e;
+        dryEngine(e);
+        SynthParams p;
+        p.sound = SynthSound::SubBass;
+        p.reverbSend = 0.0f;
+        e.setSynth(0, p);
+        KitParams k;
+        k.reverbSend = 0.0f;
+        e.setKit(k);
+        e.triggerDrum(0, 1.0f);
+        e.noteOn(0, 40, 40.0f, 0.9f);
+        const int n = 4800;
+        std::vector<float> r(n), kr(n), sr(n);
+        mix.assign(n, 0.0f);
+        kit.assign(n, 0.0f);
+        synth.assign(n, 0.0f);
+        Stems stems;
+        stems.kit[0] = kit.data();
+        stems.kit[1] = kr.data();
+        stems.synth[0][0] = synth.data();
+        stems.synth[0][1] = sr.data();
+        e.render(mix.data(), r.data(), n, 1.0f, separate ? &stems : nullptr);
+    };
+    auto peak = [](const std::vector<float>& x) {
+        float m = 0.0f;
+        for (float v : x)
+            m = std::max(m, std::abs(v));
+        return m;
+    };
+    std::vector<float> mix, kit, synth;
+    render(false, mix, kit, synth);
+    CHECK(peak(mix) > 0.1f && peak(kit) == 0.0f && peak(synth) == 0.0f);
+    render(true, mix, kit, synth);
+    CHECK(peak(mix) < 1.0e-4f); // nothing else is playing
+    CHECK(peak(kit) > 0.1f && peak(synth) > 0.1f);
+}

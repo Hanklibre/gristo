@@ -187,8 +187,23 @@ bool SoundEngine::drumActive(int voice) const
     return voice >= 0 && voice < kNumDrumVoices && impl_->drums[voice].active();
 }
 
-void SoundEngine::render(float* left, float* right, int numSamples, float gain)
+void SoundEngine::render(float* left, float* right, int numSamples, float gain, const Stems* stems)
 {
+    // A stem sample: same gain and ceiling as the mix, without the glue compressor.
+    auto toStem = [gain](float* const* out, int i, float l, float r) {
+        l *= gain;
+        r *= gain;
+        if (!std::isfinite(l) || !std::isfinite(r))
+            l = r = 0.0f;
+        out[0][i] += dsp::outputClip(l) * 0.8f;
+        out[1][i] += dsp::outputClip(r) * 0.8f;
+    };
+    const bool kitStem = stems != nullptr && stems->kit[0] != nullptr && stems->kit[1] != nullptr;
+    const bool fxStem = stems != nullptr && stems->fx[0] != nullptr && stems->fx[1] != nullptr;
+    bool synthStem[kNumSynths] {};
+    for (int s = 0; s < kNumSynths; ++s)
+        synthStem[s] = stems != nullptr && stems->synth[s][0] != nullptr && stems->synth[s][1] != nullptr;
+
     auto& m = *impl_;
     bool poisoned = false;
     const KitPatch& patch = kitPatch(m.kit.kit);
@@ -241,6 +256,11 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
         float revIn = (kl + kr) * 0.5f * m.revSend[0];
         float dlyIn = (kl + kr) * 0.5f * m.dlySend[0];
         float l = kl, r = kr;
+        if (kitStem)
+        {
+            toStem(stems->kit, i, kl, kr);
+            l = r = 0.0f;
+        }
 
         // Synths, each through its ensemble when the sound has one
         for (int s = 0; s < kNumSynths; ++s)
@@ -266,8 +286,13 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
                 yl *= 1.0f + lfo;
                 yr *= sp.tremoloPan ? 1.0f - lfo : 1.0f + lfo;
             }
-            l += yl * (1.0f - kSynthPan[s]);
-            r += yr * (1.0f + kSynthPan[s]);
+            if (synthStem[s])
+                toStem(stems->synth[s], i, yl, yr);
+            else
+            {
+                l += yl * (1.0f - kSynthPan[s]);
+                r += yr * (1.0f + kSynthPan[s]);
+            }
             revIn += y * m.revSend[1 + s];
             dlyIn += y * m.dlySend[1 + s];
         }
@@ -275,8 +300,13 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain)
         float dl = 0.0f, dr = 0.0f, rl = 0.0f, rr = 0.0f;
         m.delay.process(dlyIn, dl, dr);
         m.reverb.process(revIn + (dl + dr) * 0.15f, rl, rr);
-        l += dl + rl;
-        r += dr + rr;
+        if (fxStem)
+            toStem(stems->fx, i, dl + rl, dr + rr);
+        else
+        {
+            l += dl + rl;
+            r += dr + rr;
+        }
 
         l *= gain;
         r *= gain;

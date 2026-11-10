@@ -12,7 +12,7 @@ constexpr int kFormatVersion = 2; // 2: parts, synths and lane targets renumbere
 constexpr juce::int64 kMaxPresetBytes = 1 << 20;
 
 // Each id is matched without its trailing index (note0..note5 -> note).
-const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun", "freeTempo", "partSolo" };
+const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun", "freeTempo", "partSolo", "sepOuts" };
 
 // Presets from before version 2 would load with scrambled routings: they're refused.
 bool isCurrentPreset(const juce::XmlElement* xml)

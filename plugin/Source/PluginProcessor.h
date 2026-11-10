@@ -52,6 +52,16 @@ public:
 
     PresetManager presets { *this };
 
+    // The pattern as a MIDI file, `bars` long from bar 1, exactly as it plays now
+    // (same groove, humanize, lanes, held notes). `part` is 0..kNumParts-1, kAllDrums
+    // for the six drums on one track, or kAllParts for one track per sounding part.
+    // Pitches are the musical ones, ready to drop on an instrument track: arps and
+    // chords without their Out Shift, drums moved up from the split range to GM.
+    // Message thread.
+    static constexpr int kAllParts = -1, kAllDrums = -2;
+    juce::MidiFile exportMidi(int bars, int part) const;
+    juce::File exportMidiToTempFile(int bars, int part) const; // for drag and drop; empty on failure
+
     // On-screen keyboard (feeds the arps like MIDI in) and whether it's shown.
     juce::MidiKeyboardState keyboardState;
     std::atomic<bool> showKeys { false }; // the chord pads cover chords on touch screens
@@ -75,7 +85,7 @@ private:
         gristo::sound::FxParams fx;
         int notes[gristo::kNumVoices] {}, channels[gristo::kNumParts] {}, shifts[gristo::kNumArps + 1] {};
         bool latch[gristo::kNumArps] {};
-        bool kitOn = true, freeRun = false, soundModulated = false;
+        bool kitOn = true, freeRun = false, soundModulated = false, separateOuts = false;
         float kitGain = 0.7f, freeTempo = 95.0f;
     };
     void parameterChanged(const juce::String& id, float value) override;

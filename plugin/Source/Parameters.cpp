@@ -190,6 +190,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(boolParam(voiceId(partSolo, part), juce::String(partName(part)) + " Solo", false));
     }
     layout.add(boolParam(kitOn, "Sound On", true));
+    layout.add(boolParam(separateOuts, "Separate Outputs", false));
     layout.add(floatParam(kitGain, "Sound Level", { 0.0f, 1.0f }, 0.7f));
 
     // Built-in sounds

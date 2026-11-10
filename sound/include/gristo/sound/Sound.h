@@ -67,6 +67,15 @@ struct FxParams
     double bpm = 120.0;
 };
 
+// Optional separate outputs. A part with buffers here is written to them (stereo,
+// centred, soft-clipped) and left out of the main mix; null pointers stay in the mix.
+struct Stems
+{
+    float* kit[2] {};
+    float* synth[kNumSynths][2] {};
+    float* fx[2] {}; // reverb and delay returns
+};
+
 class SoundEngine
 {
 public:
@@ -90,7 +99,7 @@ public:
     void allNotesOff();
 
     // Adds `numSamples` of stereo output to left/right (soft-clipped, times gain).
-    void render(float* left, float* right, int numSamples, float gain);
+    void render(float* left, float* right, int numSamples, float gain, const Stems* stems = nullptr);
 
     // For tests and meters.
     int activeSynthVoices(int synth) const;

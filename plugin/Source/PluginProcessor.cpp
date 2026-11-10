@@ -13,7 +13,15 @@ constexpr int kStateVersion = 2;
 } // namespace
 
 GristoProcessor::GristoProcessor()
-    : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+    // Main mix, then one optional stereo output per part (see Separate Outputs).
+    : AudioProcessor(BusesProperties()
+                         .withOutput("Output", juce::AudioChannelSet::stereo(), true)
+                         .withOutput("Kit", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("Arp 1", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("Arp 2", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("Arp 3", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("Chords", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("FX", juce::AudioChannelSet::stereo(), false)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
     resetLanes();
@@ -62,6 +70,7 @@ void GristoProcessor::refreshSettings()
             c.latch[a] = value(p::laneId(p::arpLatch, a)) > 0.5f;
         }
         c.kitOn = value(p::kitOn) > 0.5f;
+        c.separateOuts = value(p::separateOuts) > 0.5f;
         c.kitGain = value(p::kitGain);
         c.freeRun = value(p::freeRun) > 0.5f;
         c.freeTempo = value(p::freeTempo);
@@ -144,7 +153,12 @@ void GristoProcessor::resetLanes()
 bool GristoProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     const auto out = layouts.getMainOutputChannelSet();
-    return out == juce::AudioChannelSet::stereo() || out == juce::AudioChannelSet::mono();
+    if (out != juce::AudioChannelSet::stereo() && out != juce::AudioChannelSet::mono())
+        return false;
+    for (int bus = 1; bus < layouts.outputBuses.size(); ++bus)
+        if (!layouts.outputBuses[bus].isDisabled() && layouts.outputBuses[bus] != juce::AudioChannelSet::stereo())
+            return false;
+    return true;
 }
 
 void GristoProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
@@ -245,8 +259,26 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     };
     const bool stepwise = kitOn && block.playing && settings_.soundModulated && beatsPerSample > 0.0;
     const float kitGain = settings_.kitGain;
-    float* left = buffer.getWritePointer(0);
-    float* right = buffer.getNumChannels() > 1 ? buffer.getWritePointer(1) : nullptr;
+    auto mainOut = getBusBuffer(buffer, false, 0);
+    float* left = mainOut.getWritePointer(0);
+    float* right = mainOut.getNumChannels() > 1 ? mainOut.getWritePointer(1) : nullptr;
+
+    // Separate Outputs: every part whose output bus the host has switched on goes
+    // there instead of the main mix. Buses in order: Kit, Arp 1-3, Chords, FX.
+    gristo::sound::Stems stems;
+    bool anyStem = false;
+    if (settings_.separateOuts && right != nullptr)
+        for (int bus = 1; bus < getBusCount(false); ++bus)
+        {
+            auto out = getBusBuffer(buffer, false, bus);
+            if (out.getNumChannels() < 2)
+                continue;
+            float* const pair[2] = { out.getWritePointer(0), out.getWritePointer(1) };
+            float** target = bus == 1 ? stems.kit : bus == 6 ? stems.fx : stems.synth[bus - 2];
+            target[0] = pair[0];
+            target[1] = pair[1];
+            anyStem = true;
+        }
 
     int rendered = 0;
     auto renderKitTo = [&](int end) {
@@ -254,7 +286,12 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             return;
         if (right != nullptr)
         {
-            sound_.render(left + rendered, right + rendered, end - rendered, kitGain);
+            gristo::sound::Stems at = stems;
+            for (float** pair : { at.kit, at.synth[0], at.synth[1], at.synth[2], at.synth[3], at.fx })
+                for (int ch = 0; ch < 2; ++ch)
+                    if (pair[ch] != nullptr)
+                        pair[ch] += rendered;
+            sound_.render(left + rendered, right + rendered, end - rendered, kitGain, anyStem ? &at : nullptr);
         }
         else
         {
@@ -442,6 +479,123 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
             paramGeneration_.fetch_add(1);
             presets.readFrom(tree);
         }
+}
+
+juce::MidiFile GristoProcessor::exportMidi(int bars, int part) const
+{
+    constexpr int kTicksPerBeat = 960, kBlock = 512;
+    constexpr double kRate = 48000.0;
+    auto value = [this](const juce::String& id) { return state.getRawParameterValue(id)->load(); };
+
+    gristo::EngineParams params = p::readEngineParams(state, modPoints);
+    const auto wasMuted = params.partMute;
+    params.partMute.fill(false); // the engine plays everything; muted parts are left out below
+    gristo::Engine engine;
+    engine.setParams(params);
+    for (int a = 0; a < gristo::kNumArps; ++a)
+    {
+        int notes[gristo::kMaxHeldNotes] {};
+        const int count = juce::jlimit(0, static_cast<int>(gristo::kMaxHeldNotes), displayArpInputCount[static_cast<size_t>(a)].load());
+        for (int i = 0; i < count; ++i)
+            notes[i] = displayArpInput[static_cast<size_t>(a)][static_cast<size_t>(i)].load();
+        engine.setArpInput(a, notes, count);
+    }
+    const double bpm = displayPlaying.load() ? displayBpm.load() : (value(p::freeRun) > 0.5f ? static_cast<double>(value(p::freeTempo)) : displayBpm.load());
+    const double tempo = juce::jlimit(20.0, 400.0, bpm);
+    const double endBeats = std::max(1, bars) * 4.0, beatsPerBlock = kBlock * tempo / (60.0 * kRate);
+
+    // What each part is exported as.
+    auto included = [&](int voice) {
+        if (part == kAllParts)
+            return !wasMuted[static_cast<size_t>(voice)];
+        if (part == kAllDrums)
+            return voice < gristo::kNumVoices;
+        return voice == part;
+    };
+    auto trackOf = [&](int voice) { return part == kAllParts ? (voice < gristo::kNumVoices ? 0 : voice - gristo::kNumVoices + 1) : 0; };
+    auto pitchOf = [&](const gristo::OutputEvent& ev) {
+        if (ev.voice >= gristo::kNumVoices)
+            return ev.voice == gristo::kChordVoice ? ev.note - params.chords.shift
+                                                    : ev.note - params.arps[static_cast<size_t>(ev.voice - gristo::kArpVoiceBase)].shift;
+        const int note = static_cast<int>(value(p::voiceId(p::note, ev.voice)));
+        return note < 24 ? note + 36 : note; // out of the split range, back to GM
+    };
+
+    const int numTracks = part == kAllParts ? gristo::kNumArps + 2 : 1;
+    std::vector<juce::MidiMessageSequence> tracks(static_cast<size_t>(numTracks));
+    std::vector<gristo::OutputEvent> events;
+    std::vector<std::array<int, 128>> open(static_cast<size_t>(numTracks), std::array<int, 128> {});
+    auto add = [&](const gristo::OutputEvent& ev, double beats) {
+        if (!included(ev.voice))
+            return;
+        const int pitch = juce::jlimit(0, 127, pitchOf(ev));
+        const double tick = std::round(juce::jlimit(0.0, endBeats, beats) * kTicksPerBeat);
+        const auto velocity = static_cast<juce::uint8>(juce::jlimit(1, 127, juce::roundToInt(ev.velocity * 127.0f)));
+        // Only close notes this file opened (one that would start after the end is left out).
+        int& sounding = open[static_cast<size_t>(trackOf(ev.voice))][static_cast<size_t>(pitch)];
+        if (!ev.noteOn && sounding == 0)
+            return;
+        sounding += ev.noteOn ? 1 : -1;
+        tracks[static_cast<size_t>(trackOf(ev.voice))].addEvent(
+            ev.noteOn ? juce::MidiMessage::noteOn(1, pitch, velocity) : juce::MidiMessage::noteOff(1, pitch), tick);
+    };
+    double ppq = 0.0;
+    while (ppq < endBeats)
+    {
+        events.clear();
+        engine.process({ true, ppq, tempo, kRate, kBlock }, events);
+        for (const auto& ev : events)
+        {
+            const double beats = ppq + ev.sampleOffset * tempo / (60.0 * kRate);
+            if (beats < endBeats || !ev.noteOn) // notes starting after the end belong to the next loop
+                add(ev, beats);
+        }
+        ppq += beatsPerBlock;
+    }
+    events.clear();
+    engine.process({ false, ppq, tempo, kRate, kBlock }, events); // stopping ends what still sounds
+    for (const auto& ev : events)
+        if (!ev.noteOn)
+            add(ev, endBeats);
+
+    juce::MidiFile file;
+    file.setTicksPerQuarterNote(kTicksPerBeat);
+    const char* const names[] = { "Drums", "Arp 1", "Arp 2", "Arp 3", "Chords" };
+    for (int t = 0; t < numTracks; ++t)
+    {
+        auto& track = tracks[static_cast<size_t>(t)];
+        if (part == kAllParts && track.getNumEvents() == 0)
+            continue; // parts that are off
+        const juce::String name = part == kAllParts ? juce::String(names[t]) : part == kAllDrums ? juce::String("Drums") : juce::String(gristo::partName(part));
+        track.addEvent(juce::MidiMessage::textMetaEvent(3, "Gristo " + name), 0.0);
+        if (file.getNumTracks() == 0)
+        {
+            track.addEvent(juce::MidiMessage::tempoMetaEvent(juce::roundToInt(60000000.0 / tempo)), 0.0);
+            track.addEvent(juce::MidiMessage::timeSignatureMetaEvent(4, 4), 0.0);
+        }
+        track.addEvent(juce::MidiMessage::endOfTrack(), endBeats * kTicksPerBeat);
+        track.sort();
+        track.updateMatchedPairs();
+        file.addTrack(track);
+    }
+    return file;
+}
+
+juce::File GristoProcessor::exportMidiToTempFile(int bars, int part) const
+{
+    const auto midi = exportMidi(bars, part);
+    if (midi.getNumTracks() == 0)
+        return {};
+    const juce::String name = part == kAllParts ? juce::String("All") : part == kAllDrums ? juce::String("Drums") : juce::String(gristo::partName(part));
+    auto folder = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("GristoMidi");
+    folder.createDirectory();
+    const auto file = folder.getChildFile("Gristo " + name + " " + juce::String(bars) + " bars.mid");
+    file.deleteFile();
+    juce::FileOutputStream out(file);
+    if (!out.openedOk() || !midi.writeTo(out, part == kAllParts ? 1 : 0))
+        return {};
+    out.flush();
+    return file;
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

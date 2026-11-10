@@ -12,7 +12,7 @@ green CI build (Windows VST3 + Android APK) for testing before the next starts.
 - Sample-accurate (per-step, smoothed) modulation of sound parameters.
 - Chords: 16 slots.
 
-## Phase 2: Outputs
+## Phase 2: Outputs (done; controls arrive with the new UI)
 - Separate audio outputs: kit, each synth, FX returns (plus the stereo mix).
 - MIDI export core: render any part (or all) for N bars to a MIDI file, tested
   against the live output. The drag handle arrives with the new UI.

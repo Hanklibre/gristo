@@ -225,6 +225,77 @@ TEST("plugin: lanes on sound knobs stay finite at every block size")
     }
 }
 
+TEST("plugin: MIDI export matches what plays live")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::laneId(p::arpOn, 0), 1.0f);
+    setParam(*proc, p::laneId(p::arpMode, 0), 1.0f);
+    setParam(*proc, p::chordOn, 1.0f);
+    setParam(*proc, p::humanize, 0.5f);
+    const double tempo = getParam(*proc, p::freeTempo);
+    const int blocks = static_cast<int>(std::ceil(16.0 * 60.0 / tempo * 48000.0 / 256.0)); // four bars
+    // Live: note-ons per channel and their times, from bar 1.
+    std::vector<double> liveKick;
+    std::array<int, 17> live {};
+    {
+        juce::AudioBuffer<float> buffer(2, 256);
+        const int kickNote = static_cast<int>(getParam(*proc, p::voiceId(p::note, 0)));
+        for (int b = 0; b < blocks; ++b)
+        {
+            juce::MidiBuffer midi;
+            proc->processBlock(buffer, midi);
+            for (const auto meta : midi)
+            {
+                const auto m = meta.getMessage();
+                const double beats = (b * 256.0 + meta.samplePosition) * tempo / (60.0 * 48000.0);
+                if (!m.isNoteOn() || beats >= 16.0)
+                    continue;
+                ++live[static_cast<size_t>(m.getChannel())];
+                if (m.getChannel() == 10 && m.getNoteNumber() == kickNote)
+                    liveKick.push_back(beats);
+            }
+        }
+    }
+    auto noteOns = [](const juce::MidiFile& file, int track, std::vector<double>* kickBeats = nullptr) {
+        int n = 0;
+        if (track < file.getNumTracks())
+            for (const auto* e : *file.getTrack(track))
+                if (e->message.isNoteOn())
+                {
+                    ++n;
+                    if (kickBeats != nullptr && e->message.getNoteNumber() == 36)
+                        kickBeats->push_back(e->message.getTimeStamp() / 960.0);
+                }
+        return n;
+    };
+    const auto all = proc->exportMidi(4, GristoProcessor::kAllParts);
+    CHECK(all.getNumTracks() == 3); // drums, arp 1, chords: the parts that are on
+    std::vector<double> fileKick;
+    CHECK_MSG(noteOns(all, 0, &fileKick) == live[10], "drums " << noteOns(all, 0) << " vs live " << live[10]);
+    CHECK_MSG(noteOns(all, 1) == live[1], "arp " << noteOns(all, 1) << " vs live " << live[1]);
+    CHECK_MSG(noteOns(all, 2) == live[3], "chords " << noteOns(all, 2) << " vs live " << live[3]);
+    CHECK(fileKick.size() == liveKick.size() && !fileKick.empty());
+    for (size_t i = 0; i < std::min(fileKick.size(), liveKick.size()); ++i)
+        CHECK_MSG(std::abs(fileKick[i] - liveKick[i]) < 0.01, "kick " << i << " at " << fileKick[i] << " vs " << liveKick[i]);
+
+    // One part, every note closed inside the file, arps at their musical pitch.
+    const auto arp = proc->exportMidi(4, gristo::kArpVoiceBase);
+    CHECK(arp.getNumTracks() == 1);
+    int open = 0, lowest = 127;
+    for (const auto* e : *arp.getTrack(0))
+    {
+        open += e->message.isNoteOn() ? 1 : e->message.isNoteOff() ? -1 : 0;
+        if (e->message.isNoteOn())
+            lowest = std::min(lowest, e->message.getNoteNumber());
+        CHECK(e->message.getTimeStamp() <= 16.0 * 960.0);
+    }
+    CHECK(open == 0);
+    CHECK(lowest >= 36); // arp 1's root, no Out Shift
+    const auto file = proc->exportMidiToTempFile(2, GristoProcessor::kAllDrums);
+    CHECK(file.existsAsFile() && file.getSize() > 50);
+    file.deleteFile();
+}
+
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juce;
