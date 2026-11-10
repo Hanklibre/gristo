@@ -27,6 +27,8 @@ struct PatternParams
     // Beads-style random modulation of Probability, per voice, held per bar: +-0.5 x r.
     std::array<float, kNumVoices> probabilityRandom {};
     std::array<bool, kNumVoices> mute {};
+    // Polymeter: a voice loops its first `length` steps (kPatternSteps = the whole pattern).
+    std::array<int, kNumVoices> length { kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps };
     bool linear = false;
     std::uint32_t seed = 0x67726973u;
 };

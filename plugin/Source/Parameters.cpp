@@ -109,6 +109,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(percentParam(voiceId(voiceDynamics, v), name + " Dynamics", 1.0f, 2.0f));
 
         layout.add(percentParam(voiceId(probabilityRandom, v), name + " Probability Random", 0.0f));
+        layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(voiceLength, v), kVersion }, name + " Length", 1, kPatternSteps, kPatternSteps));
+        layout.add(percentParam(voiceId(voiceRatchet, v), name + " Ratchet", 0.0f));
+        layout.add(percentParam(voiceId(voiceSwing, v), name + " Swing", 1.0f));
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMin, v), kVersion }, name + " Velocity Min", 1, 127,
                                                              juce::roundToInt(dyn.velMin[static_cast<size_t>(v)] * 127.0f)));
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMax, v), kVersion }, name + " Velocity Max", 1, 127,
@@ -169,6 +172,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                   name + " Trigger " + voiceName(v), v == (a == 0 ? Kick : a == 1 ? HiHat1 : Snare)));
         layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpReset), name + " Reset",
                                                                 juce::StringArray { "1 bar", "2 bars", "4 bars", "8 bars", "16 bars" }, 2));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpDivide), name + " Step On",
+                                                                juce::StringArray { "Every hit", "Every 2nd hit", "Every 3rd hit", "Every 4th hit", "Every 6th hit", "Every 8th hit" }, 0));
         layout.add(std::make_unique<juce::AudioParameterInt>(id(arpChannel), name + " MIDI Channel", 1, 16, a < 2 ? a + 1 : a + 2)); // 3 = chords
         layout.add(std::make_unique<juce::AudioParameterBool>(id(arpLatch), name + " Latch", true));
         layout.add(std::make_unique<juce::AudioParameterChoice>(id(arpOrder), name + " Order", orders, 0));
@@ -375,6 +380,9 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         p.humanize.voiceAmount[i] = load(s, voiceId(voiceHumanize, v));
         p.dynamics.voiceDynamics[i] = load(s, voiceId(voiceDynamics, v));
         p.pattern.probabilityRandom[i] = load(s, voiceId(probabilityRandom, v));
+        p.pattern.length[i] = static_cast<int>(load(s, voiceId(voiceLength, v)));
+        p.groove.ratchet[i] = load(s, voiceId(voiceRatchet, v));
+        p.groove.swing[i] = load(s, voiceId(voiceSwing, v));
         const float lo = load(s, voiceId(velMin, v)) / 127.0f;
         const float hi = load(s, voiceId(velMax, v)) / 127.0f;
         p.dynamics.velMin[i] = std::min(lo, hi);
@@ -427,6 +435,7 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         for (int v = 0; v < kNumVoices; ++v)
             ap.triggers[static_cast<size_t>(v)] = load(s, slotId(arpTrigger, a, v)) > 0.5f;
         ap.resetBars = kResetBarChoices[juce::jlimit(0, 4, static_cast<int>(load(s, laneId(arpReset, a))))];
+        ap.divide = kArpDivideChoices[juce::jlimit(0, 5, static_cast<int>(load(s, laneId(arpDivide, a))))];
         ap.order = static_cast<ArpOrder>(juce::jlimit(0, static_cast<int>(ArpOrder::Count) - 1, static_cast<int>(load(s, laneId(arpOrder, a)))));
         ap.octaves = static_cast<int>(load(s, laneId(arpOctaves, a)));
         ap.root = static_cast<int>(load(s, laneId(arpRoot, a)));

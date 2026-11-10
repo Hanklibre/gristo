@@ -111,6 +111,11 @@ private:
     Knob probabilityRandoms_[gristo::kNumVoices];
     Knob voiceHumanize_[gristo::kNumVoices];
     Knob voiceDynamics_[gristo::kNumVoices];
+    Knob voiceRatchet_[gristo::kNumVoices], voiceSwing_[gristo::kNumVoices];
+    std::unique_ptr<NumberSelector> voiceLengths_[gristo::kNumVoices];
+    juce::TextButton voiceTabs_[2]; // Pattern (what plays) / Play (how it is played and sent)
+    int voiceTab_ = 0;
+    void showVoiceTab(int tab);
     std::unique_ptr<VelocityRange> velocityRanges_[gristo::kNumVoices];
     std::unique_ptr<NoteSelector> notes_[gristo::kNumVoices];
     Toggle mutes_[gristo::kNumVoices];
@@ -215,7 +220,7 @@ private:
     // Arp page: one set of controls, bound to the arp being shown
     Toggle arpOn_, arpLatch_;
     Toggle arpTriggers_[gristo::kNumVoices];
-    Choice arpMode_, arpReset_, arpOrder_, arpScale_;
+    Choice arpMode_, arpReset_, arpOrder_, arpScale_, arpDivide_;
     Knob arpOctaves_, arpGate_, arpLength_, arpDensity_, arpAccent_, arpSlide_, arpMutate_, arpProb_, arpProbRandom_;
     Toggle arpFollow_;
     juce::TextButton arpNew_;

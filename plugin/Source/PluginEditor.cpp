@@ -24,13 +24,9 @@ constexpr int kMacroY = 506; // two rows of four macro knobs under the parts
 // Voices matrix geometry
 constexpr int kVoiceX0 = kPageX + 384;
 constexpr int kVoiceColW = 70;
-constexpr int kVoiceRowY[] = { 122, 162, 202, 242, 282, 322 };
-constexpr int kVoiceRowH = 40;
-constexpr int kVelocityRowY = 366;
-constexpr int kNoteRowY = 394;
-constexpr int kChannelRowY = 420;
-constexpr int kSampleRowY = 446;
-const char* const kVoiceRowNames[] = { "Fill", "Random", "Probability", "Random", "Humanize", "Dynamics" };
+constexpr int kVoiceRowY[] = { 124, 180, 236, 292, 348, 404 }; // Pattern tab
+constexpr int kPlayRowY[] = { 124, 172, 220, 268, 316, 364, 412 }; // Play tab
+constexpr int kVoiceRowH = 44;
 
 // The arp and chord blocks keep their own 952-wide layout (from x = 24), moved into the page.
 constexpr int kBlockDx = kPageX - 24 + (kPageW - 952) / 2;
@@ -96,6 +92,10 @@ GristoView::GristoView(GristoProcessor& proc)
         setupCellKnob(probabilityRandoms_[v], p::voiceId(p::probabilityRandom, v), true);
         setupCellKnob(voiceHumanize_[v], p::voiceId(p::voiceHumanize, v), false);
         setupCellKnob(voiceDynamics_[v], p::voiceId(p::voiceDynamics, v), false);
+        setupCellKnob(voiceRatchet_[v], p::voiceId(p::voiceRatchet, v), false);
+        setupCellKnob(voiceSwing_[v], p::voiceId(p::voiceSwing, v), false);
+        voiceLengths_[v] = std::make_unique<NumberSelector>(*proc.state.getParameter(p::voiceId(p::voiceLength, v)), "", 1, gristo::kPatternSteps, " steps");
+        addAndMakeVisible(*voiceLengths_[v]);
         velocityRanges_[v] = std::make_unique<VelocityRange>(*proc.state.getParameter(p::voiceId(p::velMin, v)),
                                                              *proc.state.getParameter(p::voiceId(p::velMax, v)), voiceColours[v]);
         addAndMakeVisible(*velocityRanges_[v]);
@@ -107,6 +107,15 @@ GristoView::GristoView(GristoProcessor& proc)
         setHelp(sampleButtons_[v], juce::String(gristo::voiceName(v)) + " sample",
                 "Load your own one-shot for this drum instead of the kit's sound. Kit Tune, Decay (below 50% = shorter) and level still apply.");
     }
+    for (int t = 0; t < 2; ++t)
+    {
+        voiceTabs_[t].setButtonText(t == 0 ? "Pattern" : "Play");
+        voiceTabs_[t].setClickingTogglesState(false);
+        voiceTabs_[t].onClick = [this, t] { showVoiceTab(t); };
+        addAndMakeVisible(voiceTabs_[t]);
+    }
+    setHelp(voiceTabs_[0], "Pattern", "What each drum plays: how many notes, how likely, ratchets and its loop length.");
+    setHelp(voiceTabs_[1], "Play", "How each drum is played and sent: feel, swing, velocity, MIDI note and channel, your own sample.");
     setupChoice(timing_, p::timing, "Timing");
     setupKnob(shuffle_, p::shuffle, "Shuffle");
     setupChoice(feeling_, p::feeling, "Feeling");
@@ -246,6 +255,9 @@ GristoView::GristoView(GristoProcessor& proc)
         setHelp(probabilities_[v], name + " Probability", "Chance that each note plays. Skipped notes differ every bar but repeat on re-render.");
         setHelp(probabilityRandoms_[v], name + " Probability Random", "Varies this voice's Probability every bar, up to +-50 %.");
         setHelp(voiceHumanize_[v], name + " Humanize", "Scales the master Humanize for this voice. 0 % = on the grid, 200 % = twice as loose.");
+        setHelp(voiceRatchet_[v], name + " Ratchet", "Chance that a hit plays as two or three quick hits. Arps listening to this drum ratchet with it.");
+        setHelp(voiceSwing_[v], name + " Swing", "How much of the Shuffle this drum follows. 0 % = straight on the grid while the others swing.");
+        setHelp(*voiceLengths_[v], name + " Length", "Polymeter: the drum loops after this many 16ths. 32 = the whole 2-bar pattern. Try 5 or 7 on a hat.");
         setHelp(voiceDynamics_[v], name + " Dynamics", "Scales the master Dynamics for this voice: how much softer its weaker notes are.");
         setHelp(*velocityRanges_[v], name + " Velocity", "MIDI velocity range. Accents play at the top, ghost notes near the bottom. Drag the ends; double-click = 1-127.");
         setHelp(*notes_[v], name + " Note", "MIDI note this voice sends. Defaults are GM three octaves down (Pitch +36 in Live restores GM). Click for a list, scroll to step.");
@@ -1490,6 +1502,7 @@ std::vector<juce::Component*> GristoView::soundPageComponents()
 std::vector<juce::Component*> GristoView::arpPageComponents()
 {
     std::vector<juce::Component*> list { &arpOn_.button, &arpLatch_.button, &arpMode_.box, &arpReset_.box, &arpOrder_.box,
+                                         &arpDivide_.box, &arpDivide_.label,
                                          &arpOrder_.label, &arpScale_.box, &arpScale_.label, &arpNew_, &arpRootLabel_,
                                          arpChannel_.get(), arpRoot_.get(), arpVelocity_.get(), &arpView_,
                                          &arpShiftLabel_, arpShift_.get(), &arpOutLabel_ };
@@ -1792,14 +1805,37 @@ std::vector<juce::Component*> GristoView::drumsPageComponents()
         addKnob(*k);
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
-        for (Knob* k : { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceHumanize_[v], &voiceDynamics_[v] })
+        for (Knob* k : { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceHumanize_[v], &voiceDynamics_[v],
+                         &voiceRatchet_[v], &voiceSwing_[v] })
             list.push_back(&k->slider);
+        list.push_back(voiceLengths_[v].get());
         list.push_back(velocityRanges_[v].get());
         list.push_back(notes_[v].get());
         list.push_back(channels_[v].get());
         list.push_back(&sampleButtons_[v]);
     }
+    list.push_back(&voiceTabs_[0]);
+    list.push_back(&voiceTabs_[1]);
     return list;
+}
+
+void GristoView::showVoiceTab(int tab)
+{
+    voiceTab_ = tab;
+    const bool drums = page_ == 0;
+    for (int t = 0; t < 2; ++t)
+        voiceTabs_[t].setColour(juce::TextButton::buttonColourId, t == tab ? colours::accent.withAlpha(0.55f) : colours::panel);
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        for (Knob* k : { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceRatchet_[v] })
+            k->slider.setVisible(drums && tab == 0);
+        voiceLengths_[v]->setVisible(drums && tab == 0);
+        for (Knob* k : { &voiceHumanize_[v], &voiceDynamics_[v], &voiceSwing_[v] })
+            k->slider.setVisible(drums && tab == 1);
+        for (juce::Component* c : std::initializer_list<juce::Component*> { velocityRanges_[v].get(), notes_[v].get(), channels_[v].get(), &sampleButtons_[v] })
+            c->setVisible(drums && tab == 1);
+    }
+    repaint();
 }
 
 std::vector<juce::Component*> GristoView::masterPageComponents()
@@ -1870,6 +1906,7 @@ void GristoView::showPage(int page)
     }
     dragPart_.text = selectedPart_ < gristo::kNumVoices ? juce::String("Drums")
                    : selectedPart_ < gristo::kNumParts ? juce::String(gristo::partName(selectedPart_)) : juce::String("All parts");
+    showVoiceTab(voiceTab_);
     resized();
     repaint();
 }
@@ -1884,6 +1921,8 @@ void GristoView::setupArpPage()
     setupChoice(arpReset_, p::laneId(p::arpReset, 0), "Reset");
     setupChoice(arpOrder_, p::laneId(p::arpOrder, 0), "Order");
     setupChoice(arpScale_, p::laneId(p::arpScale, 0), "Scale");
+    setupChoice(arpDivide_, p::laneId(p::arpDivide, 0), "Step on");
+    setHelp(arpDivide_.box, "Step on", "The arp plays on every trigger hit, or only on every 2nd, 3rd... hit: a slower line over the same drums.");
     arpMode_.label.setVisible(false);
     arpReset_.label.setVisible(false);
     setupKnob(arpOctaves_, p::laneId(p::arpOctaves, 0), "Octaves");
@@ -1970,6 +2009,7 @@ void GristoView::bindArp(int arp)
         bindToggle(arpTriggers_[v], p::slotId(p::arpTrigger, arp, v));
     bindChoice(arpMode_, p::laneId(p::arpMode, arp));
     bindChoice(arpReset_, p::laneId(p::arpReset, arp));
+    bindChoice(arpDivide_, p::laneId(p::arpDivide, arp));
     bindChoice(arpOrder_, p::laneId(p::arpOrder, arp));
     bindChoice(arpScale_, p::laneId(p::arpScale, arp));
     bindKnob(arpOctaves_, p::laneId(p::arpOctaves, arp));
@@ -2059,21 +2099,20 @@ void GristoView::paint(juce::Graphics& g)
             }
         }
         g.setFont(juce::FontOptions(11.5f));
-        for (int r = 0; r < 6; ++r)
+        static const char* const patternRows[] = { "Fill", "Random", "Probability", "Random", "Ratchet", "Length" };
+        static const char* const playRows[] = { "Humanize", "Dynamics", "Swing", "Velocity", "Note", "Channel", "Sample" };
+        const int count = voiceTab_ == 0 ? 6 : 7;
+        for (int r = 0; r < count; ++r)
         {
-            g.setColour((r == 1 || r == 3) ? colours::random : colours::dim);
-            g.drawText(kVoiceRowNames[r], px + 318, kVoiceRowY[r] + 14, 66, 16, juce::Justification::centredLeft);
+            const int y = voiceTab_ == 0 ? kVoiceRowY[r] : kPlayRowY[r];
+            g.setColour(voiceTab_ == 0 && (r == 1 || r == 3) ? colours::random : colours::dim);
+            g.drawText(voiceTab_ == 0 ? patternRows[r] : playRows[r], px + 318, y + 17, 66, 16, juce::Justification::centredLeft);
             if (r > 0)
             {
                 g.setColour(colours::outline.withAlpha(0.35f));
-                g.drawHorizontalLine(kVoiceRowY[r] - 1, static_cast<float>(px + 318), static_cast<float>(px + 804));
+                g.drawHorizontalLine(y - 1, static_cast<float>(px + 318), static_cast<float>(px + 804));
             }
         }
-        g.setColour(colours::dim);
-        g.drawText("Velocity", px + 318, kVelocityRowY + 3, 66, 16, juce::Justification::centredLeft);
-        g.drawText("Note", px + 318, kNoteRowY + 3, 66, 16, juce::Justification::centredLeft);
-        g.drawText("Channel", px + 318, kChannelRowY + 3, 66, 16, juce::Justification::centredLeft);
-        g.drawText("Sample", px + 318, kSampleRowY + 3, 66, 16, juce::Justification::centredLeft);
     }
     else if (page_ == kMasterPage)
     {
@@ -2238,17 +2277,25 @@ void GristoView::resized()
     placeDice(GristoProcessor::DiceChords, px + 24, py + 252);
     placeDice(GristoProcessor::DiceSound4, px + 24, py + 392);
 
+    voiceTabs_[0].setBounds(px + 308 + 76, py + 5, 70, 18);
+    voiceTabs_[1].setBounds(px + 308 + 150, py + 5, 56, 18);
     // Voices matrix: one column per voice, one row per parameter
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         const int x = kVoiceX0 + v * kVoiceColW;
-        Knob* rows[] = { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceHumanize_[v], &voiceDynamics_[v] };
-        for (int r = 0; r < 6; ++r)
-            rows[r]->slider.setBounds(x + 2, kVoiceRowY[r], kVoiceColW - 4, kVoiceRowH);
-        velocityRanges_[v]->setBounds(x + 3, kVelocityRowY, kVoiceColW - 6, 24);
-        notes_[v]->setBounds(x + 3, kNoteRowY, kVoiceColW - 6, 22);
-        channels_[v]->setBounds(x + 10, kChannelRowY, kVoiceColW - 20, 22);
-        sampleButtons_[v].setBounds(x + 3, kSampleRowY, kVoiceColW - 6, 22);
+        // Pattern tab
+        Knob* pattern[] = { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceRatchet_[v] };
+        for (int r = 0; r < 5; ++r)
+            pattern[r]->slider.setBounds(x + 2, kVoiceRowY[r] + 3, kVoiceColW - 4, kVoiceRowH);
+        voiceLengths_[v]->setBounds(x + 5, kVoiceRowY[5] + 13, kVoiceColW - 10, 24);
+        // Play tab
+        Knob* play[] = { &voiceHumanize_[v], &voiceDynamics_[v], &voiceSwing_[v] };
+        for (int r = 0; r < 3; ++r)
+            play[r]->slider.setBounds(x + 2, kPlayRowY[r] + 3, kVoiceColW - 4, kVoiceRowH);
+        velocityRanges_[v]->setBounds(x + 3, kPlayRowY[3] + 13, kVoiceColW - 6, 24);
+        notes_[v]->setBounds(x + 3, kPlayRowY[4] + 14, kVoiceColW - 6, 22);
+        channels_[v]->setBounds(x + 10, kPlayRowY[5] + 14, kVoiceColW - 20, 22);
+        sampleButtons_[v].setBounds(x + 3, kPlayRowY[6] + 14, kVoiceColW - 6, 22);
     }
 
     // Kit
@@ -2319,6 +2366,8 @@ void GristoView::resized()
         arpTriggers_[v].button.setBounds(262 + v * 40, kModRowY, 38, 26);
     arpReset_.box.setBounds(510, kModRowY, 86, 26);
     arpLatch_.button.setBounds(604, kModRowY, 60, 26);
+    arpDivide_.label.setBounds(256, kModRowY + 170, 54, 24);
+    arpDivide_.box.setBounds(310, kModRowY + 170, 132, 24);
     arpFollow_.button.setBounds(670, kModRowY, 76, 26);
     if (arpChannel_ != nullptr)
         arpChannel_->setBounds(24, kModBottomY - 2, 58, 22);

@@ -41,6 +41,6 @@ green CI build (Windows VST3 + Android APK) for testing before the next starts.
 ## Phase 6: Chords (done)
 - Voice-leading, strum, one-key chord play from MIDI in.
 
-## Phase 7: Engine extras
+## Phase 7: Engine extras (done)
 - Per-voice pattern length (polymeter), ratchets, per-arp clock division,
   swing amount per part.

@@ -680,3 +680,113 @@ TEST("chords: Keys clock plays the chord of the key, at once, and feeds the arps
     CHECK(sounding.empty());
     CHECK(e.chordAt(5).count == 0);
 }
+
+TEST("drums: a shorter voice length loops against the others (polymeter)")
+{
+    Engine e;
+    EngineParams p;
+    p.pattern.fill = { 0.6f, 0.6f, 0.8f, 0.5f, 0.5f, 0.5f };
+    p.pattern.length[HiHat1] = 5;
+    e.setParams(p);
+    int differs = 0;
+    for (std::int64_t s = 0; s < 320; ++s)
+    {
+        const StepHits now = e.evaluateStep(s), later = e.evaluateStep(s + 5), bar = e.evaluateStep(s + kPatternSteps);
+        CHECK(now[HiHat1].on == later[HiHat1].on); // the hat repeats every 5 steps
+        CHECK(now[Kick].on == bar[Kick].on);       // the kick keeps the full pattern
+        differs += now[Kick].on != e.evaluateStep(s + 5)[Kick].on ? 1 : 0;
+    }
+    CHECK(differs > 0);
+}
+
+TEST("drums: ratchets double or triple hits; Swing per voice scales the shuffle")
+{
+    EngineParams p = fourOnFloor();
+    p.pattern.fill = { 0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 0.0f };
+    p.groove.shuffle = 4.0f;
+    p.groove.ratchet[HiHat1] = 0.5f;
+    Engine e;
+    e.setParams(p);
+    int plain = 0, twos = 0, threes = 0;
+    for (std::int64_t s = 0; s < 640; ++s)
+    {
+        const HitInfo h = e.describe(s, HiHat1, 120.0, false);
+        if (!h.on)
+            continue;
+        (h.rollCount == 1 ? plain : h.rollCount == 2 ? twos : threes)++;
+        CHECK(h.rollSpacingBeats > 0.0);
+        CHECK(e.describe(s, Kick, 120.0, false).rollCount == 1);
+    }
+    CHECK(plain > 200 && twos > 100 && threes > 30);
+
+    // Swing: 0 = on the straight grid, 0.5 = halfway to the shuffled position.
+    double moved = 0.0;
+    for (std::int64_t s = 0; s < 32; ++s)
+    {
+        const double straight = static_cast<double>(s) / kStepsPerBeat;
+        const double full = e.describe(s, HiHat1, 120.0, false).timeBeats;
+        p.groove.swing[HiHat1] = 0.0f;
+        e.setParams(p);
+        CHECK(std::abs(e.describe(s, HiHat1, 120.0, false).timeBeats - straight) < 1e-9);
+        CHECK(std::abs(e.describe(s, Kick, 120.0, false).timeBeats - full) < 1e-9);
+        p.groove.swing[HiHat1] = 0.5f;
+        e.setParams(p);
+        CHECK(std::abs(e.describe(s, HiHat1, 120.0, false).timeBeats - (straight + full) / 2) < 1e-9);
+        p.groove.swing[HiHat1] = 1.0f;
+        e.setParams(p);
+        moved += std::abs(full - straight);
+    }
+    CHECK(moved > 0.1);
+    // Ratcheted notes stay paired whatever the block size.
+    for (int block : { 64, 480 })
+    {
+        std::map<std::pair<int, int>, int> on;
+        int bad = 0;
+        for (const Ev& ev : render(p, block, 8 * kBar))
+        {
+            int& n = on[{ ev.voice, ev.note }];
+            bad += (ev.on ? n > 0 : n == 0) ? 1 : 0;
+            n = ev.on ? 1 : 0;
+        }
+        CHECK_MSG(bad == 0, bad << " unpaired at block " << block);
+    }
+}
+
+TEST("arps: Divide plays every Nth trigger, the same from any start point")
+{
+    auto count = [](int divide, double startPpq) {
+        EngineParams p = fourOnFloor();
+        p.pattern.fill = { 0, 0, 1.0f, 0, 0, 0 }; // hat on every 16th
+        ArpParams& a = p.arps[0];
+        a.enabled = true;
+        a.triggers[HiHat1] = true;
+        a.divide = divide;
+        a.resetBars = 1;
+        a.gateSteps = 0.5f;
+        Engine e;
+        e.setParams(p);
+        const int held[] = { 60, 64, 67 };
+        e.setArpInput(0, held, 3);
+        std::vector<std::pair<long, int>> ons;
+        std::vector<OutputEvent> out;
+        double ppq = startPpq;
+        while (ppq < 8.0)
+        {
+            out.clear();
+            e.process({ true, ppq, 120.0, 48000.0, 256 }, out);
+            for (const auto& ev : out)
+                if (ev.voice == kArpVoiceBase && ev.noteOn)
+                {
+                    const double at = ppq + ev.sampleOffset * 120.0 / (60.0 * 48000.0);
+                    if (at >= 4.0 - 1e-6)
+                        ons.push_back({ std::lround(at * 1000), ev.note });
+                }
+            ppq += 256 * 120.0 / (60.0 * 48000.0);
+        }
+        return ons;
+    };
+    CHECK(count(1, 0.0).size() == 16);
+    CHECK(count(3, 0.0).size() == 6); // steps 0, 3, 6, 9, 12, 15 of the bar
+    CHECK(count(4, 0.0).size() == 4);
+    CHECK(count(3, 0.0) == count(3, 256 * 120.0 / (60.0 * 48000.0) * 300)); // started mid-song (2.5 beats... on the block grid)
+}

@@ -101,14 +101,16 @@ void Engine::resyncArp(int arp, std::int64_t firstStep, double bpm)
     ArpState& st = arps_[static_cast<size_t>(arp)];
     const int resetLen = resetSteps(params_.arps[static_cast<size_t>(arp)]);
     const std::int64_t cycleStart = floorDiv(firstStep, resetLen) * resetLen;
-    st.count = 0;
+    st.triggers = 0;
     for (std::int64_t s = cycleStart; s < firstStep; ++s)
     {
         HitInfo h;
         double earliest = 0.0;
         if (arpTrigger(arp, s, bpm, h, earliest))
-            st.count += h.rollCount;
+            st.triggers += h.rollCount;
     }
+    const int divide = std::clamp(params_.arps[static_cast<size_t>(arp)].divide, 1, 16);
+    st.count = (st.triggers + divide - 1) / divide;
     st.nextStep = firstStep;
     st.lastNote = -1;
     st.lastSlide = false;
@@ -452,6 +454,7 @@ void Engine::processArp(int arp, double ppqStart, double ppqEnd, double bpm)
         resyncArp(arp, static_cast<std::int64_t>(std::ceil(ppqStart * kStepsPerBeat - 1e-9)), bpm);
 
     const int resetLen = resetSteps(params_.arps[static_cast<size_t>(arp)]);
+    const int divide = std::clamp(params_.arps[static_cast<size_t>(arp)].divide, 1, 16);
     for (int guard = 0; guard < kMaxStepsPerBlock; ++guard)
     {
         const std::int64_t s = st.nextStep;
@@ -463,13 +466,15 @@ void Engine::processArp(int arp, double ppqStart, double ppqEnd, double bpm)
         if (earliest >= ppqEnd)
             break;
         if (floorMod(s, resetLen) == 0)
-            st.count = 0; // reset bar: the phrase starts over
+            st.count = st.triggers = 0; // reset bar: the phrase starts over
         if (found)
         {
             const std::int64_t cycle = floorDiv(s, resetLen);
             for (int r = 0; r < hit.rollCount; ++r)
             {
                 const float ramp = hit.rollCount > 1 ? 0.55f + 0.45f * static_cast<float>(r) / static_cast<float>(hit.rollCount - 1) : 1.0f;
+                if (st.triggers++ % divide != 0)
+                    continue;
                 playArp(arp, s, st.count, cycle, hit.timeBeats + r * hit.rollSpacingBeats, hit.velocityNorm * ramp);
                 ++st.count;
             }
@@ -486,7 +491,7 @@ bool sameClockInputs(const EngineParams& a, const EngineParams& b)
     const PatternParams &p = a.pattern, &q = b.pattern;
     if (p.mapX != q.mapX || p.mapY != q.mapY || p.chaos != q.chaos || p.mapRandom != q.mapRandom || p.fill != q.fill
         || p.fillRandom != q.fillRandom || p.probability != q.probability || p.probabilityRandom != q.probabilityRandom
-        || p.mute != q.mute || p.linear != q.linear || p.seed != q.seed)
+        || p.mute != q.mute || p.linear != q.linear || p.seed != q.seed || p.length != q.length)
         return false;
     if (a.chords.clockVoice != b.chords.clockVoice || a.chords.resetBars != b.chords.resetBars)
         return false;
@@ -628,13 +633,15 @@ HitInfo Engine::describe(std::int64_t step, int voice, double bpm, bool withHuma
     h.accent = vh.accent;
     h.dropped = vh.dropped;
     h.level = vh.level;
-    h.gridBeats = Groove::gridPosition(g, step);
+    h.gridBeats = Groove::voicePosition(g, voice, step);
     h.timeBeats = h.gridBeats + Groove::feelOffset(g, voice, step, bpm);
     if (!h.on)
         return h;
 
     float norm = normalizedVelocity(ep, vh, voice);
-    const double nextGrid = gridAt(step + 1);
+    // The next step for this voice (its Swing amount scales the shuffle).
+    const double nextStraight = static_cast<double>(step + 1) / kStepsPerBeat;
+    const double nextGrid = nextStraight + (gridAt(step + 1) - nextStraight) * std::clamp(g.swing[static_cast<size_t>(voice)], 0.0f, 1.0f);
     h.rollCount = Groove::rollCount(g, voice, step);
     h.rollSpacingBeats = (nextGrid - h.gridBeats) / h.rollCount;
 

@@ -159,6 +159,7 @@ private:
     {
         std::int64_t nextStep = 0;
         std::int64_t count = 0;
+        std::int64_t triggers = 0; // trigger hits since the reset (Divide plays every Nth)
         bool needsResync = true;
         int lastNote = -1;
         double lastOnset = 0.0; // beat of lastNote's note-on

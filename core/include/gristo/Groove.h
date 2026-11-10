@@ -2,6 +2,8 @@
 
 #include "gristo/Types.h"
 
+#include <array>
+
 namespace gristo {
 
 // Timing models: how the sixteenth grid is displaced.
@@ -37,6 +39,10 @@ struct GrooveParams
     // Shuffle and per hit for the Flam / Slop delay.
     float shuffleRandom = 0.0f; // up to +-3 shuffle rows
     float feelRandom = 0.0f;    // Flam/Slop: delay varies (1 +- r) x feelMs; Rolls: 2..5 hits
+    // Per voice: chance (0..1) that a hit plays as a ratchet (two or three quick hits).
+    std::array<float, kNumVoices> ratchet {};
+    // Per voice: how much of the shuffle the voice follows (0 = straight, 1 = all of it).
+    std::array<float, kNumVoices> swing { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
     std::uint32_t seed = 0x67726f76u;
 };
 
@@ -46,6 +52,8 @@ public:
     // Displaced position of a sixteenth, in beats from song start (before Feeling and
     // humanization). Monotonic in absoluteStep for every timing and shuffle value.
     static double gridPosition(const GrooveParams& p, std::int64_t absoluteStep);
+    // The same for one voice: its Swing amount scales the displacement.
+    static double voicePosition(const GrooveParams& p, int voice, std::int64_t absoluteStep);
 
     // Shuffle value in effect for the cell containing absoluteStep (Shuffle plus its
     // random modulation), clamped to 0..6.

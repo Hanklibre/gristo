@@ -56,13 +56,14 @@ float PatternGenerator::probabilityAt(const PatternParams& p, int voice, std::in
 
 StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absoluteStep) const
 {
-    const int patternStep = floorMod(absoluteStep, kPatternSteps);
-    const std::int64_t cycle = floorDiv(absoluteStep, kPatternSteps);
     const auto [mapX, mapY] = mapPositionAt(p, absoluteStep);
 
     StepHits hits {};
     for (int v = 0; v < kNumVoices; ++v)
     {
+        const int length = std::clamp(p.length[static_cast<size_t>(v)], 1, kPatternSteps);
+        const int patternStep = floorMod(absoluteStep, length);
+        const std::int64_t cycle = floorDiv(absoluteStep, length);
         float level = map_.level(v, patternStep, mapX, mapY);
         if (p.chaos > 0.0f)
         {

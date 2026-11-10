@@ -57,6 +57,7 @@ struct ArpParams
     std::array<bool, kNumVoices> triggers {}; // drum voices that step the arp
     ArpMode mode = ArpMode::Arp;
     int resetBars = 4;                        // 1, 2, 4, 8 or 16
+    int divide = 1;                           // the arp steps on every Nth trigger hit
 
     // Arp mode
     ArpOrder order = ArpOrder::Up;

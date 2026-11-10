@@ -42,6 +42,7 @@ constexpr int kClaveAnchors[4] = { 0, 3, 6, 8 };
 constexpr std::uint32_t kShuffleRandomStream = 0x5A0FFu;
 constexpr std::uint32_t kFeelRandomStream = 0xF1A70u;
 constexpr std::uint32_t kRollRandomStream = 0x2011Fu;
+constexpr std::uint32_t kRatchetStream = 0x4A7C0u;
 
 } // namespace
 
@@ -100,6 +101,16 @@ double Groove::gridPosition(const GrooveParams& p, std::int64_t absoluteStep)
     return (static_cast<double>(cellIndex) * cell + pos) / kStepsPerBeat;
 }
 
+double Groove::voicePosition(const GrooveParams& p, int voice, std::int64_t absoluteStep)
+{
+    const double grid = gridPosition(p, absoluteStep);
+    const double amount = std::clamp(p.swing[static_cast<size_t>(voice)], 0.0f, 1.0f);
+    if (amount >= 1.0)
+        return grid;
+    const double straight = static_cast<double>(absoluteStep) / kStepsPerBeat;
+    return straight + (grid - straight) * amount;
+}
+
 float Groove::shuffleAt(const GrooveParams& p, std::int64_t absoluteStep)
 {
     float shuffle = p.shuffle;
@@ -142,7 +153,15 @@ double Groove::feelOffset(const GrooveParams& p, int voice, std::int64_t absolut
 int Groove::rollCount(const GrooveParams& p, int voice, std::int64_t absoluteStep)
 {
     if (p.feeling != Feeling::Rolls || voice != HiHat2)
-        return 1;
+    {
+        const float chance = p.ratchet[static_cast<size_t>(voice)];
+        if (chance <= 0.0f)
+            return 1;
+        const auto stream = kRatchetStream + static_cast<std::uint32_t>(voice);
+        if (rnd::unit(rnd::hash(p.seed, stream, absoluteStep)) >= chance)
+            return 1;
+        return rnd::unit(rnd::hash(p.seed, stream + 16u, absoluteStep)) < 0.3f ? 3 : 2;
+    }
     if (p.feelRandom <= 0.0f)
         return 3;
     const float u = rnd::bipolar(rnd::hash(p.seed, kRollRandomStream, absoluteStep));
