@@ -449,11 +449,11 @@ int main()
     return gt::failures() == 0 ? 0 : 1;
 }
 
-TEST("plugin: with the Keys clock a white key from C1 plays its chord")
+TEST("plugin: played by Keys, a white key from C1 plays its chord")
 {
     auto proc = makeProcessor();
     setParam(*proc, p::chordOn, 1.0f);
-    setParam(*proc, p::chordClock, 2.0f);
+    setParam(*proc, p::chordMode, 1.0f);
     setParam(*proc, p::chordStrum, 20.0f);
     setParam(*proc, p::chordVoicing, 2.0f);
     proc->pump(2);
@@ -477,9 +477,103 @@ TEST("plugin: with the Keys clock a white key from C1 plays its chord")
         return std::make_pair(ons, offs);
     };
     CHECK(run(-1, false, 100) == std::make_pair(0, 0)); // nothing until a key goes down
-    CHECK(run(38, true, 100) == std::make_pair(4, 0));  // D1: the second chord, triad + bass
+    CHECK(run(38, true, 100) == std::make_pair(4, 0));  // D1: the second of the seven chords around home, triad + bass
     CHECK(run(40, true, 100) == std::make_pair(4, 4));  // E1 takes over
     CHECK(run(40, false, 100) == std::make_pair(4, 4)); // back to D1, still held
     CHECK(run(38, false, 100) == std::make_pair(0, 4));
     CHECK(run(37, true, 50) == std::make_pair(0, 0));   // black keys in the zone do nothing
+}
+
+TEST("plugin: the big knobs act on the sound and the pattern; Catch loops the harmony; Mutate nudges")
+{
+    // Busy all the way down: no drums. Dirt of every kind: finite and bounded.
+    {
+        auto proc = makeProcessor();
+        setParam(*proc, p::busy, 0.0f);
+        proc->pump(2);
+        const Run quiet = play(*proc, 400);
+        CHECK(quiet.noteOns[10] == 0);
+        setParam(*proc, p::busy, 1.0f);
+        proc->pump(2);
+        const Run full = play(*proc, 400, 256, &quiet);
+        CHECK(full.noteOns[10] > 60);
+        CHECK(full.unpaired == 0);
+    }
+    for (int grit = 0; grit < 3; ++grit)
+    {
+        auto proc = makeProcessor();
+        setParam(*proc, p::grit, static_cast<float>(grit));
+        setParam(*proc, p::dirt, 1.0f);
+        setParam(*proc, p::space, 1.0f);
+        setParam(*proc, p::loose, 1.0f);
+        setParam(*proc, p::wild, 1.0f);
+        setParam(*proc, p::chordOn, 1.0f);
+        setParam(*proc, p::chordWander, 1.0f);
+        proc->pump(2);
+        const Run run = play(*proc, 1500);
+        CHECK(run.nonFinite == 0);
+        CHECK(run.peak > 0.05f && run.peak <= 1.0f);
+        CHECK(run.unpaired == 0);
+    }
+    // Catch freezes the phrase playing now; again lets it go.
+    {
+        auto proc = makeProcessor();
+        setParam(*proc, p::chordOn, 1.0f);
+        proc->pump(2);
+        play(*proc, 3000); // well into the song
+        CHECK(!proc->harmonyCaught());
+        proc->catchHarmony();
+        CHECK(proc->harmonyCaught());
+        CHECK(getParam(*proc, p::chordLoop) >= 0.0f);
+        proc->catchHarmony();
+        CHECK(!proc->harmonyCaught());
+    }
+    // Mutate: small amounts stay close, Keep protects a section, Undo goes back.
+    {
+        auto proc = makeProcessor();
+        proc->pump(60);
+        const float x = getParam(*proc, p::mapX), cutoff = getParam(*proc, p::laneId(p::synthCutoff, 0));
+        proc->diceLocks.store(1 << GristoProcessor::DiceSound1);
+        bool moved = false;
+        for (int i = 0; i < 8; ++i)
+        {
+            proc->mutate(0.2f);
+            CHECK(std::abs(getParam(*proc, p::mapX) - x) <= 8 * 0.2f * 0.35f + 1e-4f);
+            moved = moved || std::abs(getParam(*proc, p::mapX) - x) > 1e-4f;
+        }
+        CHECK(moved);
+        CHECK(getParam(*proc, p::laneId(p::synthCutoff, 0)) == cutoff);
+        proc->mutate(0.0f);
+        const Run run = play(*proc, 300);
+        CHECK(run.unpaired == 0 && run.nonFinite == 0);
+    }
+}
+
+TEST("plugin: morphing blends knobs towards a scene and flips switches halfway")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::busy, 0.2f);
+    setParam(*proc, p::grit, 0.0f);
+    proc->pump(2);
+    CHECK(!proc->beginMorph(0)); // nothing stored there
+    setParam(*proc, p::busy, 0.8f);
+    setParam(*proc, p::grit, 2.0f);
+    proc->storeScene(0);
+    setParam(*proc, p::busy, 0.2f);
+    setParam(*proc, p::grit, 0.0f);
+    CHECK(proc->beginMorph(0));
+    proc->setMorph(0.25f);
+    CHECK(std::abs(getParam(*proc, p::busy) - 0.35f) < 0.011f);
+    CHECK(getParam(*proc, p::grit) == 0.0f);
+    proc->setMorph(0.75f);
+    CHECK(std::abs(getParam(*proc, p::busy) - 0.65f) < 0.011f);
+    CHECK(getParam(*proc, p::grit) == 2.0f);
+    proc->setMorph(0.0f);
+    CHECK(std::abs(getParam(*proc, p::busy) - 0.2f) < 0.011f);
+    proc->setMorph(1.0f);
+    CHECK(std::abs(getParam(*proc, p::busy) - 0.8f) < 0.011f);
+    CHECK(proc->currentScene.load() == 0);
+    proc->endMorph();
+    const Run run = play(*proc, 200);
+    CHECK(run.unpaired == 0 && run.nonFinite == 0);
 }

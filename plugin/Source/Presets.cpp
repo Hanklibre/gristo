@@ -6,7 +6,7 @@ namespace p = gristo::params;
 
 namespace {
 
-constexpr int kFormatVersion = 2; // 2: parts, synths and lane targets renumbered
+constexpr int kFormatVersion = 3; // 3: harmony map instead of chord slots, big knobs
 // Presets are a few kB; anything far bigger is the wrong file (a photo or video picked
 // by mistake) and reading it whole on the message thread could stall or kill the app.
 constexpr juce::int64 kMaxPresetBytes = 1 << 20;
@@ -14,7 +14,7 @@ constexpr juce::int64 kMaxPresetBytes = 1 << 20;
 // Each id is matched without its trailing index (note0..note5 -> note).
 const char* const kRoutingBases[] = { "note", "chan", "arpChan", "arpShift", "chChan", "chShift", "kitOn", "kitGain", "freeRun", "freeTempo", "partSolo", "sepOuts" };
 
-// Presets from before version 2 would load with scrambled routings: they're refused.
+// Presets from an older format would load with scrambled settings: they're refused.
 bool isCurrentPreset(const juce::XmlElement* xml)
 {
     return xml != nullptr && xml->hasTagName("GristoPreset") && xml->getIntAttribute("version", 1) == kFormatVersion;

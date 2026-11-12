@@ -172,35 +172,29 @@ private:
     gristo::ArpParams params_;
 };
 
-// The chord progression: 8 slots showing name + roman numeral; the slot playing now
-// glows, the one being edited is outlined. Tap to select.
-class ChordSlotsView : public juce::Component
+// The harmony map: columns are a chain of thirds around the tonic (neighbours share
+// two notes; darker to the left, brighter to the right), rows add colour towards the
+// top. Drag to move home; the cell sounding now glows and leaves a short trail.
+class HarmonyPad : public juce::Component
 {
 public:
-    void update(const gristo::ChordParams& params, int playing, int selected);
-    std::function<void(int slot)> onSelect;
+    explicit HarmonyPad(juce::AudioProcessorValueTreeState& state);
+    // playing: (column + 5) * 8 + row of the cell sounding now, -1 = none.
+    void update(const gristo::ChordParams& params, int playing);
+    std::function<void()> onTouched; // a press on the pad (to switch the chords on)
+    juce::String playingName() const; // "Am9", or the home chord while nothing sounds
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
 
 private:
+    juce::Rectangle<float> cellArea(gristo::HarmonyCell cell) const;
+    void setFromMouse(juce::Point<float> pos);
+    juce::AudioProcessorValueTreeState& state_;
     gristo::ChordParams params_;
-    int playing_ = -1, selected_ = 0;
-};
-
-// Chord pads: the key's 7 chords on top, the borrowed ones (parallel major / minor)
-// below, shown with the type of the slot being edited. Tap to put one in the slot.
-class ChordPadsView : public juce::Component
-{
-public:
-    void update(const gristo::ChordParams& params, const gristo::ChordSlot& editing);
-    std::function<void(int degree, bool borrowed)> onPad;
-    void paint(juce::Graphics&) override;
-    void mouseDown(const juce::MouseEvent&) override;
-
-private:
-    juce::Rectangle<float> padArea(int row, int degree) const;
-    gristo::ChordParams params_;
-    gristo::ChordSlot editing_;
+    int playing_ = -1;
+    std::array<int, 3> trail_ { -1, -1, -1 }; // the cells before the current one
 };
 
 // Two-handle MIDI velocity range (1..127) for one voice. Accepts lanes (Velocity target).

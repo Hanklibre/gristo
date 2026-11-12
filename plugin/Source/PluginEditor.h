@@ -74,6 +74,9 @@ private:
     void mouseMove(const juce::MouseEvent&) override;
     void mouseEnter(const juce::MouseEvent&) override;
     void mouseDown(const juce::MouseEvent& e) override;
+    void mouseDrag(const juce::MouseEvent& e) override;
+    void mouseUp(const juce::MouseEvent& e) override;
+    int morphing_ = -1; // the scene being morphed to by a sideways drag on its button
     void showHelpFor(juce::Component* component);
     static void setHelp(juce::Component& component, const juce::String& title, const juce::String& text);
     static void setHelp(Knob& knob, const juce::String& title, const juce::String& text);
@@ -190,30 +193,30 @@ private:
     Knob drumLevels_[gristo::kNumVoices];
     SynthRow synthRows_[gristo::sound::kNumSynths];
 
-    // Chords page
+    // Chords page (the harmony pad is shared with the Play screen)
     void setupChordPage();
     std::vector<juce::Component*> chordPageComponents();
     void updateChordPage(const gristo::EngineParams& params);
-    void writeChordSlot(int index, const gristo::ChordSlot& slot);
-    void editSelectedChord(const std::function<void(gristo::ChordSlot&)>& edit);
-    void showChordLibrary();
-    void newChordProgression();
     Toggle chordOn_;
     Toggle chordStabs_[gristo::kNumVoices];
-    Choice chordKey_, chordScale_, chordClock_, chordClockVoice_, chordReset_, chordPlay_, chordOctave_, chordVoicing_, chordStrumDir_;
-    std::unique_ptr<NumberSelector> chordHits_, chordChannel_, chordShift_;
+    Choice chordKey_, chordMinor_, chordMode_, chordRate_, chordPhrase_, chordPlay_, chordOctave_, chordVoicing_, chordStrumDir_;
+    std::unique_ptr<NumberSelector> chordChannel_, chordShift_;
     std::unique_ptr<VelocityRange> chordVelocity_;
-    juce::TextButton chordLibrary_ { "Library" }, chordNew_ { "New" }, chordClear_ { "Clear" };
-    juce::TextButton chordTypes_[static_cast<int>(gristo::ChordType::Count)];
-    juce::TextButton chordInversions_[3], chordLengths_[3];
-    juce::ComboBox chordQuality_;
-    int shownQualitySlot_ = -1, shownQuality_ = -1; // what the combo was last set to by the timer
-    juce::TextButton chordFlat_ { "b" }, chordSharp_ { "#" };
-    Knob chordMutate_, chordGate_, chordStrum_;
-    juce::Label chordOutLabel_;
-    ChordSlotsView chordSlots_;
-    ChordPadsView chordPads_;
-    int selectedChordSlot_ = 0;
+    Knob chordWander_, chordGate_, chordStrum_;
+    juce::TextButton catchButton_ { "Catch" };
+    juce::Label chordOutLabel_, chordNowLabel_;
+    HarmonyPad harmonyPad_;
+
+    // Play screen: the two pads and the big knobs. Edit shows the selected part's page instead.
+    static constexpr int kPlayPage = kMasterPage + 1;
+    bool editMode_ = false;
+    juce::TextButton editButton_ { "Edit" };
+    Knob busy_, loose_, wild_, dirt_, space_, alive_;
+    Choice grit_;
+    juce::Slider mutateAmount_;
+    void setupPlayPage();
+    std::vector<juce::Component*> playPageComponents();
+    void setEditMode(bool edit);
     LaneHandle soundLaneHandles_[gristo::kNumModLanes];
     std::vector<std::pair<Knob*, int>> soundTargets_; // Sounds-page knob -> modulation target
 

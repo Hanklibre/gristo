@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <gristo/Engine.h>
+#include <gristo/Macros.h>
 #include <gristo/sound/Sound.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -70,15 +71,18 @@ inline const juce::String arpProbability = "arpProb";
 inline const juce::String arpProbabilityRandom = "arpProbRnd";
 inline const juce::String arpFollow = "arpFollow";
 
-// Chord sequencer (slot parameters: base + slot index)
+// Harmony (the chord part)
 inline const juce::String chordOn = "chOn";
 inline const juce::String chordKey = "chKey";
-inline const juce::String chordScale = "chScale";
-inline const juce::String chordClock = "chClock";
-inline const juce::String chordClockVoice = "chClockVoice";
-inline const juce::String chordHits = "chHits";
-inline const juce::String chordReset = "chReset";
-inline const juce::String chordMutate = "chMutate";
+inline const juce::String chordMinor = "chMinor";
+inline const juce::String chordHomeX = "chHomeX";
+inline const juce::String chordHomeY = "chHomeY";
+inline const juce::String chordMode = "chBy";       // Wander / Keys
+inline const juce::String chordWander = "chWander";
+inline const juce::String chordRate = "chRate";     // length of one chord
+inline const juce::String chordPhrase = "chPhrase"; // bars before the walk starts again from home
+inline const juce::String chordFrozen = "chFrozen"; // Catch: the phrase below loops
+inline const juce::String chordLoop = "chLoop";
 inline const juce::String chordSeed = "chSeed";
 inline const juce::String chordOctave = "chOct";
 inline const juce::String chordPlay = "chPlay";
@@ -88,18 +92,19 @@ inline const juce::String chordVelMin = "chVelMin";
 inline const juce::String chordVelMax = "chVelMax";
 inline const juce::String chordChannel = "chChan";
 inline const juce::String chordShift = "chShift";
-inline const juce::String chordSlotUsed = "chSlot";
-inline const juce::String chordDegree = "chDeg";
-inline const juce::String chordBorrowed = "chBor";
-inline const juce::String chordType = "chType";
-inline const juce::String chordInversion = "chInv";
-inline const juce::String chordQuality = "chQual";
-inline const juce::String chordAlter = "chAlt";
-inline const juce::String chordLength = "chLen";
+inline const int kChordRateSteps[] = { 8, 16, 32 };
+inline const int kChordPhraseBars[] = { 2, 4, 8 };
+// The big knobs
+inline const juce::String busy = "busy";
+inline const juce::String loose = "loose";
+inline const juce::String wild = "wild";
+inline const juce::String dirt = "dirt";
+inline const juce::String grit = "grit";
+inline const juce::String alive = "alive";
+inline const juce::String space = "space";
 inline const juce::String chordVoicing = "chVoicing";
 inline const juce::String chordStrum = "chStrum";
 inline const juce::String chordStrumDir = "chStrumDir";
-inline const int kChordLengthSteps[] = { 8, 16, 32 };
 inline const int kChordLowestNotes[] = { 36, 48, 60, 72 };
 inline const int kResetBarChoices[] = { 1, 2, 4, 8, 16 };
 // Built-in sounds (kitOn / kitGain are the master Sound switch and level)
@@ -171,5 +176,6 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state, c
 sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& state);
 sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& state, int arp);
 sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& state);
+sound::CharacterParams readCharacterParams(const juce::AudioProcessorValueTreeState& state);
 
 } // namespace gristo::params

@@ -30,23 +30,14 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   pattern length, density (rests), accents, slides and Mutate, over the held
   notes or a scale. Velocity follows the drum hit, mapped into each arp's range,
   and each arp has its own MIDI channel.
-* **Chords (Chords tab):** a Scaler-style chord sequencer. Pick a key and
-  scale, tap a slot, then tap a chord pad: the key's chords on top, borrowed
-  ones (parallel major / minor) below, as triads, 7ths, 9ths, sus, 6, 6/9,
-  add9 or 11, with inversions. For chords from outside the key, **Quality**
-  (Major, Minor, Dominant, Dim, Half-dim, Aug) and the **b / #** root buttons
-  give secondary dominants (E7 in C shows as V7/vi), tritone subs (bII7),
-  7sus4s and so on. Up to 16 chords of 1/2, 1 or 2 bars, or changing every N
-  hits of a drum voice. There's a progression library (pop, soul, lo-fi, trap,
-  reggaeton, house, ...; Harold Budd-inspired ambient colours; Satie
-  (Gymnopedie, Gnossienne, Sarabande ninths); classical (Pachelbel, Bach's C
-  major prelude, Andalusian cadence, Debussy planing); jazz standards (Autumn
-  Leaves, Fly Me to the Moon, Blue Bossa, Rhythm Changes, Take the A Train,
-  So What, Maiden Voyage, a 12-bar jazz blues, ii-V-i's, tritone subs)), New
-  (generate) and Mutate. Library entries keep your key. The chords can play
-  their own part (held, or stabbing on drum hits, with their own sound, MIDI
-  channel and Shift), and any arp switched to **Chords** plays the current
-  chord's notes.
+* **Chords:** a harmony map instead of a chord list. Columns are a chain of
+  thirds around the tonic, so neighbours always share two notes (in C major:
+  ... Dm F Am **C** Em G Bm ...); the flat side on the left is darker, the sharp
+  side brighter. Rows add colour: triad, add9, 7th, 9th, 11th. Drag to set
+  home, **Wander** lets the harmony walk around it by itself and come home
+  every phrase, **Catch** loops a phrase you liked. The chords can play their
+  own part (held, or stabbing on drum hits, with their own sound, MIDI channel
+  and Shift), and any arp switched to **Chords** plays the current chord's notes.
 * **Arp Probability:** each arp has a Probability knob (plus Random, and it's
   a lane target). Skipped steps still advance the arp. It's independent of the
   drums' Probability: the arp steps on the drum pattern as written.
@@ -89,6 +80,38 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### Gristo 3: play it, don't program it
+
+The plugin opens on the **Play** screen:
+
+* **Two pads.** The rhythm map on the left, the harmony map on the right.
+  Drag either and it plays.
+* **Five big knobs**, each moving a family of settings that belong together:
+  **Busy** (how much the drums play, with ratchets at the top), **Loose**
+  (shuffle, humanize and flam), **Wild** (how much the pattern changes by
+  itself), **Dirt** (grit, see below) and **Space** (reverb and delay for
+  everything). They act on top of the detailed settings, which stay as the
+  balance between the parts.
+* **Mutate** nudges everything that isn't set to Keep, by the amount next to
+  the knobs: a variation at 20 %, all new at 100 %. Undo goes back.
+* **Scene morph:** drag sideways on a stored scene to blend towards it.
+* **Edit** (top right) shows the detailed page of the part selected on the
+  left, with the lanes, macros and routing. Nothing was removed; it's one
+  click away instead of on the main screen.
+
+**Harmony:** Wander (how far it walks), chord length, phrase length, Catch,
+and *Played by Keys*: the white keys from C1 play the seven chords around
+home, the next octave one row richer.
+
+**Dirt** is one amount with three kinds of grit: **Tape** (saturation, wow
+and flutter, soft highs, hiss that comes and goes with the music), **Crunch**
+(an old sampler's low sample rate and coarse converters) and **Drive**
+(overdriven channels into a compressor that pumps). **Alive** (Master / FX
+page) is how much nothing repeats exactly: oscillators and filters drift,
+drum hits differ, parts move a little in the stereo field.
+
+Presets and projects from before Gristo 3 don't load in it.
+
 ### Gristo 2
 
 The window is now one landscape layout (1280 wide, the same on desktop and
@@ -115,18 +138,14 @@ plays and holds the modulation lanes.
   own WAV / AIFF / FLAC one-shot instead of the kit's sound; kept in
   `Documents/Gristo/Samples`).
 * **Arps:** *Step on* every hit or every 2nd, 3rd, 4th, 6th, 8th trigger hit.
-* **Chords:** **Voicing** (as written, Smooth: every chord in one octave so
-  notes move as little as possible, or Smooth + bass), **Strum** (ms between
-  notes; up, down or alternating), and the **Keys** clock: no progression,
-  you play the chords yourself, one per white key from C1 (MIDI in or the
-  on-screen Keys). Arps set to Chords follow the key you hold.
+* **Chords:** **Voicing** (close, Smooth: every chord in one octave so
+  notes move as little as possible, or Smooth + bass) and **Strum** (ms between
+  notes; up, down or alternating).
 * **Sound:** each synth has **Duck** (pumps with the kick). **Separate
   outputs** (Master / FX page) gives Kit, Arp 1-3, Chords and FX their own
   plugin outputs.
 * **MIDI to the DAW:** drag the handles in the timeline bar onto a track to
   drop 1-8 bars of the selected part or of everything as a MIDI clip.
-
-Presets and projects from before Gristo 2 don't load in it.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for how it works and
 [docs/map.md](docs/map.md) for the current map.

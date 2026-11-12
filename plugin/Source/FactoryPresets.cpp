@@ -37,11 +37,12 @@ V arp(int a, Sound sound, int root, Scale scale, std::initializer_list<int> trig
     return v;
 }
 
-// The chord sequencer playing a progression from the library, in `key`, on the chord synth.
-V chords(const char* progression, int key, ChordPlay play, Sound sound, std::initializer_list<int> stabs = {})
+// The harmony: key (and major / minor), home cell on the map, how far it wanders.
+V chords(int key, bool minor, int column, int row, float wander, ChordPlay play, Sound sound, std::initializer_list<int> stabs = {})
 {
-    V v { { "chOn", 1.0f }, { "chKey", static_cast<float>(key) }, { "chPlay", static_cast<float>(play) },
-          { "synSnd" + juce::String(gristo::sound::kChordSynth), static_cast<float>(sound) } };
+    V v { { "chOn", 1.0f }, { "chKey", static_cast<float>(key) }, { "chMinor", minor ? 1.0f : 0.0f },
+          { "chHomeX", gristo::Chords::columnToX(column) }, { "chHomeY", gristo::Chords::rowToY(row) }, { "chWander", wander },
+          { "chPlay", static_cast<float>(play) }, { "synSnd" + juce::String(gristo::sound::kChordSynth), static_cast<float>(sound) } };
     for (int voice = 0; voice < 6; ++voice)
     {
         bool on = false;
@@ -49,28 +50,27 @@ V chords(const char* progression, int key, ChordPlay play, Sound sound, std::ini
             on = on || t == voice;
         v.push_back({ "chStab" + juce::String(voice), on ? 1.0f : 0.0f });
     }
-    for (const auto& entry : gristo::Chords::library())
-        if (juce::String(entry.name) == progression)
-        {
-            v.push_back({ "chScale", static_cast<float>(entry.scale) });
-            for (int i = 0; i < gristo::kMaxChordSlots; ++i)
-            {
-                const auto n = juce::String(i);
-                const bool used = i < static_cast<int>(entry.slots.size());
-                v.push_back({ "chSlot" + n, used ? 1.0f : 0.0f });
-                if (!used)
-                    continue;
-                const auto& s = entry.slots[static_cast<size_t>(i)];
-                v.push_back({ "chDeg" + n, static_cast<float>(s.degree) });
-                v.push_back({ "chBor" + n, s.borrowed ? 1.0f : 0.0f });
-                v.push_back({ "chType" + n, static_cast<float>(s.type) });
-                v.push_back({ "chInv" + n, static_cast<float>(s.inversion) });
-                v.push_back({ "chLen" + n, s.lengthSteps <= 8 ? 0.0f : s.lengthSteps >= 32 ? 2.0f : 1.0f });
-                v.push_back({ "chQual" + n, static_cast<float>(s.quality) });
-                v.push_back({ "chAlt" + n, static_cast<float>(s.alter) });
-            }
-        }
-    jassert(v.size() > 10); // the progression exists
+    return v;
+}
+
+enum GritIndex { Tape = 0, Crunch, Drive };
+V dirt(GritIndex grit, float amount) { return { { "grit", static_cast<float>(grit) }, { "dirt", amount } }; }
+
+// Presets give the groove as Shuffle and Humanize. Most of it goes onto the Loose knob
+// (so the knob shows how loose the preset is); what is left stays on the detailed controls.
+V withLoose(V v)
+{
+    float shuffle = 1.4f, humanize = 0.24f; // what Loose gives at its default
+    for (const auto& [id, value] : v)
+    {
+        if (id == "shuffle") shuffle = value;
+        if (id == "humanize") humanize = value;
+    }
+    const float loose = juce::jlimit(0.0f, 1.0f, shuffle / 6.0f);
+    v.erase(std::remove_if(v.begin(), v.end(), [](const auto& e) { return e.first == "shuffle" || e.first == "humanize"; }), v.end());
+    v.push_back({ "loose", loose });
+    v.push_back({ "shuffle", std::max(0.0f, shuffle - loose * 3.5f) });
+    v.push_back({ "humanize", std::max(0.0f, humanize - loose * 0.6f) });
     return v;
 }
 
@@ -88,16 +88,17 @@ constexpr int Kick = 0, Snare = 1, Hat = 2, OpenHat = 3, Perc1 = 4, Perc2 = 5;
 
 const std::vector<PresetManager::Factory>& PresetManager::factoryPresets()
 {
-    static const std::vector<Factory> presets {
+    static const std::vector<Factory> presets = [] {
+    std::vector<Factory> list {
         { "Trap Acid",
           join({ { { "mapX", 0.4f }, { "mapY", 1.0f }, { "timing", Shake }, { "shuffle", 0.5f }, { "feeling", Rolls },
                    { "kitType", Trap }, { "kitDecay", 0.62f }, { "kitTune", -2.0f }, { "fill2", 0.75f } },
-                 arp(0, Acid, 36, Minor, { Kick, Perc1 }, 0.75f),
+                 arp(0, Acid, 36, Minor, { Kick, Perc1 }, 0.75f), dirt(Drive, 0.45f),
                  { { "arpSlide0", 0.35f }, { "arpAcc0", 0.35f }, { "synRes0", 0.65f } } }) },
         { "Boom Bap Keys",
           join({ { { "mapX", 0.6f }, { "mapY", 0.6f }, { "timing", Shake }, { "shuffle", 3.5f }, { "humanize", 0.5f },
                    { "kitType", LoFi }, { "kitRev", 0.12f } },
-                 arp(0, Sub, 36, Dorian, { Kick }, 0.9f),
+                 arp(0, Sub, 36, Dorian, { Kick }, 0.9f), dirt(Crunch, 0.5f),
                  arp(1, EPiano, 60, Dorian, { Snare, Perc1 }, 0.7f, 4.0f), { { "synRev1", 0.3f } } }) },
         { "Reggaeton Night",
           join({ { { "mapX", 0.2f }, { "mapY", 0.6f }, { "timing", Shake }, { "shuffle", 1.0f }, { "kitType", Reggaeton } },
@@ -114,7 +115,7 @@ const std::vector<PresetManager::Factory>& PresetManager::factoryPresets()
         { "Lazy Organ",
           join({ { { "mapX", 1.0f }, { "mapY", 0.4f }, { "timing", Push }, { "shuffle", 4.0f }, { "humanize", 0.6f },
                    { "kitType", LoFi } },
-                 arp(0, Sub, 36, Dorian, { Kick }, 0.85f),
+                 arp(0, Sub, 36, Dorian, { Kick }, 0.85f), dirt(Tape, 0.6f),
                  arp(1, Organ, 60, Dorian, { Snare }, 0.8f, 4.0f) }) },
         { "Electro Sync",
           join({ { { "mapX", 0.4f }, { "mapY", 0.2f }, { "timing", Shake }, { "shuffle", 0.5f }, { "kitType", K808 } },
@@ -128,30 +129,34 @@ const std::vector<PresetManager::Factory>& PresetManager::factoryPresets()
           join({ { { "mapX", 0.2f }, { "mapY", 0.2f }, { "fill0", 0.2f }, { "fill1", 0.0f }, { "fill4", 0.15f },
                    { "kitType", Minimal }, { "kitTone", 0.3f }, { "kitRev", 0.35f }, { "fxSize", 0.9f }, { "fxTime", 2.0f },
                    { "fxFb", 0.45f } },
-                 chords("Pavilion Haze", 2, Held, FeltPiano), { { "synRev3", 0.6f }, { "synRel3", 0.75f } },
+                 chords(2, false, 0, 3, 0.6f, Held, FeltPiano), dirt(Tape, 0.5f), { { "synRev3", 0.6f }, { "synRel3", 0.75f } },
                  arp(1, Celesta, 72, MajorPenta, { Hat, Perc2 }, 0.4f, 4.0f),
                  { { "arpFollow1", 1.0f }, { "synRev1", 0.6f }, { "synDly1", 0.35f } } }) },
         { "Jazz Blues Walk",
           join({ { { "mapX", 0.6f }, { "mapY", 0.4f }, { "timing", Shake }, { "shuffle", 5.0f }, { "humanize", 0.5f },
                    { "kitType", LoFi } },
-                 chords("Jazz Blues (12 bars)", 5, Stabs, SuitcaseKeys, { Snare, OpenHat }), { { "synRev3", 0.2f } },
+                 chords(5, false, 0, 3, 0.7f, Stabs, SuitcaseKeys, { Snare, OpenHat }), dirt(Tape, 0.4f), { { "synRev3", 0.2f } },
                  arp(0, UprightBass, 36, Major, { Kick, Hat }, 0.85f, 3.0f), { { "arpFollow0", 1.0f } } }) },
         { "Jungle Reese",
           join({ { { "mapX", 0.8f }, { "mapY", 0.8f }, { "timing", Shake }, { "shuffle", 0.5f }, { "kitType", Jungle } },
-                 chords("So What (modal)", 2, Held, SlowStrings), { { "synRev3", 0.45f } },
+                 chords(2, true, 0, 2, 0.25f, Held, SlowStrings), dirt(Crunch, 0.45f), { { "synRev3", 0.45f } },
                  arp(0, Reese, 36, Dorian, { Kick, Perc1 }, 0.8f), { { "arpFollow0", 1.0f } } }) },
         { "Amapiano Logs",
           join({ { { "mapX", 0.4f }, { "mapY", 0.4f }, { "timing", Shake }, { "shuffle", 2.0f }, { "kitType", Amapiano } },
-                 chords("Neo Soul Dorian", 5, Held, SuitcaseKeys), { { "synRev3", 0.3f } },
+                 chords(5, true, 0, 3, 0.5f, Held, SuitcaseKeys), { { "synRev3", 0.3f } },
                  arp(1, Vibraphone, 72, Dorian, { Perc2 }, 0.6f), { { "arpFollow1", 1.0f }, { "synDly1", 0.3f } } }) },
         { "Techno Brass",
           join({ { { "mapX", 0.0f }, { "mapY", 0.0f }, { "kitType", Techno } },
-                 chords("Deep House", 9, Stabs, SynthBrass, { OpenHat }), { { "synDly3", 0.25f } },
+                 chords(9, true, 0, 2, 0.4f, Stabs, SynthBrass, { OpenHat }), dirt(Drive, 0.5f), { { "synDly3", 0.25f } },
                  arp(0, Sub, 36, Minor, { Kick }, 0.9f), { { "arpFollow0", 1.0f } } }) },
         { "House Organ",
           join({ { { "mapX", 0.2f }, { "mapY", 0.0f }, { "timing", Shake }, { "shuffle", 1.5f }, { "kitType", House } },
-                 chords("Deep House", 0, Stabs, JazzOrgan, { OpenHat }),
+                 chords(0, true, 0, 2, 0.5f, Stabs, JazzOrgan, { OpenHat }),
                  arp(0, Sub, 36, Minor, { Kick }, 0.9f), { { "arpFollow0", 1.0f } } }) },
     };
+    for (auto& preset : list)
+        preset.values = withLoose(preset.values);
+    return list;
+    }();
     return presets;
 }

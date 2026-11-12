@@ -88,6 +88,11 @@ public:
     void storeScene(int scene);
     void clearScene(int scene);
     void recallScene(int scene) { if (sceneUsed(scene)) pendingScene.store(scene); }
+    // Morph: a blend of how things are when it starts and a stored scene. Knobs glide,
+    // choices and switches change over halfway. Message thread.
+    bool beginMorph(int scene);
+    void setMorph(float amount); // 0 = where it started ... 1 = the scene
+    void endMorph() { morphScene_ = -1; }
     std::atomic<int> currentScene { -1 }, pendingScene { -1 };
     std::atomic<bool> chainScenes { false };
     std::atomic<int> chainBars { 4 };
@@ -99,6 +104,14 @@ public:
                    DiceSound1, DiceSound2, DiceSound3, DiceSound4, NumSections };
     void dice(int section);
     void diceAll();
+    // A nudge instead of a reroll: 0 = nothing, small = variations of what is there,
+    // 1 = the same as Dice. Locked sections stay as they are.
+    void mutate(float amount);
+    std::atomic<float> mutateAmount { 0.3f };
+    // Catch: the harmony's current phrase (or the one that just ended) loops from now
+    // on; again to let it wander. Message thread.
+    void catchHarmony();
+    bool harmonyCaught() const;
     std::atomic<int> diceLocks { 0 }; // bit per Section
 
     // --- Your own drum samples: a one-shot per voice, kept in Documents/Gristo/Samples
@@ -127,7 +140,8 @@ public:
     std::array<std::atomic<std::int64_t>, gristo::kNumArps> displayArpCount {};
     std::array<std::array<std::atomic<int>, gristo::kMaxHeldNotes>, gristo::kNumArps> displayArpInput {};
     std::array<std::atomic<int>, gristo::kNumArps> displayArpInputCount {};
-    std::atomic<int> displayChordSlot { -1 }; // slot playing now (-1 = none / stopped)
+    // The harmony cell sounding now: (column + 5) * 8 + row, -1 = none / stopped.
+    std::atomic<int> displayChordCell { -1 };
     std::array<std::atomic<float>, gristo::kNumParts> displayActivity {}; // velocity of the latest note-on; the editor clears it
 
 private:
@@ -140,6 +154,7 @@ private:
         gristo::sound::KitParams kit;
         gristo::sound::SynthParams synths[gristo::sound::kNumSynths];
         gristo::sound::FxParams fx;
+        gristo::sound::CharacterParams character;
         int notes[gristo::kNumVoices] {}, channels[gristo::kNumParts] {}, shifts[gristo::kNumArps + 1] {};
         bool latch[gristo::kNumArps] {};
         bool kitOn = true, freeRun = false, soundModulated = false, separateOuts = false;
@@ -156,6 +171,8 @@ private:
     Snapshot lastSnapshot_;
     int historyTick_ = 0;
     std::array<Snapshot, kNumScenes> scenes_;
+    Snapshot morphFrom_;
+    int morphScene_ = -1;
 
     bool setDrumSampleFile(int voice, const juce::File& file);
     mutable juce::SpinLock sampleLock_;

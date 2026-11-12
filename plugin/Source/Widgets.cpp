@@ -939,118 +939,132 @@ void LaneHandle::mouseDrag(const juce::MouseEvent&)
 }
 
 // ---------------------------------------------------------------------------------
-// Chord slots and pads
+// Harmony pad
 
-void ChordSlotsView::update(const gristo::ChordParams& params, int playing, int selected)
+namespace {
+constexpr int kHalfColumns = (gristo::kHarmonyColumns - 1) / 2;
+
+gristo::HarmonyCell decodeCell(int code) { return { code / 8 - kHalfColumns, code % 8 }; }
+} // namespace
+
+HarmonyPad::HarmonyPad(juce::AudioProcessorValueTreeState& state) : state_(state) {}
+
+void HarmonyPad::update(const gristo::ChordParams& params, int playing)
 {
     params_ = params;
-    playing_ = playing;
-    selected_ = selected;
-    repaint();
-}
-
-void ChordSlotsView::paint(juce::Graphics& g)
-{
-    using namespace gristo;
-    const float w = static_cast<float>(getWidth()) / kMaxChordSlots;
-    for (int i = 0; i < kMaxChordSlots; ++i)
+    if (playing != playing_)
     {
-        const auto& slot = params_.slots[static_cast<size_t>(i)];
-        const auto cell = juce::Rectangle<float>(i * w, 0.0f, w, static_cast<float>(getHeight())).reduced(3.0f, 1.0f);
-        const bool playing = i == playing_ && slot.used;
-        g.setColour(playing ? colours::accent.withAlpha(0.85f) : slot.used ? colours::background : colours::background.withAlpha(0.5f));
-        g.fillRoundedRectangle(cell, 6.0f);
-        g.setColour(i == selected_ ? colours::text : colours::outline);
-        g.drawRoundedRectangle(cell.reduced(0.5f), 6.0f, i == selected_ ? 2.0f : 1.0f);
-        if (!slot.used)
+        if (playing_ >= 0)
         {
-            g.setColour(colours::dim.withAlpha(0.6f));
-            g.setFont(juce::FontOptions(18.0f));
-            g.drawText("+", cell, juce::Justification::centred);
-            continue;
+            trail_[2] = trail_[1];
+            trail_[1] = trail_[0];
+            trail_[0] = playing_;
         }
-        auto text = cell.reduced(4.0f, 2.0f);
-        g.setColour(playing ? colours::background : colours::text);
-        g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
-        g.drawFittedText(Chords::name(params_, slot), text.removeFromTop(text.getHeight() * 0.58f).toNearestInt(),
-                         juce::Justification::centredBottom, 1, 0.7f);
-        g.setColour(playing ? colours::background.withAlpha(0.8f) : colours::dim);
-        g.setFont(juce::FontOptions(10.5f));
-        const juce::String length = slot.lengthSteps <= 8 ? "1/2" : slot.lengthSteps >= 32 ? "2 bars" : "1 bar";
-        g.drawFittedText(juce::String(Chords::roman(params_, slot)) + "  " + length, text.toNearestInt(),
-                         juce::Justification::centredTop, 1, 0.7f);
+        if (playing < 0)
+            trail_.fill(-1);
+        playing_ = playing;
     }
-}
-
-void ChordSlotsView::mouseDown(const juce::MouseEvent& e)
-{
-    const int i = juce::jlimit(0, gristo::kMaxChordSlots - 1, static_cast<int>(e.position.x / (static_cast<float>(getWidth()) / gristo::kMaxChordSlots)));
-    if (onSelect)
-        onSelect(i);
-}
-
-void ChordPadsView::update(const gristo::ChordParams& params, const gristo::ChordSlot& editing)
-{
-    params_ = params;
-    editing_ = editing;
     repaint();
 }
 
-juce::Rectangle<float> ChordPadsView::padArea(int row, int degree) const
+juce::String HarmonyPad::playingName() const
 {
-    constexpr float labelW = 58.0f;
-    const float w = (static_cast<float>(getWidth()) - labelW) / 7.0f;
-    const float h = static_cast<float>(getHeight()) / 2.0f;
-    return { labelW + degree * w, row * h, w, h };
+    return gristo::Chords::name(params_, playing_ >= 0 ? decodeCell(playing_) : gristo::Chords::homeCell(params_));
 }
 
-void ChordPadsView::paint(juce::Graphics& g)
+juce::Rectangle<float> HarmonyPad::cellArea(gristo::HarmonyCell cell) const
+{
+    const float w = static_cast<float>(getWidth()) / gristo::kHarmonyColumns;
+    const float h = static_cast<float>(getHeight()) / gristo::kHarmonyRows;
+    return { static_cast<float>(cell.column + kHalfColumns) * w, static_cast<float>(gristo::kHarmonyRows - 1 - cell.row) * h, w, h };
+}
+
+void HarmonyPad::paint(juce::Graphics& g)
 {
     using namespace gristo;
-    const float h = static_cast<float>(getHeight()) / 2.0f;
-    g.setFont(juce::FontOptions(10.5f));
-    g.setColour(colours::dim);
-    g.drawText(juce::String(pitchClassName(params_.key)) + " " + juce::String(chordScaleName(params_.scale)).substring(0, 5),
-               juce::Rectangle<float>(0.0f, 0.0f, 56.0f, h),
-               juce::Justification::centredLeft);
-    g.drawText("Borrowed", juce::Rectangle<float>(0.0f, h, 56.0f, h), juce::Justification::centredLeft);
-    for (int row = 0; row < 2; ++row)
-        for (int d = 0; d < 7; ++d)
+    g.fillAll(colours::background);
+    const HarmonyCell home = Chords::homeCell(params_);
+    const bool on = params_.enabled;
+    const bool keys = params_.mode == HarmonyMode::Keys;
+    for (int column = -kHalfColumns; column <= kHalfColumns; ++column)
+        for (int row = 0; row < kHarmonyRows; ++row)
         {
-            // The chord a tap puts in the slot: the plain scale chord, in the slot's type.
-            ChordSlot s = editing_.used ? editing_ : ChordSlot {};
-            s.used = true;
-            s.degree = d;
-            s.borrowed = row == 1;
-            s.inversion = 0;
-            s.quality = ChordQuality::Scale;
-            s.alter = 0;
-            const auto pad = padArea(row, d).reduced(2.0f);
-            const bool current = editing_.used && editing_.degree == d && editing_.borrowed == (row == 1)
-                              && editing_.quality == ChordQuality::Scale && editing_.alter == 0;
-            g.setColour(current ? colours::accent : row == 0 ? colours::cool : colours::cool.withAlpha(0.55f));
-            g.fillRoundedRectangle(pad, 5.0f);
-            g.setColour(current ? colours::background : colours::text);
-            g.setFont(juce::FontOptions(12.5f, juce::Font::bold));
-            auto text = pad.reduced(3.0f, 1.0f);
-            g.drawFittedText(Chords::name(params_, s), text.removeFromTop(text.getHeight() * 0.55f).toNearestInt(),
-                             juce::Justification::centredBottom, 1, 0.6f);
-            g.setFont(juce::FontOptions(9.5f));
-            g.setColour(current ? colours::background.withAlpha(0.8f) : colours::dim);
-            g.drawFittedText(Chords::roman(params_, s), text.toNearestInt(), juce::Justification::centredTop, 1, 0.6f);
+            const HarmonyCell cell { column, row };
+            const auto area = cellArea(cell).reduced(1.5f);
+            // Dark and cool on the flat side, warm and bright on the sharp side; richer rows glow more.
+            const float t = static_cast<float>(column + kHalfColumns) / static_cast<float>(kHarmonyColumns - 1);
+            juce::Colour colour = juce::Colour::fromHSV(0.70f - 0.62f * t, 0.62f, 0.30f + 0.16f * t + 0.045f * static_cast<float>(row), 1.0f);
+            if (!on)
+                colour = colour.withSaturation(0.2f).withMultipliedBrightness(0.8f);
+            const int code = (column + kHalfColumns) * 8 + row;
+            float glow = code == playing_ ? 1.0f : 0.0f;
+            for (int k = 0; k < 3; ++k)
+                if (trail_[static_cast<size_t>(k)] == code)
+                    glow = std::max(glow, 0.45f - 0.14f * static_cast<float>(k));
+            if (glow > 0.0f)
+                colour = colour.interpolatedWith(colours::accent, glow);
+            g.setColour(colour);
+            g.fillRoundedRectangle(area, 5.0f);
+            if (column == 0) // the tonic's column
+            {
+                g.setColour(colours::text.withAlpha(0.25f));
+                g.drawRoundedRectangle(area, 5.0f, 1.0f);
+            }
+            if (cell == home)
+            {
+                g.setColour(colours::text);
+                g.drawRoundedRectangle(area.reduced(0.5f), 5.0f, 2.5f);
+            }
+            if (keys && on) // the two octaves of chord keys
+            {
+                const int first = Chords::keyCell(params_, 0).column;
+                if (column >= first && column < first + 7 && (row == home.row || row == home.row + 1))
+                {
+                    g.setColour(colours::text.withAlpha(0.6f));
+                    g.fillEllipse(area.getCentreX() - 2.0f, area.getBottom() - 8.0f, 4.0f, 4.0f);
+                }
+            }
+            g.setColour(glow > 0.6f ? colours::background : juce::Colours::white.withAlpha(on ? 0.92f : 0.6f));
+            g.setFont(juce::FontOptions(area.getWidth() < 34.0f ? 9.5f : 11.0f, juce::Font::bold));
+            g.drawFittedText(Chords::name(params_, cell), area.reduced(1.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.55f);
         }
+    g.setColour(colours::dim);
+    g.setFont(juce::FontOptions(10.0f));
+    g.drawText("darker", 6, getHeight() - 14, 60, 12, juce::Justification::bottomLeft);
+    g.drawText("brighter", getWidth() - 66, getHeight() - 14, 60, 12, juce::Justification::bottomRight);
+    g.drawText("richer", 6, 2, 60, 12, juce::Justification::topLeft);
 }
 
-void ChordPadsView::mouseDown(const juce::MouseEvent& e)
+void HarmonyPad::setFromMouse(juce::Point<float> pos)
 {
-    for (int row = 0; row < 2; ++row)
-        for (int d = 0; d < 7; ++d)
-            if (padArea(row, d).contains(e.position))
-            {
-                if (onPad)
-                    onPad(d, row == 1);
-                return;
-            }
+    const int column = juce::jlimit(0, gristo::kHarmonyColumns - 1, static_cast<int>(pos.x / (static_cast<float>(getWidth()) / gristo::kHarmonyColumns)));
+    const int row = gristo::kHarmonyRows - 1
+                    - juce::jlimit(0, gristo::kHarmonyRows - 1, static_cast<int>(pos.y / (static_cast<float>(getHeight()) / gristo::kHarmonyRows)));
+    auto set = [this](const juce::String& id, float value) {
+        auto* param = state_.getParameter(id);
+        const float normalised = param->convertTo0to1(value);
+        if (std::abs(param->getValue() - normalised) > 1e-4f)
+            param->setValueNotifyingHost(normalised);
+    };
+    set(p::chordHomeX, gristo::Chords::columnToX(column - kHalfColumns));
+    set(p::chordHomeY, gristo::Chords::rowToY(row));
+}
+
+void HarmonyPad::mouseDown(const juce::MouseEvent& e)
+{
+    if (onTouched)
+        onTouched();
+    state_.getParameter(p::chordHomeX)->beginChangeGesture();
+    state_.getParameter(p::chordHomeY)->beginChangeGesture();
+    setFromMouse(e.position);
+}
+
+void HarmonyPad::mouseDrag(const juce::MouseEvent& e) { setFromMouse(e.position); }
+
+void HarmonyPad::mouseUp(const juce::MouseEvent&)
+{
+    state_.getParameter(p::chordHomeX)->endChangeGesture();
+    state_.getParameter(p::chordHomeY)->endChangeGesture();
 }
 
 void DragOutHandle::paint(juce::Graphics& g)

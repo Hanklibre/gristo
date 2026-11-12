@@ -9,7 +9,7 @@ namespace p = gristo::params;
 namespace {
 // Version 2 renumbered the parts, synths and modulation targets: older projects open
 // with the default patch instead of a scrambled one.
-constexpr int kStateVersion = 2;
+constexpr int kStateVersion = 3; // 3: harmony map instead of chord slots, big knobs
 } // namespace
 
 GristoProcessor::GristoProcessor()
@@ -62,6 +62,7 @@ void GristoProcessor::refreshSettings()
         for (int sIndex = 0; sIndex < gristo::sound::kNumSynths; ++sIndex)
             c.synths[sIndex] = p::readSynthParams(state, sIndex);
         c.fx = p::readFxParams(state);
+        c.character = p::readCharacterParams(state);
         auto value = [this](const juce::String& id) { return state.getRawParameterValue(id)->load(std::memory_order_relaxed); };
         for (int v = 0; v < gristo::kNumVoices; ++v)
         {
@@ -144,6 +145,7 @@ void GristoProcessor::applySoundSettings(std::int64_t step, bool playing)
     fx.reverbSize = unit(fx.reverbSize + lane(mod::kFxSizeTarget));
     fx.delayFeedback = juce::jlimit(0.0f, 0.9f, fx.delayFeedback + lane(mod::kFxFeedbackTarget));
     sound_.setFx(fx);
+    sound_.setCharacter(c.character);
 }
 
 void GristoProcessor::resetLanes()
@@ -383,7 +385,10 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     for (int a = 0; a < gristo::kNumArps; ++a)
         displayArpCount[static_cast<size_t>(a)].store(engine_.arpCount(a));
     displayPlaying.store(block.playing);
-    displayChordSlot.store(block.playing ? engine_.chordPositionAt(static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat))).slot : -1);
+    {
+        const auto pos = engine_.chordPositionAt(static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat)));
+        displayChordCell.store(block.playing && pos.valid ? (pos.cell.column + 5) * 8 + pos.cell.row : -1);
+    }
     if (block.playing)
     {
         displayPpq.store(block.ppqStart);
@@ -399,14 +404,14 @@ int GristoProcessor::chordKeyIndex(int note)
         return -1;
     const int index = white[(note - 36) % 12];
     if (index < 0)
-        return note < 36 + 27 ? -2 : -1;
+        return note < 36 + 24 ? -2 : -1;
     const int slot = (note - 36) / 12 * 7 + index;
-    return slot < gristo::kMaxChordSlots ? slot : -1;
+    return slot < gristo::kNumChordKeys ? slot : -1;
 }
 
 void GristoProcessor::handleMidiInput(const juce::MidiBuffer& midi)
 {
-    const bool chordKeys = settings_.engine.chords.enabled && settings_.engine.chords.clock == gristo::ChordClock::Keys;
+    const bool chordKeys = settings_.engine.chords.enabled && settings_.engine.chords.mode == gristo::HarmonyMode::Keys;
     if (!chordKeys)
         chordKeyCount_ = 0;
     auto remove = [](std::array<int, gristo::kMaxHeldNotes>& list, int& count, int note) {
@@ -954,6 +959,40 @@ void GristoProcessor::redo()
     lastSnapshot_ = presets.captureSnapshot();
 }
 
+bool GristoProcessor::beginMorph(int scene)
+{
+    if (!sceneUsed(scene))
+        return false;
+    morphFrom_ = presets.captureSnapshot();
+    morphScene_ = scene;
+    return true;
+}
+
+void GristoProcessor::setMorph(float amount)
+{
+    if (!sceneUsed(morphScene_))
+        return;
+    const Snapshot& to = scenes_[static_cast<size_t>(morphScene_)];
+    if (to.values.size() != morphFrom_.values.size() || to.lanePoints.size() != morphFrom_.lanePoints.size())
+        return;
+    amount = juce::jlimit(0.0f, 1.0f, amount);
+    Snapshot mix = morphFrom_;
+    size_t i = 0;
+    for (auto* param : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+            if (!PresetManager::isRoutingParameter(ranged->getParameterID()) && i < mix.values.size())
+            {
+                const bool switches = dynamic_cast<juce::AudioParameterChoice*>(param) != nullptr || dynamic_cast<juce::AudioParameterBool*>(param) != nullptr;
+                const float a = morphFrom_.values[i], b = to.values[i];
+                mix.values[i] = switches ? (amount < 0.5f ? a : b) : a + (b - a) * amount;
+                ++i;
+            }
+    for (size_t k = 0; k < mix.lanePoints.size(); ++k)
+        mix.lanePoints[k] = morphFrom_.lanePoints[k] + (to.lanePoints[k] - morphFrom_.lanePoints[k]) * amount;
+    presets.applySnapshot(mix);
+    currentScene.store(amount >= 1.0f ? morphScene_ : -1);
+}
+
 void GristoProcessor::storeScene(int scene)
 {
     if (scene < 0 || scene >= kNumScenes)
@@ -1050,10 +1089,9 @@ void GristoProcessor::dice(int section)
     else if (section == DiceGroove)
     {
         setValue(p::timing, static_cast<float>(r.nextInt(choices(p::timing))));
-        setValue(p::shuffle, r.nextFloat() < 0.3f ? 0.0f : range(0.5f, 4.5f));
+        setValue(p::loose, r.nextFloat() < 0.25f ? 0.0f : range(0.15f, 0.9f));
         setValue(p::feeling, r.nextFloat() < 0.5f ? 0.0f : static_cast<float>(r.nextInt(choices(p::feeling))));
         setValue(p::feelMs, range(5.0f, 20.0f));
-        setValue(p::humanize, range(0.0f, 0.5f));
     }
     else if (section == DiceKit)
     {
@@ -1080,23 +1118,12 @@ void GristoProcessor::dice(int section)
     }
     else if (section == DiceChords)
     {
-        const auto seed = static_cast<std::uint32_t>(r.nextInt({ 1, 10000 }));
-        const auto scale = static_cast<gristo::ChordScale>(static_cast<int>(state.getRawParameterValue(p::chordScale)->load()));
-        const auto slots = gristo::Chords::generate(seed, scale);
-        for (int i = 0; i < gristo::kMaxChordSlots; ++i)
-        {
-            const auto& slot = slots[static_cast<size_t>(i)];
-            setValue(p::voiceId(p::chordSlotUsed, i), slot.used ? 1.0f : 0.0f);
-            const gristo::ChordSlot s = slot.used ? slot : gristo::ChordSlot {};
-            setValue(p::voiceId(p::chordDegree, i), static_cast<float>(s.degree));
-            setValue(p::voiceId(p::chordBorrowed, i), s.borrowed ? 1.0f : 0.0f);
-            setValue(p::voiceId(p::chordType, i), static_cast<float>(s.type));
-            setValue(p::voiceId(p::chordInversion, i), static_cast<float>(s.inversion));
-            setValue(p::voiceId(p::chordQuality, i), static_cast<float>(s.quality));
-            setValue(p::voiceId(p::chordAlter, i), static_cast<float>(s.alter));
-            setValue(p::voiceId(p::chordLength, i), s.lengthSteps <= 8 ? 0.0f : s.lengthSteps >= 32 ? 2.0f : 1.0f);
-        }
-        setValue(p::chordSeed, static_cast<float>(seed));
+        // A new home near the tonic, a new way of walking, nothing caught.
+        setValue(p::chordHomeX, gristo::Chords::columnToX(r.nextInt({ -3, 4 })));
+        setValue(p::chordHomeY, gristo::Chords::rowToY(r.nextInt(gristo::kHarmonyRows)));
+        setValue(p::chordWander, range(0.2f, 0.75f));
+        setValue(p::chordSeed, static_cast<float>(r.nextInt({ 1, 10000 })));
+        setValue(p::chordFrozen, 0.0f);
     }
     else if (section >= DiceSound1 && section <= DiceSound4)
     {
@@ -1119,6 +1146,100 @@ void GristoProcessor::dice(int section)
         setValue(p::laneId(p::synthReverb, synth), synth == 0 ? range(0.0f, 0.15f) : range(0.1f, 0.45f));
         setValue(p::laneId(p::synthDelay, synth), r.nextFloat() < 0.5f ? 0.0f : range(0.1f, 0.35f));
     }
+}
+
+void GristoProcessor::mutate(float amount)
+{
+    amount = juce::jlimit(0.0f, 1.0f, amount);
+    if (amount >= 0.97f)
+    {
+        diceAll();
+        return;
+    }
+    if (amount <= 0.0f)
+        return;
+    auto& r = juce::Random::getSystemRandom();
+    const int locks = diceLocks.load();
+    auto open = [locks](int section) { return (locks & (1 << section)) == 0; };
+    auto value = [this](const juce::String& id) { return state.getRawParameterValue(id)->load(); };
+    // Moves a parameter by up to `span` (in its own units) times the amount, inside its range.
+    auto nudge = [&](const juce::String& id, float span) {
+        if (auto* param = state.getParameter(id))
+        {
+            const auto range = param->getNormalisableRange();
+            setValue(id, juce::jlimit(range.start, range.end, value(id) + (r.nextFloat() * 2.0f - 1.0f) * span * amount));
+        }
+    };
+    auto chance = [&](float scale = 1.0f) { return r.nextFloat() < amount * scale; };
+
+    if (open(DicePattern))
+    {
+        nudge(p::mapX, 0.35f);
+        nudge(p::mapY, 0.35f);
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+            nudge(p::voiceId(p::fill, v), 0.2f);
+        if (chance())
+            setValue(p::variation, static_cast<float>(r.nextInt(100)));
+    }
+    if (open(DiceGroove))
+        nudge(p::loose, 0.25f);
+    if (open(DiceKit))
+    {
+        nudge(p::kitDecay, 0.2f);
+        nudge(p::kitTone, 0.2f);
+        if (chance(0.3f))
+            dice(DiceKit);
+    }
+    for (int a = 0; a < gristo::kNumArps; ++a)
+        if (open(DiceArp1 + a))
+        {
+            if (chance())
+                setValue(p::laneId(p::arpSeed, a), static_cast<float>(r.nextInt({ 1, 10000 })));
+            nudge(p::laneId(p::arpDensity, a), 0.25f);
+            nudge(p::laneId(p::arpAccent, a), 0.2f);
+        }
+    if (open(DiceChords))
+    {
+        // Home moves a step along the map (still related to where it was).
+        if (chance())
+            setValue(p::chordHomeX, juce::jlimit(0.0f, 1.0f, value(p::chordHomeX) + (r.nextBool() ? 0.1f : -0.1f)));
+        if (chance(0.5f))
+            setValue(p::chordHomeY, juce::jlimit(0.0f, 1.0f, value(p::chordHomeY) + (r.nextBool() ? 0.25f : -0.25f)));
+        if (chance() && value(p::chordFrozen) < 0.5f)
+            setValue(p::chordSeed, static_cast<float>(r.nextInt({ 1, 10000 })));
+    }
+    for (int synth = 0; synth < gristo::sound::kNumSynths; ++synth)
+        if (open(DiceSound1 + synth))
+        {
+            nudge(p::laneId(p::synthCutoff, synth), 0.25f);
+            nudge(p::laneId(p::synthResonance, synth), 0.2f);
+            nudge(p::laneId(p::synthEnv, synth), 0.2f);
+            if (chance(0.25f))
+                dice(DiceSound1 + synth);
+        }
+}
+
+bool GristoProcessor::harmonyCaught() const
+{
+    return state.getRawParameterValue(p::chordFrozen)->load() > 0.5f;
+}
+
+void GristoProcessor::catchHarmony()
+{
+    if (harmonyCaught())
+    {
+        setValue(p::chordFrozen, 0.0f);
+        return;
+    }
+    const auto chords = p::readEngineParams(state, modPoints).chords;
+    const auto step = static_cast<std::int64_t>(std::floor(displayPpq.load() * gristo::kStepsPerBeat));
+    auto phrase = gristo::Chords::phraseAt(chords, step);
+    // Early in a phrase, what you just heard and liked is the one before.
+    const int length = gristo::Chords::phraseSteps(chords);
+    if (phrase > 0 && static_cast<int>(step - phrase * length) < length / 4)
+        --phrase;
+    setValue(p::chordLoop, static_cast<float>(phrase % 1000000));
+    setValue(p::chordFrozen, 1.0f);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

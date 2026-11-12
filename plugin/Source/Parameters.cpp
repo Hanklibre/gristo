@@ -136,7 +136,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     // Groove
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { timing, kVersion }, "Timing",
                                                             juce::StringArray { "Trip", "Shake", "Push", "Clave" }, 1));
-    layout.add(floatParam(shuffle, "Shuffle", { 0.0f, 6.0f }, 2.0f));
+    layout.add(floatParam(shuffle, "Shuffle", { 0.0f, 6.0f }, 0.0f));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { feeling, kVersion }, "Feeling",
                                                             juce::StringArray { "Tight", "Rolls", "Flam", "Slop" }, 0));
     layout.add(floatParam(feelMs, "Flam / Slop", { 0.0f, 30.0f }, 9.0f, "ms", 1));
@@ -144,7 +144,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add(percentParam(feelRandom, "Flam Random", 0.0f));
 
     // Humanize + dynamics
-    layout.add(floatParam(humanize, "Humanize", { 0.0f, 1.0f }, 0.3f));
+    layout.add(floatParam(humanize, "Humanize", { 0.0f, 1.0f }, 0.0f));
+    // The big knobs
+    layout.add(percentParam(busy, "Busy", 0.5f));
+    layout.add(percentParam(loose, "Loose", 0.4f));
+    layout.add(percentParam(wild, "Wild", 0.1f));
+    layout.add(percentParam(dirt, "Dirt", 0.3f));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { grit, kVersion }, "Grit", juce::StringArray { "Tape", "Crunch", "Drive" }, 0));
+    layout.add(percentParam(alive, "Alive", 0.5f));
+    layout.add(percentParam(space, "Space", 0.5f));
     layout.add(boolParam(humanizeLock, "Humanize Lock", false));
     layout.add(floatParam(dynamics, "Dynamics", { 0.0f, 1.0f }, 0.6f));
 
@@ -249,34 +257,28 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         }
         // Chord sequencer
         {
-            juce::StringArray keys, chordScales, voices, types, qualities;
+            juce::StringArray keys;
             for (int k = 0; k < 12; ++k)
                 keys.add(pitchClassName(k));
-            for (int i = 0; i < static_cast<int>(ChordScale::Count); ++i)
-                chordScales.add(chordScaleName(static_cast<ChordScale>(i)));
-            for (int v = 0; v < kNumVoices; ++v)
-                voices.add(voiceName(v));
-            for (int i = 0; i < static_cast<int>(ChordType::Count); ++i)
-                types.add(chordTypeName(static_cast<ChordType>(i)));
-            for (int i = 0; i < static_cast<int>(ChordQuality::Count); ++i)
-                qualities.add(chordQualityName(static_cast<ChordQuality>(i)));
             auto pid = [](const juce::String& id) { return juce::ParameterID { id, kVersion }; };
             layout.add(std::make_unique<juce::AudioParameterBool>(pid(chordOn), "Chords On", false));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordKey), "Chord Key", keys, 9));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordScale), "Chord Scale", chordScales, 1));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordClock), "Chord Clock", juce::StringArray { "Bars", "Drum hits", "Keys" }, 0));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordClockVoice), "Chord Clock Voice", voices, 0));
-            layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordHits), "Chord Hits per Chord", 1, 16, 4));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordReset), "Chord Reset",
-                                                                    juce::StringArray { "1 bar", "2 bars", "4 bars", "8 bars", "16 bars" }, 2));
-            layout.add(percentParam(chordMutate, "Chord Mutate", 0.0f));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordMinor), "Chord Mode", juce::StringArray { "Major", "Minor" }, 1));
+            layout.add(floatParam(chordHomeX, "Harmony X", { 0.0f, 1.0f }, 0.5f));
+            layout.add(floatParam(chordHomeY, "Harmony Y", { 0.0f, 1.0f }, 0.0f));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordMode), "Chords Played By", juce::StringArray { "Wander", "Keys" }, 0));
+            layout.add(percentParam(chordWander, "Wander", 0.3f));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordRate), "Chord Length", juce::StringArray { "1/2 bar", "1 bar", "2 bars" }, 1));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordPhrase), "Harmony Phrase", juce::StringArray { "2 bars", "4 bars", "8 bars" }, 1));
+            layout.add(std::make_unique<juce::AudioParameterBool>(pid(chordFrozen), "Harmony Caught", false));
+            layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordLoop), "Harmony Loop", 0, 1000000, 0));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordSeed), "Chord Pattern", 1, 9999, 1));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordOctave), "Chord Octave", juce::StringArray { "C1", "C2", "C3", "C4" }, 1));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordPlay), "Chord Play", juce::StringArray { "Off", "Held", "Stabs" }, 1));
             for (int v = 0; v < kNumVoices; ++v)
                 layout.add(std::make_unique<juce::AudioParameterBool>(pid(voiceId(chordStab, v)), "Chord Stab " + juce::String(voiceName(v)), v == Snare));
             layout.add(floatParam(chordGate, "Chord Stab Gate", { 0.25f, 8.0f, 0.25f }, 2.0f, "16ths"));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordVoicing), "Chord Voicing", juce::StringArray { "As written", "Smooth", "Smooth + bass" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordVoicing), "Chord Voicing", juce::StringArray { "Close", "Smooth", "Smooth + bass" }, 2));
             layout.add(floatParam(chordStrum, "Chord Strum", { 0.0f, 80.0f, 1.0f }, 0.0f, "ms"));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordStrumDir), "Chord Strum Direction", juce::StringArray { "Up", "Down", "Alternate" }, 0));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordVelMin), "Chord Velocity Min", 1, 127, 50));
@@ -286,21 +288,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                 pid(chordShift), "Chord Out Shift", -60, 60, -36,
                 juce::AudioParameterIntAttributes().withStringFromValueFunction(
                     [](int v, int) { return (v > 0 ? "+" : "") + juce::String(v) + " st"; })));
-            // Default progression: i VI III VII (A minor: Am F C G).
-            const int defaultDegrees[kMaxChordSlots] = { 0, 5, 2, 6 };
-            for (int i = 0; i < kMaxChordSlots; ++i)
-            {
-                const juce::String n = "Chord Slot " + juce::String(i + 1) + " ";
-                layout.add(std::make_unique<juce::AudioParameterBool>(pid(voiceId(chordSlotUsed, i)), n + "Used", i < 4));
-                layout.add(std::make_unique<juce::AudioParameterInt>(pid(voiceId(chordDegree, i)), n + "Degree", 0, 6, defaultDegrees[i]));
-                layout.add(std::make_unique<juce::AudioParameterBool>(pid(voiceId(chordBorrowed, i)), n + "Borrowed", false));
-                layout.add(std::make_unique<juce::AudioParameterChoice>(pid(voiceId(chordType, i)), n + "Type", types, 0));
-                layout.add(std::make_unique<juce::AudioParameterInt>(pid(voiceId(chordInversion, i)), n + "Inversion", 0, 2, 0));
-                layout.add(std::make_unique<juce::AudioParameterChoice>(pid(voiceId(chordLength, i)), n + "Length",
-                                                                        juce::StringArray { "1/2 bar", "1 bar", "2 bars" }, 1));
-                layout.add(std::make_unique<juce::AudioParameterChoice>(pid(voiceId(chordQuality, i)), n + "Quality", qualities, 0));
-                layout.add(std::make_unique<juce::AudioParameterInt>(pid(voiceId(chordAlter, i)), n + "Root Shift", -1, 1, 0));
-            }
         }
         layout.add(percentParam(fxSize, "Reverb Size", 0.5f));
         layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { fxTime, kVersion }, "Delay Time",
@@ -468,15 +455,18 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
     ChordParams& c = p.chords;
     c.enabled = load(s, chordOn) > 0.5f;
     c.key = static_cast<int>(load(s, chordKey));
-    c.scale = static_cast<ChordScale>(juce::jlimit(0, static_cast<int>(ChordScale::Count) - 1, static_cast<int>(load(s, chordScale))));
-    c.clock = static_cast<ChordClock>(juce::jlimit(0, 2, static_cast<int>(load(s, chordClock))));
+    c.minor = load(s, chordMinor) > 0.5f;
+    c.homeX = load(s, chordHomeX);
+    c.homeY = load(s, chordHomeY);
+    c.mode = load(s, chordMode) > 0.5f ? HarmonyMode::Keys : HarmonyMode::Wander;
+    c.wander = load(s, chordWander);
+    c.chordSteps = kChordRateSteps[juce::jlimit(0, 2, static_cast<int>(load(s, chordRate)))];
+    c.phraseBars = kChordPhraseBars[juce::jlimit(0, 2, static_cast<int>(load(s, chordPhrase)))];
+    c.frozen = load(s, chordFrozen) > 0.5f;
+    c.frozenPhrase = static_cast<int>(load(s, chordLoop));
     c.voicing = static_cast<ChordVoicing>(juce::jlimit(0, 2, static_cast<int>(load(s, chordVoicing))));
     c.strumMs = load(s, chordStrum);
     c.strumDirection = static_cast<StrumDirection>(juce::jlimit(0, 2, static_cast<int>(load(s, chordStrumDir))));
-    c.clockVoice = static_cast<int>(load(s, chordClockVoice));
-    c.hitsPerChord = static_cast<int>(load(s, chordHits));
-    c.resetBars = kResetBarChoices[juce::jlimit(0, 4, static_cast<int>(load(s, chordReset)))];
-    c.mutate = load(s, chordMutate);
     c.seed = static_cast<std::uint32_t>(load(s, chordSeed));
     c.lowestNote = kChordLowestNotes[juce::jlimit(0, 3, static_cast<int>(load(s, chordOctave)))];
     c.play = static_cast<ChordPlay>(juce::jlimit(0, 2, static_cast<int>(load(s, chordPlay))));
@@ -489,21 +479,22 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         c.velMax = std::max(lo, hi);
     }
     c.shift = static_cast<int>(load(s, chordShift));
-    for (int i = 0; i < kMaxChordSlots; ++i)
-    {
-        ChordSlot& slot = c.slots[static_cast<size_t>(i)];
-        slot.used = load(s, voiceId(chordSlotUsed, i)) > 0.5f;
-        slot.degree = static_cast<int>(load(s, voiceId(chordDegree, i)));
-        slot.borrowed = load(s, voiceId(chordBorrowed, i)) > 0.5f;
-        slot.type = static_cast<ChordType>(juce::jlimit(0, static_cast<int>(ChordType::Count) - 1, static_cast<int>(load(s, voiceId(chordType, i)))));
-        slot.inversion = static_cast<int>(load(s, voiceId(chordInversion, i)));
-        slot.quality = static_cast<ChordQuality>(
-            juce::jlimit(0, static_cast<int>(ChordQuality::Count) - 1, static_cast<int>(load(s, voiceId(chordQuality, i)))));
-        slot.alter = static_cast<int>(load(s, voiceId(chordAlter, i)));
-        slot.lengthSteps = kChordLengthSteps[juce::jlimit(0, 2, static_cast<int>(load(s, voiceId(chordLength, i))))];
-    }
+    MacroParams macros;
+    macros.busy = load(s, busy);
+    macros.loose = load(s, loose);
+    macros.wild = load(s, wild);
+    applyMacros(p, macros);
     return p;
 }
+
+namespace {
+// Space: 0 = dry, 50 % = the sends as set, 100 % = two and a half times as much.
+float spaceSend(const juce::AudioProcessorValueTreeState& s, float send)
+{
+    const float amount = load(s, space);
+    return juce::jlimit(0.0f, 1.0f, send * (amount <= 0.5f ? amount * 2.0f : 1.0f + (amount - 0.5f) * 3.0f));
+}
+} // namespace
 
 sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& s)
 {
@@ -515,8 +506,8 @@ sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& s)
     k.drive = load(s, kitDrive);
     for (int v = 0; v < kNumVoices; ++v)
         k.level[static_cast<size_t>(v)] = load(s, voiceId(drumLevel, v));
-    k.reverbSend = load(s, kitReverb);
-    k.delaySend = load(s, kitDelay);
+    k.reverbSend = spaceSend(s, load(s, kitReverb));
+    k.delaySend = spaceSend(s, load(s, kitDelay));
     return k;
 }
 
@@ -532,8 +523,8 @@ sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& s, 
     p.release = load(s, laneId(synthRelease, arp));
     p.glide = load(s, laneId(synthGlide, arp));
     p.level = load(s, laneId(synthLevel, arp));
-    p.reverbSend = load(s, laneId(synthReverb, arp));
-    p.delaySend = load(s, laneId(synthDelay, arp));
+    p.reverbSend = spaceSend(s, load(s, laneId(synthReverb, arp)));
+    p.delaySend = spaceSend(s, load(s, laneId(synthDelay, arp)));
     p.duck = load(s, laneId(synthDuck, arp));
     return p;
 }
@@ -541,10 +532,21 @@ sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& s, 
 sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& s)
 {
     sound::FxParams f;
-    f.reverbSize = load(s, fxSize);
+    // Space above the middle also makes the room larger and the echoes longer.
+    const float more = std::max(0.0f, load(s, space) - 0.5f) * 2.0f;
+    f.reverbSize = juce::jlimit(0.0f, 1.0f, load(s, fxSize) + 0.35f * more);
     f.delayBeats = kDelayBeatChoices[juce::jlimit(0, 3, static_cast<int>(load(s, fxTime)))];
-    f.delayFeedback = load(s, fxFeedback);
+    f.delayFeedback = juce::jlimit(0.0f, 0.9f, load(s, fxFeedback) + 0.3f * more);
     return f;
+}
+
+sound::CharacterParams readCharacterParams(const juce::AudioProcessorValueTreeState& s)
+{
+    sound::CharacterParams c;
+    c.dirt = load(s, dirt);
+    c.grit = static_cast<sound::Grit>(juce::jlimit(0, static_cast<int>(sound::Grit::Count) - 1, static_cast<int>(load(s, grit))));
+    c.alive = load(s, alive);
+    return c;
 }
 
 } // namespace gristo::params

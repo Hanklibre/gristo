@@ -44,3 +44,9 @@ green CI build (Windows VST3 + Android APK) for testing before the next starts.
 ## Phase 7: Engine extras (done)
 - Per-voice pattern length (polymeter), ratchets, per-arp clock division,
   swing amount per part.
+
+## Gristo 3 (done)
+- Play screen: rhythm pad, harmony pad, five big knobs (Busy, Loose, Wild, Dirt,
+  Space), Mutate with an amount, scene morph. Detailed pages behind Edit.
+- Harmony map with Wander and Catch replaces the chord slots and library.
+- Sound: Dirt (Tape / Crunch / Drive) and Alive.

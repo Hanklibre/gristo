@@ -27,6 +27,9 @@ constexpr int kVoiceColW = 70;
 constexpr int kVoiceRowY[] = { 124, 180, 236, 292, 348, 404 }; // Pattern tab
 constexpr int kPlayRowY[] = { 124, 172, 220, 268, 316, 364, 412 }; // Play tab
 constexpr int kVoiceRowH = 44;
+// Play screen
+constexpr int kPadPanelH = 404, kKnobPanelH = 140, kKnobSlotW = 178;
+constexpr int kPlayTimelineY = kPageY + kPadPanelH + 8 + kKnobPanelH + 8;
 
 // The arp and chord blocks keep their own 952-wide layout (from x = 24), moved into the page.
 constexpr int kBlockDx = kPageX - 24 + (kPageW - 952) / 2;
@@ -45,7 +48,7 @@ const float kScales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.25f };
 // View
 
 GristoView::GristoView(GristoProcessor& proc)
-    : processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_), timelineView_(proc), arpView_(proc), laneEditor_(proc)
+    : processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_), timelineView_(proc), harmonyPad_(proc.state), arpView_(proc), laneEditor_(proc)
 {
     setLookAndFeel(&lookAndFeel_);
 
@@ -313,8 +316,9 @@ GristoView::GristoView(GristoProcessor& proc)
     selectLane(0);
     setupPartStrip();
     setupPerformance();
+    setupPlayPage();
     partSelect_[0].setToggleState(true, juce::dontSendNotification);
-    showPage(0);
+    showPage(kPlayPage);
 
     setSize(kWidth, kHeight);
     timerCallback();
@@ -369,6 +373,40 @@ void GristoView::mouseDown(const juce::MouseEvent& e)
         for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
             if (e.originalComponent == &sceneButtons_[i])
                 showSceneMenu(i);
+}
+
+void GristoView::mouseDrag(const juce::MouseEvent& e)
+{
+    // A sideways drag on a stored scene blends the current state towards it.
+    for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
+        if (e.originalComponent == &sceneButtons_[i] && !e.mods.isPopupMenu())
+        {
+            const int distance = std::abs(e.getDistanceFromDragStartX());
+            if (morphing_ < 0 && distance > 10 && processor_.beginMorph(i))
+                morphing_ = i;
+            if (morphing_ == i)
+            {
+                const float amount = juce::jlimit(0.0f, 1.0f, static_cast<float>(distance - 10) / 150.0f);
+                processor_.setMorph(amount);
+                helpTitle_ = "Morph";
+                helpText_ = "Towards scene " + juce::String(i + 1) + ": " + juce::String(juce::roundToInt(amount * 100.0f)) + " %. Let go to keep it here.";
+                repaint(520, 40, 760, 36);
+            }
+        }
+}
+
+void GristoView::mouseUp(const juce::MouseEvent&)
+{
+    if (morphing_ >= 0)
+    {
+        processor_.endMorph();
+        // After the button's own click handling, which runs first and must see the morph.
+        juce::Component::SafePointer<GristoView> safe(this);
+        juce::MessageManager::callAsync([safe] {
+            if (safe != nullptr)
+                safe->morphing_ = -1;
+        });
+    }
 }
 
 void GristoView::setupKnob(Knob& k, const juce::String& paramId, const juce::String& text)
@@ -917,8 +955,8 @@ void GristoView::timerCallback()
     }
     {
         const bool lfo = params.modulation.lanes[static_cast<size_t>(selectedLane_)].wave != gristo::LaneWave::Drawn;
-        laneRate_.setVisible(lfo);
-        shapesButton_.setVisible(!lfo);
+        laneRate_.setVisible(lfo && page_ != kPlayPage);
+        shapesButton_.setVisible(!lfo && page_ != kPlayPage);
     }
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
@@ -955,8 +993,7 @@ void GristoView::timerCallback()
         auto& presets = processor_.presets;
         presetName_.setButtonText(presets.currentName() + (presets.isDirty() ? " *" : ""));
     }
-    if (page_ == kChordsPage)
-        updateChordPage(params);
+    updateChordPage(params);
     if (isArpPage())
     {
         const auto& ap = params.arps[static_cast<size_t>(page_ - 1)];
@@ -1042,10 +1079,10 @@ void GristoView::updateArpOutput(const gristo::EngineParams& params, int arp)
     if (params.chords.enabled && params.chords.play != gristo::ChordPlay::Off)
     {
         bool chordClash = false;
-        for (const auto& slot : params.chords.slots)
-            if (slot.used)
+        for (int column = -5; column <= 5; ++column)
+            for (int row = 0; row < gristo::kHarmonyRows; ++row)
             {
-                const auto chord = gristo::Chords::build(params.chords, slot);
+                const auto chord = gristo::Chords::build(params.chords, { column, row });
                 for (int i = 0; i < chord.count; ++i)
                 {
                     const int n = gristo::Arp::outputNote(chord.notes[static_cast<size_t>(i)], params.chords.shift);
@@ -1215,120 +1252,56 @@ void GristoView::setupChordPage()
 {
     setupToggle(chordOn_, p::chordOn, "On");
     setupChoice(chordKey_, p::chordKey, "Key");
-    setupChoice(chordScale_, p::chordScale, "Scale");
-    setupChoice(chordClock_, p::chordClock, "Clock");
-    setupChoice(chordClockVoice_, p::chordClockVoice, "Voice");
-    setupChoice(chordReset_, p::chordReset, "Reset");
+    setupChoice(chordMinor_, p::chordMinor, "Mode");
+    setupChoice(chordMode_, p::chordMode, "Played by");
+    setupChoice(chordRate_, p::chordRate, "Chord length");
+    setupChoice(chordPhrase_, p::chordPhrase, "Phrase");
     setupChoice(chordPlay_, p::chordPlay, "Play");
     setupChoice(chordOctave_, p::chordOctave, "Octave");
-    for (Choice* c : { &chordKey_, &chordScale_, &chordClock_, &chordClockVoice_, &chordReset_, &chordPlay_, &chordOctave_ })
+    for (Choice* c : { &chordKey_, &chordMinor_, &chordMode_, &chordRate_, &chordPhrase_, &chordPlay_, &chordOctave_ })
         c->label.setVisible(false);
     setupChoice(chordVoicing_, p::chordVoicing, "Voicing");
     setupChoice(chordStrumDir_, p::chordStrumDir, "Strum");
-    setHelp(chordVoicing_.box, "Voicing", "As written: root position or the inversion you picked. Smooth: every chord in one octave, so notes move as little as possible. + bass: the root underneath.");
-    setHelp(chordStrumDir_.box, "Strum direction", "Which way the Strum knob rolls the chord: low to high, high to low, or back and forth.");
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         setupToggle(chordStabs_[v], p::voiceId(p::chordStab, v), kTriggerNames[v]);
         setHelp(chordStabs_[v].button, juce::String("Stab on ") + gristo::voiceName(v), "Play mode Stabs: the chord plays on hits of this voice.");
     }
     auto& st = processor_.state;
-    chordHits_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordHits), "every ", 1, 16, " hits");
     chordChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordChannel), "Ch ", 1, 16);
     chordShift_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordShift), "", -60, 60, " st", 12, true);
     chordVelocity_ = std::make_unique<VelocityRange>(*st.getParameter(p::chordVelMin), *st.getParameter(p::chordVelMax), colours::random);
-    for (juce::Component* c : std::initializer_list<juce::Component*> { chordHits_.get(), chordChannel_.get(), chordShift_.get(), chordVelocity_.get(),
-                                                                        &chordLibrary_, &chordNew_, &chordClear_, &chordSlots_, &chordPads_, &chordOutLabel_ })
+    for (juce::Component* c : std::initializer_list<juce::Component*> { chordChannel_.get(), chordShift_.get(), chordVelocity_.get(), &chordOutLabel_,
+                                                                        &chordNowLabel_, &harmonyPad_, &catchButton_ })
         addAndMakeVisible(c);
-    setupSmallKnob(chordMutate_, p::chordMutate, "Mutate");
+    setupKnob(chordWander_, p::chordWander, "Wander");
     setupSmallKnob(chordGate_, p::chordGate, "Gate");
     setupSmallKnob(chordStrum_, p::chordStrum, "Strum");
-    setHelp(chordStrum_, "Strum", "Time between the notes of a chord, in ms. 0 = all together.");
     chordOutLabel_.setFont(juce::FontOptions(11.0f));
     chordOutLabel_.setColour(juce::Label::textColourId, colours::dim);
+    chordNowLabel_.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+    chordNowLabel_.setColour(juce::Label::textColourId, colours::text);
+    harmonyPad_.onTouched = [this] { setParameter(p::chordOn, 1.0f); }; // touching the map switches the chords on
+    catchButton_.setClickingTogglesState(false);
+    catchButton_.setColour(juce::TextButton::buttonOnColourId, colours::accent);
+    catchButton_.setColour(juce::TextButton::textColourOnId, colours::background);
+    catchButton_.onClick = [this] { processor_.catchHarmony(); };
 
-    for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
-    {
-        chordTypes_[t].setButtonText(gristo::chordTypeName(static_cast<gristo::ChordType>(t)));
-        chordTypes_[t].onClick = [this, t] { editSelectedChord([t](gristo::ChordSlot& s) { s.type = static_cast<gristo::ChordType>(t); }); };
-        addAndMakeVisible(chordTypes_[t]);
-        setHelp(chordTypes_[t], "Chord type", "Triad, 7th, 9th, sus, 6, 6/9, add9 or 11, built from the scale (or the Quality). Applies to the selected slot.");
-    }
-    for (int q = 0; q < static_cast<int>(gristo::ChordQuality::Count); ++q)
-        chordQuality_.addItem(gristo::chordQualityName(static_cast<gristo::ChordQuality>(q)), q + 1);
-    chordQuality_.onChange = [this] {
-        const int q = chordQuality_.getSelectedId() - 1;
-        if (q >= 0)
-            editSelectedChord([q](gristo::ChordSlot& s) { s.quality = static_cast<gristo::ChordQuality>(q); });
-    };
-    addAndMakeVisible(chordQuality_);
-    setHelp(chordQuality_, "Quality",
-            "Scale: the chord the key gives. Major, Minor, Dominant, Dim, Half-dim or Aug override it for chords from outside the key, "
-            "like the dominant III7 in jazz turnarounds (Dominant on III).");
-    chordFlat_.onClick = [this] { editSelectedChord([](gristo::ChordSlot& s) { s.alter = s.alter < 0 ? 0 : -1; }); };
-    chordSharp_.onClick = [this] { editSelectedChord([](gristo::ChordSlot& s) { s.alter = s.alter > 0 ? 0 : 1; }); };
-    addAndMakeVisible(chordFlat_);
-    addAndMakeVisible(chordSharp_);
-    setHelp(chordFlat_, "Flat root", "Moves the selected chord's root down a semitone: bII for a tritone sub, bIII, bVI... Tap again to undo.");
-    setHelp(chordSharp_, "Sharp root", "Moves the selected chord's root up a semitone (#IV, or So What's half-step lift). Tap again to undo.");
-    const char* inversionNames[] = { "Root", "1st", "2nd" };
-    const char* lengthNames[] = { "1/2", "1 bar", "2 bars" };
-    for (int i = 0; i < 3; ++i)
-    {
-        chordInversions_[i].setButtonText(inversionNames[i]);
-        chordInversions_[i].onClick = [this, i] { editSelectedChord([i](gristo::ChordSlot& s) { s.inversion = i; }); };
-        chordLengths_[i].setButtonText(lengthNames[i]);
-        chordLengths_[i].onClick = [this, i] { editSelectedChord([i](gristo::ChordSlot& s) { s.lengthSteps = p::kChordLengthSteps[i]; }); };
-        addAndMakeVisible(chordInversions_[i]);
-        addAndMakeVisible(chordLengths_[i]);
-        setHelp(chordInversions_[i], "Inversion", "Which chord note is at the bottom: root, the 3rd (1st inversion) or the 5th (2nd).");
-        setHelp(chordLengths_[i], "Length", "How long the selected chord lasts (Bars clock).");
-    }
-    std::vector<juce::TextButton*> toggles { &chordFlat_, &chordSharp_ };
-    for (auto& b : chordTypes_)
-        toggles.push_back(&b);
-    for (int i = 0; i < 3; ++i)
-    {
-        toggles.push_back(&chordInversions_[i]);
-        toggles.push_back(&chordLengths_[i]);
-    }
-    for (auto* b : toggles)
-    {
-        b->setColour(juce::TextButton::buttonOnColourId, colours::accent);
-        b->setColour(juce::TextButton::textColourOnId, colours::background);
-    }
-    chordClear_.onClick = [this] { editSelectedChord([](gristo::ChordSlot& s) { s.used = false; }); };
-    chordLibrary_.onClick = [this] { showChordLibrary(); };
-    chordNew_.onClick = [this] { newChordProgression(); };
-    chordSlots_.onSelect = [this](int slot) { selectedChordSlot_ = slot; };
-    chordPads_.onPad = [this](int degree, bool borrowed) {
-        editSelectedChord([degree, borrowed](gristo::ChordSlot& s) {
-            s.used = true;
-            s.degree = degree;
-            s.borrowed = borrowed;
-            s.quality = gristo::ChordQuality::Scale; // a pad gives the plain chord
-            s.alter = 0;
-        });
-        // Filling the progression left to right: move on to the next slot.
-        selectedChordSlot_ = std::min(selectedChordSlot_ + 1, gristo::kMaxChordSlots - 1);
-    };
-
-    setHelp(chordOn_.button, "Chords on", "Switch the chord sequencer on. Arps with Chords on their page follow it.");
-    setHelp(chordKey_.box, "Key", "The key's tonic.");
-    setHelp(chordScale_.box, "Scale", "The scale the chords are built from. Borrowed chords come from the parallel major / minor.");
-    setHelp(chordClock_.box, "Clock", "Bars: each chord lasts its length. Drum hits: the chord changes every N hits of a drum voice. Keys: you play the chords, one per white key from C1 (MIDI in or the Keys keyboard).");
-    setHelp(*chordHits_, "Hits per chord", "Drum hits clock: how many hits of the voice before the next chord.");
-    setHelp(chordClockVoice_.box, "Clock voice", "Drum hits clock: the drum voice that is counted.");
-    setHelp(chordReset_.box, "Reset", "Drum hits clock: the progression starts over every N bars.");
+    setHelp(harmonyPad_, "Harmony map", "Drag to move home. Neighbours share two notes, so any move sounds related: darker to the left, brighter to the right, richer towards the top.");
+    setHelp(chordOn_.button, "Chords on", "Switches the chord part on. Arps set to Chords follow it.");
+    setHelp(chordKey_.box, "Key", "The key: its tonic chord sits in the middle column of the map.");
+    setHelp(chordMinor_.box, "Major / minor", "Whether the middle of the map is the major or the minor tonic.");
+    setHelp(chordMode_.box, "Played by", "Wander: the harmony moves by itself around home. Keys: you play it, the white keys from C1 are the seven chords around home (the next octave is one row richer).");
+    setHelp(chordWander_, "Wander", "How far the harmony walks from home by itself. 0 = it stays where you put it. It returns home at the start of every phrase.");
+    setHelp(catchButton_, "Catch", "Heard a phrase you like? Catch makes it loop. Press again to let the harmony wander on. Moving home moves the whole loop.");
+    setHelp(chordRate_.box, "Chord length", "How long each chord lasts.");
+    setHelp(chordPhrase_.box, "Phrase", "The walk starts again from home every 2, 4 or 8 bars.");
     setHelp(chordPlay_.box, "Play", "Off: only feeds the arps. Held: chords sustain. Stabs: chords hit with the chosen drum voices.");
-    setHelp(chordOctave_.box, "Octave", "Where the chords sit (the lowest tonic).");
-    setHelp(chordLibrary_, "Progression library", "Load a ready-made progression (keeps your key).");
-    setHelp(chordNew_, "New progression", "Write a new progression that fits the scale.");
-    setHelp(chordMutate_, "Mutate", "Chance per chord and loop of swapping in a related chord.");
+    setHelp(chordOctave_.box, "Octave", "Where the chords sit.");
+    setHelp(chordVoicing_.box, "Voicing", "Close: root position. Smooth: every chord in one octave, so notes move as little as possible. + bass: the root underneath.");
+    setHelp(chordStrumDir_.box, "Strum direction", "Which way the Strum knob rolls the chord: low to high, high to low, or back and forth.");
+    setHelp(chordStrum_, "Strum", "Time between the notes of a chord, in ms. 0 = all together.");
     setHelp(chordGate_, "Stab gate", "Stab length in 16ths.");
-    setHelp(chordClear_, "Clear slot", "Empty the selected slot.");
-    setHelp(chordSlots_, "Progression", "Tap a slot to select it, then tap a pad to put a chord there. The slot playing now glows.");
-    setHelp(chordPads_, "Chord pads", "The chords of the key (top) and borrowed from the parallel major / minor (bottom).");
     setHelp(*chordChannel_, "Chords MIDI channel", "MIDI channel of the chord part, for DAWs that keep channels.");
     setHelp(*chordShift_, "Chords Out Shift", "Moves the chord part's MIDI out into its own note range (for Live's key zones).");
     setHelp(*chordVelocity_, "Chords velocity", "Velocity range. Stabs follow the drum hit inside it; held chords sit near the top.");
@@ -1337,127 +1310,43 @@ void GristoView::setupChordPage()
 
 std::vector<juce::Component*> GristoView::chordPageComponents()
 {
-    std::vector<juce::Component*> list { &chordOn_.button, &chordKey_.box, &chordScale_.box, &chordClock_.box, &chordClockVoice_.box,
-                                         &chordReset_.box, &chordPlay_.box, &chordOctave_.box, chordHits_.get(), chordChannel_.get(),
-                                         chordShift_.get(), chordVelocity_.get(), &chordLibrary_, &chordNew_, &chordClear_,
-                                         &chordSlots_, &chordPads_, &chordOutLabel_, &chordMutate_.slider, &chordMutate_.label,
-                                         &chordGate_.slider, &chordGate_.label, &chordQuality_, &chordFlat_, &chordSharp_,
+    std::vector<juce::Component*> list { &chordOn_.button, &chordKey_.box, &chordMinor_.box, &chordMode_.box, &chordRate_.box, &chordPhrase_.box,
+                                         &chordPlay_.box, &chordOctave_.box, chordChannel_.get(), chordShift_.get(), chordVelocity_.get(),
+                                         &chordOutLabel_, &chordNowLabel_, &harmonyPad_, &catchButton_,
+                                         &chordWander_.slider, &chordWander_.label, &chordGate_.slider, &chordGate_.label,
                                          &chordStrum_.slider, &chordStrum_.label, &chordVoicing_.box, &chordVoicing_.label,
                                          &chordStrumDir_.box, &chordStrumDir_.label };
     for (auto& t : chordStabs_)
         list.push_back(&t.button);
-    for (auto& b : chordTypes_)
-        list.push_back(&b);
-    for (auto& b : chordInversions_)
-        list.push_back(&b);
-    for (auto& b : chordLengths_)
-        list.push_back(&b);
     return list;
-}
-
-void GristoView::writeChordSlot(int index, const gristo::ChordSlot& slot)
-{
-    // Only touch what changes: loading a progression stays a handful of updates.
-    auto set = [this](const juce::String& id, float value) {
-        if (auto* param = processor_.state.getParameter(id))
-            if (std::abs(param->convertFrom0to1(param->getValue()) - value) > 1.0e-4f)
-                setParameter(id, value);
-    };
-    set(p::voiceId(p::chordSlotUsed, index), slot.used ? 1.0f : 0.0f);
-    // An emptied slot goes back to defaults, so a chord put in it later doesn't
-    // inherit the type or quality of whatever was there before.
-    const gristo::ChordSlot s = slot.used ? slot : gristo::ChordSlot {};
-    set(p::voiceId(p::chordDegree, index), static_cast<float>(s.degree));
-    set(p::voiceId(p::chordBorrowed, index), s.borrowed ? 1.0f : 0.0f);
-    set(p::voiceId(p::chordType, index), static_cast<float>(s.type));
-    set(p::voiceId(p::chordInversion, index), static_cast<float>(s.inversion));
-    set(p::voiceId(p::chordQuality, index), static_cast<float>(s.quality));
-    set(p::voiceId(p::chordAlter, index), static_cast<float>(s.alter));
-    set(p::voiceId(p::chordLength, index), s.lengthSteps <= 8 ? 0.0f : s.lengthSteps >= 32 ? 2.0f : 1.0f);
-}
-
-void GristoView::editSelectedChord(const std::function<void(gristo::ChordSlot&)>& edit)
-{
-    const auto params = p::readEngineParams(processor_.state, processor_.modPoints);
-    auto slot = params.chords.slots[static_cast<size_t>(selectedChordSlot_)];
-    edit(slot);
-    writeChordSlot(selectedChordSlot_, slot);
-}
-
-void GristoView::showChordLibrary()
-{
-    juce::PopupMenu menu;
-    const auto& library = gristo::Chords::library();
-    // One flat list with mood headings: nested submenus are fiddly on touch screens.
-    juce::StringArray moods;
-    for (const auto& entry : library)
-        moods.addIfNotAlreadyThere(entry.mood);
-    for (const auto& mood : moods)
-    {
-        menu.addSectionHeader(mood);
-        for (int i = 0; i < static_cast<int>(library.size()); ++i)
-            if (mood == library[static_cast<size_t>(i)].mood)
-                menu.addItem(i + 1, juce::String(library[static_cast<size_t>(i)].name) + "  (" + gristo::chordScaleName(library[static_cast<size_t>(i)].scale) + ")");
-    }
-    juce::Component::SafePointer<GristoView> safe(this);
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&chordLibrary_), [safe](int result) {
-        if (safe == nullptr || result <= 0)
-            return;
-        const auto& entry = gristo::Chords::library()[static_cast<size_t>(result - 1)];
-        safe->setParameter(p::chordScale, static_cast<float>(entry.scale));
-        for (int i = 0; i < gristo::kMaxChordSlots; ++i)
-            safe->writeChordSlot(i, i < static_cast<int>(entry.slots.size()) ? entry.slots[static_cast<size_t>(i)] : gristo::ChordSlot {});
-        safe->selectedChordSlot_ = 0;
-    });
-}
-
-void GristoView::newChordProgression()
-{
-    const auto params = p::readEngineParams(processor_.state, processor_.modPoints);
-    const auto seed = static_cast<std::uint32_t>(juce::Random::getSystemRandom().nextInt({ 1, 10000 }));
-    const auto slots = gristo::Chords::generate(seed, params.chords.scale);
-    for (int i = 0; i < gristo::kMaxChordSlots; ++i)
-        writeChordSlot(i, slots[static_cast<size_t>(i)]);
-    setParameter(p::chordSeed, static_cast<float>(seed));
-    selectedChordSlot_ = 0;
 }
 
 void GristoView::updateChordPage(const gristo::EngineParams& params)
 {
     const auto& c = params.chords;
-    const auto& editing = c.slots[static_cast<size_t>(selectedChordSlot_)];
-    chordSlots_.update(c, processor_.displayChordSlot.load(), selectedChordSlot_);
-    chordPads_.update(c, editing);
-    for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
-        chordTypes_[t].setToggleState(editing.used && static_cast<int>(editing.type) == t, juce::dontSendNotification);
-    // Only follow changes made elsewhere (another slot, a preset, the library): the
-    // combo reports a pick asynchronously, and resetting it every frame could undo it.
-    if (selectedChordSlot_ != shownQualitySlot_ || static_cast<int>(editing.quality) != shownQuality_)
+    harmonyPad_.update(c, processor_.displayChordCell.load());
+    chordNowLabel_.setText((c.enabled ? juce::String() : juce::String("Off  -  ")) + harmonyPad_.playingName(), juce::dontSendNotification);
+    const bool caught = c.frozen;
+    if (catchButton_.getToggleState() != caught)
     {
-        shownQualitySlot_ = selectedChordSlot_;
-        shownQuality_ = static_cast<int>(editing.quality);
-        chordQuality_.setSelectedId(shownQuality_ + 1, juce::dontSendNotification);
+        catchButton_.setToggleState(caught, juce::dontSendNotification);
+        catchButton_.setButtonText(caught ? "Caught" : "Catch");
     }
-    chordFlat_.setToggleState(editing.used && editing.alter < 0, juce::dontSendNotification);
-    chordSharp_.setToggleState(editing.used && editing.alter > 0, juce::dontSendNotification);
-    for (int i = 0; i < 3; ++i)
-    {
-        chordInversions_[i].setToggleState(editing.used && editing.inversion == i, juce::dontSendNotification);
-        chordLengths_[i].setToggleState(editing.used && editing.lengthSteps == p::kChordLengthSteps[i], juce::dontSendNotification);
-    }
-    const bool drums = c.clock == gristo::ChordClock::Drums;
-    for (juce::Component* comp : std::initializer_list<juce::Component*> { chordHits_.get(), &chordClockVoice_.box, &chordReset_.box })
-        comp->setAlpha(drums ? 1.0f : 0.35f);
+    const bool wander = c.mode == gristo::HarmonyMode::Wander;
+    for (juce::Component* comp : std::initializer_list<juce::Component*> { &chordWander_.slider, &catchButton_, &chordRate_.box, &chordPhrase_.box })
+        comp->setAlpha(wander ? 1.0f : 0.35f);
     const bool stabs = c.play == gristo::ChordPlay::Stabs;
     for (auto& t : chordStabs_)
         t.button.setAlpha(stabs ? 1.0f : 0.35f);
     chordGate_.slider.setAlpha(stabs ? 1.0f : 0.35f);
-    // MIDI out range over every chord in the progression.
+    if (page_ != kChordsPage)
+        return;
+    // MIDI out range over the whole map.
     int lo = 128, hi = -1;
-    for (const auto& slot : c.slots)
-        if (slot.used)
+    for (int column = -5; column <= 5; ++column)
+        for (int row = 0; row < gristo::kHarmonyRows; ++row)
         {
-            const auto chord = gristo::Chords::build(c, slot);
+            const auto chord = gristo::Chords::build(c, { column, row });
             for (int i = 0; i < chord.count; ++i)
             {
                 const int n = gristo::Arp::outputNote(chord.notes[static_cast<size_t>(i)], c.shift);
@@ -1465,16 +1354,69 @@ void GristoView::updateChordPage(const gristo::EngineParams& params)
                 hi = std::max(hi, n);
             }
         }
-    if (hi < 0)
-        chordOutLabel_.setText("No chords yet: tap a slot, then a pad", juce::dontSendNotification);
-    else
+    auto name = [](int note) { return juce::MidiMessage::getMidiNoteName(note, true, true, 3); };
+    juce::String text = "MIDI out " + name(lo) + " - " + name(hi) + ".  Live: key zone " + name(lo) + " - " + name(hi);
+    if (c.shift != 0)
+        text << ", Pitch " << (c.shift > 0 ? "-" : "+") << std::abs(c.shift);
+    chordOutLabel_.setText(text, juce::dontSendNotification);
+}
+
+// ---------------------------------------------------------------------------------
+// Play screen
+
+void GristoView::setupPlayPage()
+{
+    setupKnob(busy_, p::busy, "Busy");
+    setupKnob(loose_, p::loose, "Loose");
+    setupKnob(wild_, p::wild, "Wild");
+    setupKnob(dirt_, p::dirt, "Dirt");
+    setupKnob(space_, p::space, "Space");
+    setupKnob(alive_, p::alive, "Alive");
+    setupChoice(grit_, p::grit, "Grit");
+    grit_.label.setVisible(false);
+    for (Knob* k : { &busy_, &loose_, &wild_, &dirt_, &space_ })
+        k->label.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+    setHelp(busy_, "Busy", "How much the drums play. Left: almost nothing. Middle: as set in Edit. Right: every drum fills up, the hats start to ratchet.");
+    setHelp(loose_, "Loose", "Shuffle, humanize and flam together: machine-tight on the left, drunk on the right.");
+    setHelp(wild_, "Wild", "How much the pattern changes by itself: chaos, the map position, fills and the arps' lines move from bar to bar.");
+    setHelp(dirt_, "Dirt", "How much grit, of the kind picked next to it. Works on the whole sound.");
+    setHelp(grit_.box, "Grit", "Tape: saturation, wow and flutter, hiss, soft highs. Crunch: an old sampler's low rate and coarse converters. Drive: overdriven channels into a compressor that pumps.");
+    setHelp(space_, "Space", "Reverb and delay for everything. Left: dry. Middle: as set. Right: far away, with a bigger room and longer echoes.");
+    setHelp(alive_, "Alive", "How much nothing repeats exactly: oscillators and filters drift, drum hits differ, parts move a little in the stereo field.");
+
+    mutateAmount_.setSliderStyle(juce::Slider::LinearBar);
+    mutateAmount_.setRange(0.0, 1.0, 0.01);
+    mutateAmount_.setValue(processor_.mutateAmount.load(), juce::dontSendNotification);
+    mutateAmount_.textFromValueFunction = [](double v) { return v >= 0.97 ? juce::String("reroll everything") : "by " + juce::String(juce::roundToInt(v * 100.0)) + " %"; };
+    mutateAmount_.updateText();
+    mutateAmount_.onValueChange = [this] { processor_.mutateAmount.store(static_cast<float>(mutateAmount_.getValue())); };
+    addAndMakeVisible(mutateAmount_);
+    setHelp(mutateAmount_, "Mutate amount", "How far Mutate moves things. Small: a variation of what you have. All the way up: everything new.");
+
+    editButton_.setClickingTogglesState(true);
+    editButton_.setColour(juce::TextButton::buttonOnColourId, colours::accent);
+    editButton_.setColour(juce::TextButton::textColourOnId, colours::background);
+    editButton_.onClick = [this] { setEditMode(editButton_.getToggleState()); };
+    addAndMakeVisible(editButton_);
+    setHelp(editButton_, "Edit", "Shows the detailed controls of the part selected on the left (and the lanes and routing below). Off: back to the pads and the big knobs.");
+}
+
+std::vector<juce::Component*> GristoView::playPageComponents()
+{
+    std::vector<juce::Component*> list { &grit_.box, &mutateAmount_ };
+    for (Knob* k : { &busy_, &loose_, &wild_, &dirt_, &space_ })
     {
-        auto name = [](int note) { return juce::MidiMessage::getMidiNoteName(note, true, true, 3); };
-        juce::String text = "MIDI out " + name(lo) + " - " + name(hi) + ".  Live: key zone " + name(lo) + " - " + name(hi);
-        if (c.shift != 0)
-            text << ", Pitch " << (c.shift > 0 ? "-" : "+") << std::abs(c.shift);
-        chordOutLabel_.setText(text, juce::dontSendNotification);
+        list.push_back(&k->slider);
+        list.push_back(&k->label);
     }
+    return list;
+}
+
+void GristoView::setEditMode(bool edit)
+{
+    editMode_ = edit;
+    editButton_.setToggleState(edit, juce::dontSendNotification);
+    showPage(edit ? pageOfPart(selectedPart_) : kPlayPage);
 }
 
 std::vector<juce::Component*> GristoView::soundPageComponents()
@@ -1533,15 +1475,15 @@ void GristoView::setupPartStrip()
         b.setRadioGroupId(4713);
         b.setColour(juce::TextButton::buttonOnColourId, master ? colours::accent : partColour(part));
         b.setColour(juce::TextButton::textColourOnId, colours::background);
-        b.onClick = [this, part] {
+        b.onClick = [this, part, master] {
             selectedPart_ = part;
-            showPage(pageOfPart(part));
+            // Master / FX only exists as an Edit page; a part keeps the screen you are on.
+            setEditMode(editMode_ || master);
         };
         addAndMakeVisible(b);
         setHelp(b, master ? juce::String("Master / FX") : juce::String(gristo::partName(part)),
                 master ? "Reverb, delay and output settings."
-                       : part < gristo::kNumVoices ? "Shows the drums: map, voices, groove and kit."
-                                                    : "Shows this part: its notes on top, its sound below.");
+                       : "Selects this part. Edit (top right) shows its detailed controls.");
         if (master)
             continue;
         setupToggle(partMute_[part], p::voiceId(p::partMute, part), "M");
@@ -1595,12 +1537,13 @@ void GristoView::setupPerformance()
     // Undo / redo / dice
     undoButton_.onClick = [this] { processor_.undo(); };
     redoButton_.onClick = [this] { processor_.redo(); };
-    diceAllButton_.onClick = [this] { processor_.diceAll(); };
+    diceAllButton_.setButtonText("Mutate");
+    diceAllButton_.onClick = [this] { processor_.mutate(processor_.mutateAmount.load()); };
     for (auto* b : { &undoButton_, &redoButton_, &diceAllButton_ })
         addAndMakeVisible(*b);
     setHelp(undoButton_, "Undo", "Steps back through your edits, preset loads, scene recalls and dice rolls.");
     setHelp(redoButton_, "Redo", "Steps forward again.");
-    setHelp(diceAllButton_, "Dice", "New values for every section that isn't set to Keep. Undo brings the old ones back.");
+    setHelp(diceAllButton_, "Mutate", "Nudges everything that isn't set to Keep, by the amount under the big knobs: a variation, or at 100 % all new. Undo goes back.");
     const char* const sectionNames[GristoProcessor::NumSections] = { "the map and fills", "the groove", "the kit", "this arp's notes",
                                                                      "this arp's notes", "this arp's notes", "the progression",
                                                                      "this sound", "this sound", "this sound", "this sound" };
@@ -1632,6 +1575,8 @@ void GristoView::setupPerformance()
         auto& b = sceneButtons_[i];
         b.setButtonText(juce::String(i + 1));
         b.onClick = [this, i] {
+            if (morphing_ >= 0) // the end of a morph drag, not a click
+                return;
             if (juce::ModifierKeys::currentModifiers.isShiftDown() || !processor_.sceneUsed(i))
                 processor_.storeScene(i);
             else
@@ -1640,7 +1585,7 @@ void GristoView::setupPerformance()
         b.addMouseListener(this, false);
         addAndMakeVisible(b);
         setHelp(b, "Scene " + juce::String(i + 1),
-                "Empty: click to store everything as it is now. Stored: click to recall (on the next bar while playing). "
+                "Empty: click to store everything as it is now. Stored: click to recall (on the next bar while playing), or drag sideways to morph towards it. "
                 "Right-click to store again or clear. MIDI: channel 16, C1 upwards.");
     }
     chainButton_.setClickingTogglesState(true);
@@ -1841,7 +1786,7 @@ void GristoView::showVoiceTab(int tab)
 std::vector<juce::Component*> GristoView::masterPageComponents()
 {
     return { &fxSize_.slider, &fxSize_.label, &fxFeedback_.slider, &fxFeedback_.label, &fxTime_.box, &fxTime_.label,
-             &noteLength_.slider, &noteLength_.label, &separateOuts_.button };
+             &noteLength_.slider, &noteLength_.label, &separateOuts_.button, &alive_.slider, &alive_.label };
 }
 
 std::vector<juce::Component*> GristoView::synthComponents(int synth)
@@ -1894,6 +1839,24 @@ void GristoView::showPage(int page)
     kitGain_.label.setVisible(false);
     freeTempo_.slider.setVisible(false);
     freeTempo_.label.setVisible(false);
+    // The Play screen: both pads, the big knobs and a few choices borrowed from the pages.
+    const bool play = page == kPlayPage;
+    for (auto* c : playPageComponents())
+        c->setVisible(play);
+    if (play)
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &mapPad_, &nodeLabel_, &soundKit_.box, &timing_.box, &timing_.label,
+                                                                            &feeling_.box, &feeling_.label, &linear_.button,
+                                                                            &harmonyPad_, &chordNowLabel_, &chordOn_.button, &chordKey_.box,
+                                                                            &chordMinor_.box, &chordMode_.box, &chordWander_.slider,
+                                                                            &chordWander_.label, &catchButton_ })
+            c->setVisible(true);
+    // Lanes, routing, MIDI drag and the macro knobs belong to Edit.
+    for (auto* c : modulationPageComponents())
+        c->setVisible(!play);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &laneWave_, &dragBars_, &dragPart_, &dragAll_, &sourceBox_ })
+        c->setVisible(!play);
+    for (auto& m : macros_)
+        m.slider.setVisible(!play);
     for (int section = 0; section < GristoProcessor::NumSections; ++section)
     {
         const bool show = section <= GristoProcessor::DiceKit ? page == 0
@@ -2069,7 +2032,7 @@ void GristoView::paint(juce::Graphics& g)
     g.drawFittedText(helpText_, helpArea, juce::Justification::centredLeft, 2, 0.8f);
 
     // Part strip
-    drawPanel(g, { 8, kPageY, 184, kPageH }, {});
+    drawPanel(g, { 8, kPageY, 184, page_ == kPlayPage ? kHeight - kPageY - 6 : kPageH }, {});
     for (int part = 0; part < gristo::kNumParts; ++part)
     {
         g.setColour(partColour(part));
@@ -2077,11 +2040,38 @@ void GristoView::paint(juce::Graphics& g)
     }
     g.setColour(colours::dim);
     g.setFont(juce::FontOptions(9.5f));
-    for (int m = 0; m < gristo::kNumMacros; ++m) // macro numbers under their knobs
-        g.drawText("M" + juce::String(m + 1), 14 + (m % 4) * 44, kMacroY + (m / 4) * 38 + 26, 44, 10, juce::Justification::centred);
+    if (page_ != kPlayPage)
+        for (int m = 0; m < gristo::kNumMacros; ++m) // macro numbers under their knobs
+            g.drawText("M" + juce::String(m + 1), 14 + (m % 4) * 44, kMacroY + (m / 4) * 38 + 26, 44, 10, juce::Justification::centred);
 
     const int px = kPageX, py = kPageY;
-    if (page_ == 0)
+    if (page_ == kPlayPage)
+    {
+        drawPanel(g, { px, py, 532, kPadPanelH }, "Rhythm");
+        drawPanel(g, { px + 540, py, 532, kPadPanelH }, "Harmony");
+        drawPanel(g, { px, py + kPadPanelH + 8, kPageW, kKnobPanelH }, {});
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(11.5f));
+        g.drawText("Kit", px + 414, py + 28, 106, 14, juce::Justification::centredLeft);
+        g.drawText("Key", px + 962, py + 62, 100, 14, juce::Justification::centredLeft);
+        g.drawText("Played by", px + 962, py + 286, 100, 14, juce::Justification::centredLeft);
+        // What each big knob sweeps through.
+        static const char* const ends[5][2] = { { "sparse", "full" }, { "tight", "drunk" }, { "steady", "restless" }, { "clean", "wrecked" }, { "dry", "far away" } };
+        g.setFont(juce::FontOptions(10.5f));
+        for (int i = 0; i < 5; ++i)
+        {
+            const int x = px + 8 + i * kKnobSlotW;
+            g.drawText(ends[i][0], x, py + kPadPanelH + 8 + kKnobPanelH - 22, 60, 14, juce::Justification::centredLeft);
+            g.drawText(ends[i][1], x + kKnobSlotW - 72, py + kPadPanelH + 8 + kKnobPanelH - 22, 60, 14, juce::Justification::centredRight);
+        }
+        g.setFont(juce::FontOptions(11.5f));
+        g.setFont(juce::FontOptions(14.0f, juce::Font::bold));
+        g.drawText("Mutate by", px + 8 + 5 * kKnobSlotW, py + kPadPanelH + 22, kKnobSlotW - 24, 18, juce::Justification::centred);
+        g.setFont(juce::FontOptions(10.5f));
+        g.drawText("a variation", px + 8 + 5 * kKnobSlotW, py + kPadPanelH + 8 + kKnobPanelH - 22, 70, 14, juce::Justification::centredLeft);
+        g.drawText("all new", px + 8 + 6 * kKnobSlotW - 94, py + kPadPanelH + 8 + kKnobPanelH - 22, 70, 14, juce::Justification::centredRight);
+    }
+    else if (page_ == 0)
     {
         drawPanel(g, { px, py, 300, kPageH }, "Map");
         drawPanel(g, { px + 308, py, 504, 392 }, "Voices");
@@ -2142,6 +2132,11 @@ void GristoView::paint(juce::Graphics& g)
     }
 
     // Timeline
+    if (page_ == kPlayPage)
+    {
+        drawPanel(g, { kPageX, kPlayTimelineY, kPageW, kHeight - kPlayTimelineY - 6 }, {});
+        return;
+    }
     drawPanel(g, { 8, kTimelineY, kWidth - 16, kHeight - kTimelineY - 6 }, {});
     g.setColour(colours::dim);
     g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
@@ -2232,7 +2227,8 @@ void GristoView::resized()
     kitOn_.button.setBounds(768, 8, 66, 28);
     undoButton_.setBounds(856, 8, 54, 28);
     redoButton_.setBounds(914, 8, 54, 28);
-    diceAllButton_.setBounds(984, 8, 60, 28);
+    diceAllButton_.setBounds(980, 8, 66, 28);
+    editButton_.setBounds(1052, 8, 54, 28);
     keysButton_.setBounds(1112, 8, 56, 28);
     sizeButton_.setBounds(1174, 8, 96, 28);
     // Row 2: scenes (the help line is painted to their right)
@@ -2327,6 +2323,7 @@ void GristoView::resized()
     fxTime_.box.setBounds(px + 280, py + 86, 100, 28);
     placeKnob(noteLength_, { px + 960, py + 30, 96, 110 });
     separateOuts_.button.setBounds(px + 548, py + 40, 190, 28);
+    placeLabeled(alive_, { px + 400, py + 40, 110, 130 });
 
     // Synth of the shown arp / the chords
     for (int s = 0; s < gristo::sound::kNumSynths; ++s)
@@ -2400,37 +2397,22 @@ void GristoView::resized()
         const int y = kModRowY;
         chordOn_.button.setBounds(28, y, 48, 26);
         chordKey_.box.setBounds(82, y, 58, 26);
-        chordScale_.box.setBounds(146, y, 118, 26);
-        chordClock_.box.setBounds(270, y, 98, 26);
-        if (chordHits_ != nullptr)
-            chordHits_->setBounds(374, y + 1, 78, 24);
-        chordClockVoice_.box.setBounds(458, y, 84, 26);
-        chordReset_.box.setBounds(548, y, 80, 26);
-        chordPlay_.box.setBounds(634, y, 80, 26);
-        chordOctave_.box.setBounds(720, y, 58, 26);
-        chordLibrary_.setBounds(784, y, 70, 26);
-        chordNew_.setBounds(860, y, 50, 26);
-        chordSlots_.setBounds(24, y + 32, 840, 48);
-        placeSmallKnob(chordMutate_, 874, y + 32);
-        placeSmallKnob(chordGate_, 922, y + 32);
-        placeSmallKnob(chordStrum_, 970, y + 32);
-        chordVoicing_.label.setBounds(170, kModBottomY + 32, 52, 24);
-        chordVoicing_.box.setBounds(222, kModBottomY + 32, 136, 24);
-        chordStrumDir_.label.setBounds(372, kModBottomY + 32, 44, 24);
-        chordStrumDir_.box.setBounds(416, kModBottomY + 32, 104, 24);
-        chordPads_.setBounds(24, y + 88, 420, 104);
-        for (int t = 0; t < static_cast<int>(gristo::ChordType::Count); ++t)
-            chordTypes_[t].setBounds(456 + t * 58, y + 88, 54, 48);
-        const int y2 = y + 144;
-        for (int i = 0; i < 3; ++i)
-        {
-            chordInversions_[i].setBounds(456 + i * 46, y2, 42, 48);
-            chordLengths_[i].setBounds(596 + i * 52, y2, 48, 48);
-        }
-        chordQuality_.setBounds(752, y2 + 9, 96, 30);
-        chordFlat_.setBounds(854, y2, 30, 48);
-        chordSharp_.setBounds(888, y2, 30, 48);
-        chordClear_.setBounds(924, y2, 50, 48);
+        chordMinor_.box.setBounds(146, y, 84, 26);
+        chordMode_.box.setBounds(236, y, 96, 26);
+        chordRate_.box.setBounds(338, y, 84, 26);
+        chordPhrase_.box.setBounds(428, y, 84, 26);
+        catchButton_.setBounds(518, y, 80, 26);
+        chordPlay_.box.setBounds(640, y, 80, 26);
+        chordOctave_.box.setBounds(726, y, 58, 26);
+        harmonyPad_.setBounds(24, y + 34, 600, 158);
+        chordNowLabel_.setBounds(796, y, 180, 26);
+        placeKnob(chordWander_, { 640, y + 38, 84, 104 });
+        placeSmallKnob(chordStrum_, 740, y + 48);
+        placeSmallKnob(chordGate_, 800, y + 48);
+        chordVoicing_.label.setBounds(640, y + 150, 52, 24);
+        chordVoicing_.box.setBounds(692, y + 150, 136, 24);
+        chordStrumDir_.label.setBounds(836, y + 150, 40, 24);
+        chordStrumDir_.box.setBounds(876, y + 150, 100, 24);
         for (int v = 0; v < gristo::kNumVoices; ++v)
             chordStabs_[v].button.setBounds(80 + v * 36, kModBottomY, 34, 22);
         if (chordVelocity_ != nullptr)
@@ -2448,6 +2430,36 @@ void GristoView::resized()
     for (auto* c : chordPageComponents())
         if (c != nullptr)
             c->setBounds(c->getBounds().translated(kBlockDx, 0));
+
+    if (page_ == kPlayPage)
+    {
+        // Rhythm: the map with the choices that shape it most.
+        mapPad_.setBounds(px + 12, py + 26, 392, kPadPanelH - 56);
+        nodeLabel_.setBounds(px + 12, py + kPadPanelH - 26, 392, 18);
+        soundKit_.box.setBounds(px + 414, py + 44, 106, 26);
+        timing_.label.setBounds(px + 414, py + 80, 106, 14);
+        timing_.box.setBounds(px + 414, py + 96, 106, 26);
+        feeling_.label.setBounds(px + 414, py + 132, 106, 14);
+        feeling_.box.setBounds(px + 414, py + 148, 106, 26);
+        linear_.button.setBounds(px + 414, py + 190, 106, 28);
+        // Harmony: the map, Wander and Catch.
+        harmonyPad_.setBounds(px + 552, py + 26, 400, kPadPanelH - 56);
+        chordNowLabel_.setBounds(px + 552, py + kPadPanelH - 26, 400, 18);
+        chordOn_.button.setBounds(px + 962, py + 26, 98, 28);
+        chordKey_.box.setBounds(px + 962, py + 78, 98, 26);
+        chordMinor_.box.setBounds(px + 962, py + 110, 98, 26);
+        placeKnob(chordWander_, { px + 962, py + 146, 98, 104 });
+        catchButton_.setBounds(px + 962, py + 252, 98, 30);
+        chordMode_.box.setBounds(px + 962, py + 302, 98, 26);
+        // The big knobs
+        const int ky = py + kPadPanelH + 14;
+        Knob* big[] = { &busy_, &loose_, &wild_, &dirt_, &space_ };
+        for (int i = 0; i < 5; ++i)
+            placeKnob(*big[i], { px + 8 + i * kKnobSlotW + (kKnobSlotW - 112) / 2 - (i == 3 ? 30 : 0), ky, 112, kKnobPanelH - 30 });
+        grit_.box.setBounds(px + 8 + 3 * kKnobSlotW + 98, ky + 44, 76, 26);
+        mutateAmount_.setBounds(px + 8 + 5 * kKnobSlotW, ky + 44, kKnobSlotW - 24, 26);
+        timelineView_.setBounds(kPageX + 10, kPlayTimelineY + 8, kPageW - 20, kHeight - kPlayTimelineY - 22);
+    }
 }
 
 // ---------------------------------------------------------------------------------
