@@ -43,7 +43,6 @@ void Engine::reset()
         st.lastSlide = false;
     }
     chord_ = ChordState {};
-    hitsMemoCycle_ = -1;
     needsResync_ = true;
 }
 
@@ -203,82 +202,38 @@ void Engine::playArp(int arp, std::int64_t step, std::int64_t k, std::int64_t cy
 
 bool Engine::chordsActive() const
 {
-    return params_.chords.enabled && Chords::usedCount(params_.chords) > 0;
-}
-
-std::int64_t Engine::clockHitsBefore(std::int64_t step) const
-{
-    // Hits of the clock voice from the reset bar up to (not including) `step`.
-    const ChordParams& cp = params_.chords;
-    const int resetLen = std::clamp(cp.resetBars, 1, 16) * kStepsPerBar;
-    const std::int64_t cycle = floorDiv(step, resetLen);
-    const std::int64_t cycleStart = cycle * resetLen;
-    std::int64_t from = cycleStart, hits = 0;
-    if (hitsMemoCycle_ == cycle && hitsMemoStep_ <= step)
-    {
-        from = hitsMemoStep_;
-        hits = hitsMemoHits_;
-    }
-    const int voice = std::clamp(cp.clockVoice, 0, kNumVoices - 1);
-    for (std::int64_t s = from; s < step; ++s)
-        if (evaluateStep(s)[static_cast<size_t>(voice)].on)
-            ++hits;
-    hitsMemoCycle_ = cycle;
-    hitsMemoStep_ = step;
-    hitsMemoHits_ = hits;
-    return hits;
+    return params_.chords.enabled;
 }
 
 ChordPosition Engine::chordPositionAt(std::int64_t step) const
 {
     if (!chordsActive())
         return {};
-    auto& entry = chordCache_[static_cast<size_t>(floorMod(step, kChordCacheSize))];
-    if (entry.generation == chordGeneration_ && entry.step == step)
-        return entry.pos;
-    entry.step = step;
-    entry.generation = chordGeneration_;
-    entry.pos = computeChordPosition(step);
-    return entry.pos;
-}
-
-ChordPosition Engine::computeChordPosition(std::int64_t step) const
-{
     const ChordParams& cp = params_.chords;
-    if (cp.clock == ChordClock::Keys)
+    if (cp.mode == HarmonyMode::Keys)
     {
         ChordPosition pos;
         pos.serial = chordKeySerial_;
-        int seen = 0;
-        for (int i = 0; i < kMaxChordSlots && chordKey_ >= 0; ++i)
-            if (cp.slots[static_cast<size_t>(i)].used && seen++ == chordKey_)
-                pos.slot = i;
+        pos.valid = chordKey_ >= 0;
+        if (pos.valid)
+            pos.cell = Chords::keyCell(cp, chordKey_);
         return pos;
     }
-    if (cp.clock == ChordClock::Drums)
-    {
-        const int voice = std::clamp(cp.clockVoice, 0, kNumVoices - 1);
-        const bool hitNow = evaluateStep(step)[static_cast<size_t>(voice)].on;
-        return Chords::drumsPosition(cp, step, clockHitsBefore(step) + (hitNow ? 1 : 0));
-    }
-    return Chords::barsPosition(cp, step);
+    return Chords::positionAt(cp, step);
 }
 
 Chord Engine::chordAt(std::int64_t step) const
 {
     const ChordPosition pos = chordPositionAt(step);
-    if (pos.slot < 0)
-        return {};
-    return Chords::build(params_.chords, Chords::played(params_.chords, pos));
+    return pos.valid ? Chords::build(params_.chords, pos.cell) : Chord {};
 }
 
-void Engine::setChordKey(int usedIndex)
+void Engine::setChordKey(int key)
 {
-    if (usedIndex == chordKey_)
+    if (key == chordKey_)
         return;
-    chordKey_ = usedIndex;
+    chordKey_ = key;
     ++chordKeySerial_;
-    ++chordGeneration_;
 }
 
 void Engine::releaseHeldChord(double beats)
@@ -367,7 +322,7 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
         return out;
     };
 
-    const bool byKeys = cp.clock == ChordClock::Keys && cp.play == ChordPlay::Held;
+    const bool byKeys = cp.mode == HarmonyMode::Keys && cp.play == ChordPlay::Held;
     for (int guard = 0; guard < kMaxStepsPerBlock; ++guard)
     {
         const std::int64_t s = st.nextStep;
@@ -381,7 +336,7 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
             if (beats >= ppqEnd && !byKeys)
                 break;
             const ChordPosition pos = chordPositionAt(s);
-            const Chord chord = pos.slot >= 0 ? outNotes(Chords::build(cp, Chords::played(cp, pos))) : Chord {};
+            const Chord chord = pos.valid ? outNotes(Chords::build(cp, pos.cell)) : Chord {};
             const bool edited = st.haveChord && (chord.count != st.held.count
                                                  || !std::equal(chord.notes.begin(), chord.notes.begin() + chord.count, st.held.notes.begin()));
             if (!st.haveChord || pos.serial != st.lastSerial || edited)
@@ -483,41 +438,11 @@ void Engine::processArp(int arp, double ppqStart, double ppqEnd, double bpm)
     }
 }
 
-namespace {
-
-// What the drum hits counted by the chords' Drum hits clock depend on.
-bool sameClockInputs(const EngineParams& a, const EngineParams& b)
-{
-    const PatternParams &p = a.pattern, &q = b.pattern;
-    if (p.mapX != q.mapX || p.mapY != q.mapY || p.chaos != q.chaos || p.mapRandom != q.mapRandom || p.fill != q.fill
-        || p.fillRandom != q.fillRandom || p.probability != q.probability || p.probabilityRandom != q.probabilityRandom
-        || p.mute != q.mute || p.linear != q.linear || p.seed != q.seed || p.length != q.length)
-        return false;
-    if (a.chords.clockVoice != b.chords.clockVoice || a.chords.resetBars != b.chords.resetBars)
-        return false;
-    for (int l = 0; l < kNumModSources; ++l)
-    {
-        const ModLane &x = a.modulation.lanes[static_cast<size_t>(l)], &y = b.modulation.lanes[static_cast<size_t>(l)];
-        if (x.bars != y.bars || x.points != y.points || x.wave != y.wave || x.lfoRate != y.lfoRate)
-            return false;
-        for (int s = 0; s < kModSlotsPerLane; ++s)
-            if (x.slots[static_cast<size_t>(s)].target != y.slots[static_cast<size_t>(s)].target
-                || x.slots[static_cast<size_t>(s)].amount != y.slots[static_cast<size_t>(s)].amount)
-                return false;
-    }
-    return true;
-}
-
-} // namespace
-
 void Engine::setParams(const EngineParams& p)
 {
-    if (!sameClockInputs(params_, p))
-        hitsMemoCycle_ = -1; // the running hit count no longer matches a fresh count
     params_ = p;
     hasModulation_ = false;
     shuffleModulated_ = false;
-    ++chordGeneration_; // positions depend on the pattern and the chord settings
     for (const ModLane& lane : params_.modulation.lanes)
         for (const ModSlot& slot : lane.slots)
             if (slot.target > mod::kNone && slot.target < mod::kNumTargets && slot.amount != 0.0f)
@@ -723,7 +648,6 @@ void Engine::flushNoteOffs(std::vector<OutputEvent>& out)
 
 void Engine::resync(double ppqStart)
 {
-    hitsMemoCycle_ = -1;
     const auto first = static_cast<std::int64_t>(std::ceil(ppqStart * kStepsPerBeat - 1e-9));
     nextStep_.fill(first);
     needsResync_ = false;

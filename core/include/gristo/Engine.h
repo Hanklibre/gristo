@@ -126,16 +126,16 @@ public:
 
     // Notes currently feeding arp `arp` (held or latched on MIDI in), in press order.
     void setArpInput(int arp, const int* notes, int count);
-    // Keys clock: the chord being played, as an index into the used slots (-1 = none).
+    // Keys mode: the chord key held (0..kNumChordKeys-1, see Chords::keyCell; -1 = none).
     // Every call with a new value starts the chord again.
-    void setChordKey(int usedIndex);
+    void setChordKey(int key);
     // Advances since the arp's last reset (for the UI).
     std::int64_t arpCount(int arp) const { return arps_[static_cast<size_t>(arp)].count; }
 
     // Resolve the arp step counter / pattern without playing (used by tests and UI).
     static int resetSteps(const ArpParams& p);
 
-    // Where the chord progression is at a step (slot -1: chords off or empty).
+    // Where the harmony is at a step (not valid: chords off, or Keys mode with no key held).
     ChordPosition chordPositionAt(std::int64_t step) const;
     // The chord sounding at a step (Mutate applied), empty if none.
     Chord chordAt(std::int64_t step) const;
@@ -186,8 +186,6 @@ private:
 
     static float normalizedVelocity(const EngineParams& ep, const VoiceHit& hit, int voice);
     bool chordsActive() const;
-    std::int64_t clockHitsBefore(std::int64_t step) const;
-    ChordPosition computeChordPosition(std::int64_t step) const;
     void releaseHeldChord(double beats);
     void dropChordOnsAfter(double beats);
     void startChordNotes(const Chord& chord, double beats, float velocity, double bpm, double offBeats);
@@ -220,19 +218,6 @@ private:
     ChordState chord_;
     int chordKey_ = -1;
     std::int64_t chordKeySerial_ = 0;
-    // Drums-clocked chords: running count of clock hits (a cache, so lookups stay cheap).
-    mutable std::int64_t hitsMemoCycle_ = -1, hitsMemoStep_ = 0, hitsMemoHits_ = 0;
-    // Chord position per step for the current parameters: chords and both arps ask
-    // about the same steps, so each is worked out once.
-    static constexpr int kChordCacheSize = 512;
-    struct ChordCacheEntry
-    {
-        std::int64_t step = 0;
-        std::uint32_t generation = 0;
-        ChordPosition pos;
-    };
-    mutable std::array<ChordCacheEntry, kChordCacheSize> chordCache_ {};
-    std::uint32_t chordGeneration_ = 1;
     double expectedPpq_ = 0.0;
     bool needsResync_ = true;
 };

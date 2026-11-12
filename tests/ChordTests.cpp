@@ -1,6 +1,7 @@
 #include "TestFramework.h"
 
 #include "gristo/Engine.h"
+#include "gristo/Macros.h"
 #include "gristo/sound/Sound.h"
 
 #include <algorithm>
@@ -50,26 +51,23 @@ std::vector<Ev> render(const EngineParams& p, int blockSize, std::int64_t total,
     return all;
 }
 
-ChordSlot slot(int degree, ChordType type = ChordType::Triad, int len = 16, bool borrowed = false, int inversion = 0)
-{
-    ChordSlot s;
-    s.used = true;
-    s.degree = degree;
-    s.type = type;
-    s.lengthSteps = len;
-    s.borrowed = borrowed;
-    s.inversion = inversion;
-    return s;
-}
-
 ChordParams cMajor()
 {
     ChordParams c;
     c.enabled = true;
     c.key = 0;
-    c.scale = ChordScale::Major;
+    c.minor = false;
     c.lowestNote = 48;
+    c.voicing = ChordVoicing::Close;
+    c.wander = 0.0f;
     return c;
+}
+
+// Home on a cell of the map.
+void home(ChordParams& c, int column, int row = 0)
+{
+    c.homeX = Chords::columnToX(column);
+    c.homeY = Chords::rowToY(row);
 }
 
 EngineParams fourOnFloor()
@@ -87,179 +85,122 @@ std::vector<int> notesOf(const Chord& c) { return std::vector<int>(c.notes.begin
 
 } // namespace
 
-TEST("chords: built from the scale, named and numbered like Scaler")
-{
-    const ChordParams c = cMajor();
-    CHECK(notesOf(Chords::build(c, slot(0))) == (std::vector<int> { 48, 52, 55 }));
-    CHECK(notesOf(Chords::build(c, slot(5, ChordType::Seventh))) == (std::vector<int> { 57, 60, 64, 67 }));
-    CHECK(Chords::name(c, slot(0)) == "C");
-    CHECK(Chords::name(c, slot(5, ChordType::Seventh)) == "Am7");
-    CHECK(Chords::roman(c, slot(5, ChordType::Seventh)) == "vi7");
-    CHECK(Chords::name(c, slot(4, ChordType::Seventh)) == "G7");
-    CHECK(Chords::roman(c, slot(4, ChordType::Seventh)) == "V7");
-    CHECK(Chords::name(c, slot(3, ChordType::Seventh)) == "Fmaj7");
-    CHECK(Chords::roman(c, slot(3, ChordType::Seventh)) == "IVmaj7");
-    CHECK(Chords::name(c, slot(6)) == "Bdim");
-    CHECK(Chords::roman(c, slot(6)) == "viio");
-    CHECK(Chords::name(c, slot(6, ChordType::Seventh)) == "Bm7b5");
-    CHECK(Chords::name(c, slot(1, ChordType::Ninth)) == "Dm9");
-    CHECK(Chords::name(c, slot(4, ChordType::Ninth)) == "G9");
-    CHECK(Chords::name(c, slot(3, ChordType::Ninth)) == "Fmaj9");
-    CHECK(Chords::name(c, slot(2, ChordType::Ninth)) == "Em7b9");
-    CHECK(Chords::name(c, slot(6, ChordType::Ninth)) == "Bm7b5b9");
-    CHECK(Chords::name(c, slot(0, ChordType::Sus4)) == "Csus4");
-    // Borrowed from C minor: iv and bVI.
-    CHECK(Chords::name(c, slot(3, ChordType::Triad, 16, true)) == "Fm");
-    CHECK(Chords::roman(c, slot(3, ChordType::Triad, 16, true)) == "iv");
-    CHECK(Chords::name(c, slot(5, ChordType::Triad, 16, true)) == "Ab");
-    CHECK(Chords::roman(c, slot(5, ChordType::Triad, 16, true)) == "bVI");
-    // A minor, first inversion.
-    ChordParams a = c;
-    a.key = 9;
-    a.scale = ChordScale::Minor;
-    CHECK(Chords::name(a, slot(0)) == "Am");
-    CHECK(Chords::name(a, slot(0, ChordType::Triad, 16, false, 1)) == "Am/C");
-    const auto inv = notesOf(Chords::build(a, slot(0, ChordType::Triad, 16, false, 1)));
-    CHECK(inv.size() == 3 && inv[0] % 12 == 0); // C in the bass
-}
 
-TEST("chords: qualities and altered roots give chromatic chords")
-{
-    const ChordParams c = cMajor();
-    auto as = [](ChordSlot s, ChordQuality q, int alter = 0) {
-        s.quality = q;
-        s.alter = alter;
-        return s;
-    };
-    // Secondary dominants are named as such.
-    const auto e7 = as(slot(2, ChordType::Seventh), ChordQuality::Dominant);
-    CHECK(notesOf(Chords::build(c, e7)) == (std::vector<int> { 52, 56, 59, 62 }));
-    CHECK(Chords::name(c, e7) == "E7");
-    CHECK(Chords::roman(c, e7) == "V7/vi");
-    CHECK(Chords::roman(c, as(slot(1, ChordType::Seventh), ChordQuality::Dominant)) == "V7/V");
-    // Tritone sub: flat root, flat spelling.
-    const auto db7 = as(slot(1, ChordType::Seventh), ChordQuality::Dominant, -1);
-    CHECK(Chords::name(c, db7) == "Db7");
-    CHECK(Chords::roman(c, db7) == "bII7");
-    CHECK(notesOf(Chords::build(c, db7))[0] % 12 == 1);
-    // An altered root with no quality plays major.
-    CHECK(Chords::name(c, as(slot(6, ChordType::Ninth), ChordQuality::Scale, -1)) == "Bbmaj9");
-    CHECK(Chords::name(c, as(slot(0, ChordType::Eleventh), ChordQuality::Minor, 1)) == "C#m11");
-    // New types.
-    CHECK(Chords::name(c, slot(0, ChordType::Sixth)) == "C6");
-    CHECK(Chords::name(c, slot(0, ChordType::SixNine)) == "C6/9");
-    CHECK(Chords::name(c, slot(0, ChordType::Add9)) == "Cadd9");
-    CHECK(Chords::name(c, as(slot(0, ChordType::SixNine), ChordQuality::Minor)) == "Cm6/9");
-    CHECK(Chords::name(c, as(slot(0, ChordType::Sus4), ChordQuality::Dominant)) == "C7sus4");
-    CHECK(Chords::name(c, slot(3, ChordType::Eleventh)) == "Fmaj9#11");
-    CHECK(Chords::name(c, as(slot(1, ChordType::Eleventh), ChordQuality::Dominant)) == "D9#11");
-    CHECK(Chords::name(c, as(slot(6, ChordType::Seventh), ChordQuality::Diminished)) == "Bdim7");
-    CHECK(Chords::roman(c, as(slot(6, ChordType::Seventh), ChordQuality::Diminished)) == "viio7");
-    // Scale chords keep their plain numerals (a Dorian IV7 is not a V7/VII).
-    ChordParams d = c;
-    d.scale = ChordScale::Dorian;
-    CHECK(Chords::roman(d, slot(3, ChordType::Seventh)) == "IV7");
-    // Every chord fits the note budget.
-    for (int t = 0; t < static_cast<int>(ChordType::Count); ++t)
-        for (int q = 0; q < static_cast<int>(ChordQuality::Count); ++q)
-            for (int alter = -1; alter <= 1; ++alter)
-                for (int deg = 0; deg < 7; ++deg)
-                {
-                    const auto s = as(slot(deg, static_cast<ChordType>(t)), static_cast<ChordQuality>(q), alter);
-                    const auto chord = Chords::build(c, s);
-                    CHECK(chord.count >= 3 && chord.count <= kMaxChordNotes);
-                    CHECK(!Chords::name(c, s).empty());
-                    CHECK(!Chords::roman(c, s).empty());
-                }
-}
-
-TEST("chords: the library's jazz and classical entries spell the right chords")
-{
-    auto find = [](const std::string& name) -> const Chords::LibraryEntry* {
-        for (const auto& e : Chords::library())
-            if (name == e.name)
-                return &e;
-        return nullptr;
-    };
-    auto names = [](const Chords::LibraryEntry& e, int key) {
-        ChordParams p;
-        p.key = key;
-        p.scale = e.scale;
-        std::vector<std::string> out;
-        for (const auto& s : e.slots)
-            out.push_back(Chords::name(p, s));
-        return out;
-    };
-    const auto* autumn = find("Autumn Leaves");
-    CHECK(autumn != nullptr);
-    if (autumn != nullptr) // in G minor
-        CHECK(names(*autumn, 7) == (std::vector<std::string> { "Cm7", "F7", "Bbmaj7", "Ebmaj7", "Am7b5", "D7", "Gm6" }));
-    const auto* gymno = find("Gymnopedie No. 1 vamp");
-    CHECK(gymno != nullptr);
-    if (gymno != nullptr) // in D major
-        CHECK(names(*gymno, 2) == (std::vector<std::string> { "Gmaj7", "Dmaj7" }));
-    const auto* fly = find("Fly Me to the Moon (cycle)");
-    CHECK(fly != nullptr);
-    if (fly != nullptr)
-        CHECK(names(*fly, 0) == (std::vector<std::string> { "Am7", "Dm7", "G7", "Cmaj7", "Fmaj7", "Bm7b5", "E7", "Am7" }));
-}
-
-TEST("chords: bars and drum-hit positions step through the used slots")
+TEST("harmony: the map is a chain of thirds around the tonic, richer towards the top")
 {
     ChordParams c = cMajor();
-    c.slots[0] = slot(0, ChordType::Triad, 16);
-    c.slots[2] = slot(4, ChordType::Triad, 16); // a gap in the slots is skipped
-    c.slots[3] = slot(5, ChordType::Triad, 8);
-    CHECK(Chords::usedCount(c) == 3);
-    CHECK(Chords::barsPosition(c, 0).slot == 0);
-    CHECK(Chords::barsPosition(c, 15).slot == 0);
-    CHECK(Chords::barsPosition(c, 16).slot == 2);
-    CHECK(Chords::barsPosition(c, 32).slot == 3);
-    CHECK(Chords::barsPosition(c, 40).slot == 0);
-    CHECK(Chords::barsPosition(c, 40).loop == 1);
-    CHECK(Chords::barsPosition(c, 40).serial != Chords::barsPosition(c, 0).serial);
-    CHECK(Chords::barsPosition(c, -1).slot == 3); // before the song start it wraps
-
-    c.hitsPerChord = 4;
-    CHECK(Chords::drumsPosition(c, 0, 0).slot == 0); // before the first hit
-    CHECK(Chords::drumsPosition(c, 0, 4).slot == 0);
-    CHECK(Chords::drumsPosition(c, 0, 5).slot == 2); // the 5th hit starts the next chord
-    CHECK(Chords::drumsPosition(c, 0, 9).slot == 3);
-    CHECK(Chords::drumsPosition(c, 0, 13).slot == 0);
-}
-
-TEST("chords: generator and library give usable, deterministic progressions")
-{
-    for (int sc = 0; sc < static_cast<int>(ChordScale::Count); ++sc)
-        for (std::uint32_t seed = 1; seed < 40; ++seed)
-        {
-            const auto a = Chords::generate(seed, static_cast<ChordScale>(sc));
-            const auto b = Chords::generate(seed, static_cast<ChordScale>(sc));
-            int used = 0;
-            for (int i = 0; i < kMaxChordSlots; ++i)
-            {
-                used += a[static_cast<size_t>(i)].used ? 1 : 0;
-                CHECK(a[static_cast<size_t>(i)].degree == b[static_cast<size_t>(i)].degree);
-            }
-            CHECK(used >= 4);
-        }
-    for (const auto& entry : Chords::library())
+    const char* const row0[] = { "Gm", "Bb", "Dm", "F", "Am", "C", "Em", "G", "Bm", "D", "F#m" };
+    for (int col = -5; col <= 5; ++col)
     {
-        CHECK(!entry.slots.empty());
-        ChordParams c = cMajor();
-        c.scale = entry.scale;
-        for (const auto& s : entry.slots)
-            CHECK_MSG(!Chords::name(c, s).empty(), entry.name);
+        CHECK_MSG(Chords::name(c, { col, 0 }) == row0[col + 5], "column " << col << ": " << Chords::name(c, { col, 0 }));
+        if (col < 5) // neighbours share two notes
+        {
+            std::set<int> a, b, common;
+            for (int n : notesOf(Chords::build(c, { col, 0 })))
+                a.insert(n % 12);
+            for (int n : notesOf(Chords::build(c, { col + 1, 0 })))
+                b.insert(n % 12);
+            for (int n : a)
+                if (b.count(n))
+                    common.insert(n);
+            CHECK_MSG(common.size() == 2, "columns " << col << " and " << col + 1);
+        }
     }
+    CHECK(notesOf(Chords::build(c, { 0, 0 })) == (std::vector<int> { 48, 52, 55 }));
+    CHECK(Chords::name(c, { 0, 1 }) == "Cadd9");
+    CHECK(Chords::name(c, { 0, 2 }) == "Cmaj7");
+    CHECK(Chords::name(c, { 2, 2 }) == "G7"); // the dominant pulls
+    CHECK(Chords::name(c, { -2, 3 }) == "Fmaj9");
+    CHECK(Chords::name(c, { -1, 3 }) == "Am9");
+    CHECK(Chords::name(c, { 2, 4 }) == "G9sus");
+    CHECK(Chords::name(c, { 0, 4 }) == "C6/9");
+    CHECK(Chords::name(c, { -1, 4 }) == "Am11");
+    CHECK(notesOf(Chords::build(c, { 2, 2 })) == (std::vector<int> { 55, 59, 62, 65 }));
+
+    // A minor key has its own tonic in the middle, on the same chain.
+    ChordParams m = cMajor();
+    m.key = 9;
+    m.minor = true;
+    CHECK(Chords::name(m, { 0, 0 }) == "Am");
+    CHECK(Chords::name(m, { 1, 0 }) == "C");
+    CHECK(Chords::name(m, { -1, 0 }) == "F");
+    CHECK(Chords::name(m, { 2, 2 }) == "Em7");
+
+    // The pad's position picks a cell, and every cell has a position.
+    for (int col = -5; col <= 5; ++col)
+        for (int row = 0; row < kHarmonyRows; ++row)
+        {
+            home(c, col, row);
+            CHECK((Chords::homeCell(c) == HarmonyCell { col, row }));
+            const Chord chord = Chords::build(c, { col, row });
+            CHECK(chord.count >= 3 && chord.count <= kMaxChordNotes);
+        }
 }
 
-TEST("chords: held chords change on the slot boundaries, every note is released")
+TEST("harmony: Wander walks in small steps from home, a different way every phrase")
+{
+    ChordParams c = cMajor();
+    home(c, 0, 1);
+    c.chordSteps = 16;
+    c.phraseBars = 4;
+    // No Wander: home, always.
+    for (std::int64_t s = 0; s < 640; s += 8)
+        CHECK((Chords::positionAt(c, s).cell == HarmonyCell { 0, 1 }));
+
+    double distance[2] = { 0.0, 0.0 };
+    int index = 0;
+    for (float wander : { 0.3f, 1.0f })
+    {
+        c.wander = wander;
+        std::set<std::vector<int>> walks;
+        for (int phrase = 0; phrase < 60; ++phrase)
+        {
+            std::vector<int> walk;
+            HarmonyCell previous = Chords::positionAt(c, phrase * 64).cell;
+            CHECK((previous == HarmonyCell { 0, 1 })); // every phrase starts at home
+            for (int chord = 1; chord < 4; ++chord)
+            {
+                const ChordPosition pos = Chords::positionAt(c, phrase * 64 + chord * 16);
+                CHECK(pos.valid);
+                CHECK(std::abs(pos.cell.column - previous.column) <= 2);
+                CHECK(std::abs(pos.cell.row - previous.row) <= 1);
+                CHECK(std::abs(pos.cell.column) <= 5 && pos.cell.row >= 0 && pos.cell.row < kHarmonyRows);
+                CHECK((Chords::positionAt(c, phrase * 64 + chord * 16 + 15).cell == pos.cell)); // holds for its length
+                CHECK(Chords::positionAt(c, phrase * 64 + chord * 16 + 15).serial == pos.serial);
+                CHECK(pos.serial != Chords::positionAt(c, phrase * 64 + chord * 16 - 1).serial);
+                distance[index] += std::abs(pos.cell.column) + std::abs(pos.cell.row - 1);
+                walk.push_back(pos.cell.column * 10 + pos.cell.row);
+                previous = pos.cell;
+            }
+            walks.insert(walk);
+        }
+        CHECK(walks.size() > 10);
+        ++index;
+    }
+    CHECK(distance[0] > 10.0 && distance[1] > distance[0] * 1.5);
+
+    // Catch: every phrase repeats the walk of the caught one, until released.
+    c.wander = 0.8f;
+    std::vector<HarmonyCell> caught;
+    for (int chord = 0; chord < 4; ++chord)
+        caught.push_back(Chords::positionAt(c, 7 * 64 + chord * 16).cell);
+    c.frozen = true;
+    c.frozenPhrase = 7;
+    for (int phrase = 0; phrase < 20; ++phrase)
+        for (int chord = 0; chord < 4; ++chord)
+            CHECK((Chords::positionAt(c, phrase * 64 + chord * 16).cell == caught[static_cast<size_t>(chord)]));
+    // Moving home moves the whole loop along the map.
+    home(c, 2, 1);
+    for (int chord = 0; chord < 4; ++chord)
+        CHECK(std::abs(Chords::positionAt(c, chord * 16).cell.column - (caught[static_cast<size_t>(chord)].column + 2)) <= 4);
+}
+
+TEST("chords: held chords change with the harmony, every note is released")
 {
     EngineParams p = fourOnFloor();
     p.chords = cMajor();
-    p.chords.slots[0] = slot(0);
-    p.chords.slots[1] = slot(3);
-    const auto evs = render(p, 256, kBar * 4);
+    p.chords.wander = 1.0f;
+    const auto evs = render(p, 256, kBar * 8);
     std::map<std::int64_t, std::set<int>> onsAt;
     std::map<int, int> balance;
     for (const auto& e : evs)
@@ -269,23 +210,27 @@ TEST("chords: held chords change on the slot boundaries, every note is released"
                 onsAt[e.sample].insert(e.note);
             balance[e.note] += e.on ? 1 : -1;
         }
-    CHECK(onsAt.size() == 4);
+    CHECK(onsAt.size() == 8); // one chord per bar
     CHECK(onsAt[0] == (std::set<int> { 48, 52, 55 }));
-    CHECK(onsAt[kBar] == (std::set<int> { 53, 57, 60 }));
-    CHECK(onsAt[kBar * 2] == (std::set<int> { 48, 52, 55 }));
+    CHECK(onsAt[kBar * 4] == (std::set<int> { 48, 52, 55 })); // home again
+    std::set<std::set<int>> different;
+    for (const auto& [at, notes] : onsAt)
+    {
+        CHECK(at % kBar == 0);
+        different.insert(notes);
+    }
+    CHECK(different.size() >= 3);
     for (const auto& [note, b] : balance)
         CHECK_MSG(b == 0, "note " << note << " balance " << b);
     // Block size doesn't matter.
-    const auto other = render(p, 1000, kBar * 4);
+    const auto other = render(p, 1000, kBar * 8);
     CHECK(other.size() == evs.size());
 }
 
-TEST("chords: stabs play on the chosen drum hits; drum clock follows the kick")
+TEST("chords: stabs play on the chosen drum hits")
 {
     EngineParams p = fourOnFloor();
     p.chords = cMajor();
-    p.chords.slots[0] = slot(0);
-    p.chords.slots[1] = slot(4);
     p.chords.play = ChordPlay::Stabs;
     p.chords.stabTriggers = { false, true, false, false, false, false };
     const auto evs = render(p, 256, kBar * 2);
@@ -305,18 +250,6 @@ TEST("chords: stabs play on the chosen drum hits; drum clock follows the kick")
     CHECK(stabNotes == snares * 3);
     for (const auto& [note, b] : balance)
         CHECK(b == 0);
-
-    // Drum clock: 4 kicks per chord on a four-on-the-floor = one chord per bar.
-    p.chords.play = ChordPlay::Held;
-    p.chords.clock = ChordClock::Drums;
-    p.chords.clockVoice = Kick;
-    p.chords.hitsPerChord = 4;
-    Engine e;
-    e.setParams(p);
-    CHECK(e.chordPositionAt(0).slot == 0);
-    CHECK(e.chordPositionAt(15).slot == 0);
-    CHECK(e.chordPositionAt(16).slot == 1);
-    CHECK(e.chordPositionAt(32).slot == 0);
 }
 
 TEST("chords: an arp following the chords plays chord tones")
@@ -324,8 +257,7 @@ TEST("chords: an arp following the chords plays chord tones")
     EngineParams p = fourOnFloor();
     p.chords = cMajor();
     p.chords.play = ChordPlay::Off; // only feeding the arp
-    p.chords.slots[0] = slot(0);
-    p.chords.slots[1] = slot(5);
+    home(p.chords, -1); // Am
     ArpParams& a = p.arps[0];
     a.enabled = true;
     a.followChords = true;
@@ -337,7 +269,7 @@ TEST("chords: an arp following the chords plays chord tones")
         if (e.on && e.voice == kArpVoiceBase)
         {
             ++arpNotes;
-            const std::set<int> pcs = e.sample < kBar ? std::set<int> { 0, 4, 7 } : std::set<int> { 9, 0, 4 };
+            const std::set<int> pcs { 9, 0, 4 };
             CHECK_MSG(pcs.count(e.note % 12) == 1, "note " << e.note << " at " << e.sample);
         }
         else if (e.voice == kChordVoice)
@@ -499,9 +431,9 @@ TEST("chords: switching Stabs to Held while a stab rings keeps notes paired")
     EngineParams p;
     p.pattern.fill = { 0, 1, 0, 0, 0, 0 }; // snare on every 16th
     ChordParams& c = p.chords;
-    c.enabled = true;
-    for (int i = 0; i < 2; ++i)
-        c.slots[static_cast<size_t>(i)] = slot(i * 3);
+    c = cMajor();
+    c.wander = 0.7f;
+    c.chordSteps = 8;
     c.play = ChordPlay::Stabs;
     c.stabTriggers = { false, true, false, false, false, false };
     c.stabGateSteps = 8.0f;
@@ -524,32 +456,6 @@ TEST("chords: switching Stabs to Held while a stab rings keeps notes paired")
     CHECK_MSG(check.violations == 0, check.violations << " unpaired chord notes");
 }
 
-TEST("chords: the drum-hit clock matches a fresh render after a mid-cycle change")
-{
-    EngineParams p;
-    p.pattern.fill = { 0.8f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f };
-    ChordParams& c = p.chords;
-    c.enabled = true;
-    for (int i = 0; i < 4; ++i)
-        c.slots[static_cast<size_t>(i)] = slot(i);
-    c.clock = ChordClock::Drums;
-    c.clockVoice = 0;
-    c.hitsPerChord = 2;
-    c.resetBars = 16;
-    Engine running;
-    running.setParams(p);
-    for (std::int64_t s = 0; s < 100; ++s)
-        running.chordPositionAt(s); // counts hits up to here with the old settings
-    p.pattern.fill[0] = 0.3f;       // fewer kicks from now on
-    running.setParams(p);
-    Engine fresh;
-    fresh.setParams(p);
-    int differ = 0;
-    for (std::int64_t s = 100; s < 256; ++s)
-        differ += running.chordPositionAt(s).slot != fresh.chordPositionAt(s).slot ? 1 : 0;
-    CHECK_MSG(differ == 0, differ << " steps differ");
-}
-
 TEST("arps: Mutate stays cheap however far into the song")
 {
     // Used to replay every cycle since the start: hours at this position.
@@ -567,16 +473,15 @@ TEST("chords: Smooth voicing keeps every chord in one octave, with the root belo
 {
     ChordParams c = cMajor();
     c.voicing = ChordVoicing::Smooth;
-    const Chord one = Chords::build(c, slot(0)), four = Chords::build(c, slot(3)), five = Chords::build(c, slot(4, ChordType::Seventh));
-    CHECK(notesOf(one) == (std::vector<int> { 48, 52, 55 }));
-    CHECK(notesOf(four) == (std::vector<int> { 48, 53, 57 })); // C stays, E-F and G-A move a step
-    CHECK(notesOf(five) == (std::vector<int> { 50, 53, 55, 59 }));
+    CHECK(notesOf(Chords::build(c, { 0, 0 })) == (std::vector<int> { 48, 52, 55 }));
+    CHECK(notesOf(Chords::build(c, { -2, 0 })) == (std::vector<int> { 48, 53, 57 })); // F: C stays, E-F and G-A move a step
+    CHECK(notesOf(Chords::build(c, { 2, 2 })) == (std::vector<int> { 50, 53, 55, 59 }));
     c.voicing = ChordVoicing::SmoothBass;
-    CHECK(notesOf(Chords::build(c, slot(3))) == (std::vector<int> { 41, 48, 53, 57 }));
-    for (int d = 0; d < 7; ++d)
-        for (int t = 0; t < static_cast<int>(ChordType::Count); ++t)
+    CHECK(notesOf(Chords::build(c, { -2, 0 })) == (std::vector<int> { 41, 48, 53, 57 }));
+    for (int col = -5; col <= 5; ++col)
+        for (int row = 0; row < kHarmonyRows; ++row)
         {
-            const Chord ch = Chords::build(c, slot(d, static_cast<ChordType>(t)));
+            const Chord ch = Chords::build(c, { col, row });
             CHECK(ch.count >= 4 && ch.count <= kMaxChordNotes);
             CHECK(ch.notes[0] >= 36 && ch.notes[0] < 48 && ch.notes[ch.count - 1] < 60);
         }
@@ -591,8 +496,9 @@ TEST("chords: strum spreads the notes, in either direction, and stays paired")
             p.pattern.fill = { 0, 1, 0, 0, 0, 0 }; // snare on every 16th: stabs closer than the strum
             ChordParams& c = p.chords;
             c = cMajor();
-            for (int i = 0; i < 4; ++i)
-                c.slots[static_cast<size_t>(i)] = slot(i, ChordType::Seventh, 8);
+            home(c, 0, 2); // sevenths: four notes
+            c.wander = 0.9f;
+            c.chordSteps = 8;
             c.play = static_cast<ChordPlay>(play);
             c.strumMs = 40.0f;
             c.strumDirection = static_cast<StrumDirection>(dir);
@@ -637,14 +543,12 @@ TEST("chords: strum spreads the notes, in either direction, and stays paired")
         }
 }
 
-TEST("chords: Keys clock plays the chord of the key, at once, and feeds the arps")
+TEST("chords: Keys mode plays the chord of the key, at once, and feeds the arps")
 {
     EngineParams p = fourOnFloor();
     ChordParams& c = p.chords;
     c = cMajor();
-    c.slots[0] = slot(0);
-    c.slots[2] = slot(3); // slot 1 unused: key 1 is the second used chord
-    c.clock = ChordClock::Keys;
+    c.mode = HarmonyMode::Keys; // seven keys = the seven columns around home: Dm F Am C Em G Bm
     c.play = ChordPlay::Held;
     c.shift = 0;
     Engine e;
@@ -672,9 +576,10 @@ TEST("chords: Keys clock plays the chord of the key, at once, and feeds the arps
     CHECK(notesOf(e.chordAt(5)) == (std::vector<int> { 53, 57, 60 }));
     for (int i = 0; i < 50; ++i)
         CHECK(block() == 0);
-    e.setChordKey(0);
+    e.setChordKey(3);
     block();
     CHECK(sounding == (std::set<int> { 48, 52, 55 }));
+    CHECK((Chords::keyCell(c, 10) == HarmonyCell { 0, 1 })); // the next octave is one row richer
     e.setChordKey(-1);
     block();
     CHECK(sounding.empty());
@@ -789,4 +694,44 @@ TEST("arps: Divide plays every Nth trigger, the same from any start point")
     CHECK(count(3, 0.0).size() == 6); // steps 0, 3, 6, 9, 12, 15 of the bar
     CHECK(count(4, 0.0).size() == 4);
     CHECK(count(3, 0.0) == count(3, 256 * 120.0 / (60.0 * 48000.0) * 300)); // started mid-song (2.5 beats... on the block grid)
+}
+
+TEST("macros: Busy, Loose and Wild at rest change nothing; turned, they move their families")
+{
+    EngineParams base = fourOnFloor();
+    base.pattern.fill = { 0.6f, 0.5f, 0.7f, 0.3f, 0.4f, 0.2f };
+    EngineParams p = base;
+    applyMacros(p, MacroParams {});
+    CHECK(p.pattern.fill == base.pattern.fill);
+    CHECK(p.groove.shuffle == base.groove.shuffle && p.humanize.amount == base.humanize.amount);
+    CHECK(p.pattern.chaos == base.pattern.chaos && p.groove.ratchet == base.groove.ratchet);
+
+    auto hits = [&](float busy) {
+        EngineParams q = base;
+        MacroParams m;
+        m.busy = busy;
+        applyMacros(q, m);
+        Engine e;
+        e.setParams(q);
+        int n = 0;
+        for (std::int64_t s = 0; s < 64; ++s)
+            for (const VoiceHit& h : e.evaluateStep(s))
+                n += h.on ? 1 : 0;
+        return n;
+    };
+    CHECK(hits(0.0f) == 0);
+    CHECK(hits(0.25f) < hits(0.5f) && hits(0.5f) < hits(0.75f) && hits(0.75f) < hits(1.0f));
+
+    p = base;
+    MacroParams m;
+    m.loose = 1.0f;
+    m.wild = 1.0f;
+    m.busy = 1.0f;
+    applyMacros(p, m);
+    CHECK(p.groove.shuffle > 3.0f && p.groove.shuffle <= 6.0f);
+    CHECK(p.humanize.amount > 0.5f && p.humanize.amount <= 1.0f);
+    CHECK(p.pattern.chaos > 0.4f && p.pattern.mapRandom > 0.5f && p.arps[0].mutate > 0.5f);
+    CHECK(p.groove.ratchet[HiHat1] > 0.2f && p.groove.ratchet[Kick] == 0.0f);
+    for (float f : p.pattern.fill)
+        CHECK(f >= 0.0f && f <= 1.0f);
 }
