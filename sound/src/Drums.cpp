@@ -195,12 +195,16 @@ const KitPatch& kitPatch(Kit kit)
     return kits[i];
 }
 
-void DrumVoice::trigger(const DrumPatch& patch, float velocity, float tuneSemis, float decayScale)
+void DrumVoice::trigger(const DrumPatch& patch, float velocity, float tuneSemis, float decayScale, float alive)
 {
     patch_ = patch;
-    // No two hits quite alike: a few cents and a touch of brightness, as a real drum.
+    // No two hits quite alike: pitch, brightness, length and level all move a little,
+    // as on a real drum (or a drum machine with tired capacitors).
+    alive = dsp::clamp01(alive);
     const float wobble = noiseGen_.next(), shimmer = noiseGen_.next();
-    const float tune = std::exp2(tuneSemis / 12.0f + wobble * 0.008f);
+    const float tune = std::exp2(tuneSemis / 12.0f + wobble * (0.003f + 0.014f * alive));
+    decayScale *= 1.0f + 0.14f * alive * noiseGen_.next();
+    velocity = std::clamp(velocity * (1.0f + 0.1f * alive * noiseGen_.next()), 0.0f, 1.0f);
     patch_.f0 *= tune;
     patch_.f1 *= tune;
     patch_.noiseHz = std::min(patch_.noiseHz * std::sqrt(tune), sampleRate_ * 0.45f);
@@ -210,7 +214,7 @@ void DrumVoice::trigger(const DrumPatch& patch, float velocity, float tuneSemis,
     velocity_ = 0.1f + 0.9f * velocity * velocity;
     // Harder hits are brighter and punchier, soft ones darker: not only louder.
     const float v = std::clamp(velocity, 0.0f, 1.0f);
-    patch_.noiseHz = std::min(patch_.noiseHz * (0.85f + 0.3f * v) * (1.0f + 0.04f * shimmer), sr * 0.45f);
+    patch_.noiseHz = std::min(patch_.noiseHz * (0.85f + 0.3f * v) * (1.0f + (0.02f + 0.07f * alive) * shimmer), sr * 0.45f);
     const float toneHz = 1800.0f * std::exp2(v * 3.6f); // ~4 kHz at 0.3, open at full
     velocityToneOn_ = toneHz < 16000.0f;
     velocityTone_.reset();

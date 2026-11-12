@@ -541,3 +541,131 @@ TEST("sound: a drum voice can play a user sample instead of its synth")
     renderInto(e, synth, 0.05);
     CHECK(synth.peak > 0.05f && e.drumActive(1));
 }
+
+namespace {
+
+// A bar of kick, snare, hats and a held chord, rendered with one character setting.
+Rendered characterRun(float dirt, Grit grit, float alive, double tail = 0.0)
+{
+    SoundEngine e;
+    dryEngine(e);
+    CharacterParams c;
+    c.dirt = dirt;
+    c.grit = grit;
+    c.alive = alive;
+    e.setCharacter(c);
+    SynthParams pad;
+    pad.sound = SynthSound::PolySynth;
+    e.setSynth(kChordSynth, pad);
+    Rendered out;
+    for (int note : { 48, 55, 60, 64 })
+        e.noteOn(kChordSynth, note, static_cast<float>(note), 0.8f);
+    for (int step = 0; step < 16; ++step)
+    {
+        if (step % 4 == 0)
+            e.triggerDrum(0, 1.0f);
+        if (step % 8 == 4)
+            e.triggerDrum(1, 0.9f);
+        e.triggerDrum(2, step % 2 == 0 ? 0.8f : 0.4f);
+        renderInto(e, out, 0.125);
+    }
+    for (int note : { 48, 55, 60, 64 })
+        e.noteOff(kChordSynth, note);
+    if (tail > 0.0)
+        renderInto(e, out, tail);
+    return out;
+}
+
+} // namespace
+
+TEST("sound: every kind of dirt stays finite, bounded and about as loud as clean")
+{
+    const Rendered clean = characterRun(0.0f, Grit::Tape, 0.5f);
+    const float reference = clean.rms(0, clean.left.size());
+    CHECK(reference > 0.02f);
+    for (int g = 0; g < static_cast<int>(Grit::Count); ++g)
+        for (float dirt : { 0.25f, 0.6f, 1.0f })
+        {
+            const Rendered out = characterRun(dirt, static_cast<Grit>(g), 0.5f);
+            const float rms = out.rms(0, out.left.size());
+            CHECK(out.finite);
+            CHECK(out.peak <= 1.0f);
+            CHECK_MSG(rms > reference * 0.5f && rms < reference * 2.2f,
+                      gritName(static_cast<Grit>(g)) << " at " << dirt << ": rms " << rms << " against clean " << reference);
+            // It is audibly a different sound, not a level change.
+            double diff = 0.0;
+            for (size_t i = 0; i < out.left.size(); ++i)
+                diff += std::abs(out.left[i] - clean.left[i]);
+            CHECK(diff / static_cast<double>(out.left.size()) > 0.002);
+        }
+}
+
+TEST("sound: tape hiss fades out with the music, silence stays silent")
+{
+    const Rendered out = characterRun(1.0f, Grit::Tape, 0.5f, 12.0);
+    const size_t n = out.left.size();
+    CHECK(out.rms(n - 24000, n) < 2e-5f);
+    // With nothing played there is no hiss at all.
+    SoundEngine e;
+    dryEngine(e);
+    CharacterParams c;
+    c.dirt = 1.0f;
+    e.setCharacter(c);
+    Rendered silent;
+    renderInto(e, silent, 1.0);
+    CHECK(silent.peak == 0.0f);
+}
+
+TEST("sound: Crunch folds highs back as grain; Alive makes two hits differ")
+{
+    // A closed hat alone: with Crunch, energy appears below the hat's own band.
+    auto lowShare = [](float dirt) {
+        SoundEngine e;
+        dryEngine(e);
+        CharacterParams c;
+        c.dirt = dirt;
+        c.grit = Grit::Crunch;
+        e.setCharacter(c);
+        KitParams kit;
+        kit.reverbSend = 0.0f;
+        e.setKit(kit);
+        e.triggerDrum(2, 1.0f);
+        Rendered out;
+        renderInto(e, out, 0.2);
+        double low = 0.0, all = 0.0, z = 0.0;
+        for (float x : out.left) // one-pole lowpass at about 1.5 kHz
+        {
+            z += 0.18 * (x - z);
+            low += z * z;
+            all += static_cast<double>(x) * x;
+        }
+        return low / std::max(all, 1e-12);
+    };
+    CHECK(lowShare(1.0f) > lowShare(0.0f) * 3.0);
+
+    auto difference = [](float alive) {
+        SoundEngine e;
+        dryEngine(e);
+        CharacterParams c;
+        c.dirt = 0.0f;
+        c.alive = alive;
+        e.setCharacter(c);
+        KitParams kit;
+        kit.reverbSend = 0.0f;
+        e.setKit(kit);
+        double total = 0.0;
+        Rendered first;
+        e.triggerDrum(0, 0.9f);
+        renderInto(e, first, 1.0);
+        for (int hit = 0; hit < 6; ++hit)
+        {
+            Rendered next;
+            e.triggerDrum(0, 0.9f);
+            renderInto(e, next, 1.0);
+            for (size_t i = 0; i < 9600; ++i)
+                total += std::abs(next.left[i] - first.left[i]);
+        }
+        return total;
+    };
+    CHECK(difference(1.0f) > difference(0.0f) * 1.5);
+}

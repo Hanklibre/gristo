@@ -308,6 +308,183 @@ void Chorus::process(float in, float amount, float& outL, float& outR)
 
 // ---------------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------------
+
+void Wobble::prepare(float sampleRate, float hz, std::uint32_t seed)
+{
+    noise_ = dsp::Noise(seed);
+    period_ = std::max(16, static_cast<int>(sampleRate / std::max(hz, 0.01f)));
+    coef_ = 1.0f - std::exp(-3.0f / static_cast<float>(period_));
+    counter_ = 0;
+    value_ = target_ = 0.0f;
+}
+
+void Crusher::prepare(float sampleRate)
+{
+    sampleRate_ = sampleRate;
+    reset();
+    set(0.0f);
+}
+
+void Crusher::reset()
+{
+    phase_ = 1.0f;
+    heldL_ = heldR_ = 0.0f;
+    for (auto& channel : smooth_)
+        for (auto& f : channel)
+            f.reset();
+}
+
+void Crusher::set(float amount)
+{
+    const float a = dsp::clamp01(amount);
+    wet_ = std::min(1.0f, a * 4.0f);
+    // 28 kHz (an SP-1200 runs at 26) down to 8 kHz; 12 bits down to 7.
+    const float rate = 28000.0f * std::pow(8000.0f / 28000.0f, a);
+    step_ = std::min(1.0f, rate / sampleRate_);
+    levels_ = std::exp2(11.0f - 5.0f * a);
+    for (auto& channel : smooth_)
+        for (auto& f : channel)
+            f.setLowpass(std::min(rate * 0.6f, 16000.0f), sampleRate_);
+}
+
+void Crusher::process(float& l, float& r)
+{
+    phase_ += step_;
+    if (phase_ >= 1.0f)
+    {
+        phase_ -= 1.0f;
+        heldL_ = std::round(l * levels_) / levels_;
+        heldR_ = std::round(r * levels_) / levels_;
+    }
+    const float cl = smooth_[0][1].lowpass(smooth_[0][0].lowpass(heldL_));
+    const float cr = smooth_[1][1].lowpass(smooth_[1][0].lowpass(heldR_));
+    l += (cl - l) * wet_;
+    r += (cr - r) * wet_;
+}
+
+void Overdrive::prepare(float sampleRate)
+{
+    sampleRate_ = sampleRate;
+    reset();
+    set(0.0f);
+}
+
+void Overdrive::reset()
+{
+    for (auto& f : tone_)
+        f.reset();
+}
+
+void Overdrive::set(float amount)
+{
+    const float a = dsp::clamp01(amount);
+    mix_ = std::min(1.0f, a * 4.0f);
+    gain_ = 1.0f + 2.0f * a + 9.0f * a * a;
+    bias_ = 0.18f * a;
+    offset_ = dsp::fastTanh(bias_);
+    // Quiet material comes up, loud material is held: about the same loudness all the way.
+    makeup_ = std::pow(gain_, -0.45f);
+    for (auto& f : tone_)
+        f.setLowpass(17000.0f - 9000.0f * a, sampleRate_);
+}
+
+void Overdrive::process(float& l, float& r)
+{
+    const float dl = tone_[0].lowpass((dsp::fastTanh(l * gain_ + bias_) - offset_) * makeup_);
+    const float dr = tone_[1].lowpass((dsp::fastTanh(r * gain_ + bias_) - offset_) * makeup_);
+    l += (dl - l) * mix_;
+    r += (dr - r) * mix_;
+}
+
+void Tape::prepare(float sampleRate)
+{
+    sampleRate_ = sampleRate;
+    const auto size = static_cast<size_t>(sampleRate * 0.02f) + 16;
+    for (auto& line : line_)
+        line.assign(size, 0.0f);
+    baseDelay_ = 0.003f * sampleRate;
+    drift_.prepare(sampleRate, 0.7f, 0x51a7e5u);
+    level_.prepare(sampleRate, 3.0f, 0x1e7e1u);
+    hissRelease_ = std::exp(-1.0f / (1.2f * sampleRate));
+    hissTone_.setLowpass(2500.0f, sampleRate);
+    reset();
+    set(amount_);
+}
+
+void Tape::reset()
+{
+    for (auto& line : line_)
+        std::fill(line.begin(), line.end(), 0.0f);
+    write_ = 0;
+    hissEnv_ = 0.0f;
+    for (auto* f : { &highs_[0], &highs_[1], &bump_[0], &bump_[1], &hissTone_ })
+        f->reset();
+}
+
+void Tape::set(float amount)
+{
+    const float a = dsp::clamp01(amount);
+    amount_ = a;
+    mix_ = std::min(1.0f, a * 3.0f);
+    gain_ = 1.0f + 3.5f * a;
+    makeup_ = std::pow(gain_, 0.45f) / gain_;
+    wowDepth_ = a * a * 0.0011f * sampleRate_;  // up to about 8 cents at 0.6 Hz
+    flutterDepth_ = a * 0.00004f * sampleRate_; // a faster, smaller shimmer on top
+    hissLevel_ = a * a * 0.006f;
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        highs_[ch].setLowpass(20000.0f * std::pow(5500.0f / 20000.0f, a), sampleRate_);
+        bump_[ch].setLowpass(110.0f, sampleRate_);
+    }
+}
+
+float Tape::read(const std::vector<float>& line, float delaySamples) const
+{
+    const float pos = static_cast<float>(write_) - delaySamples + static_cast<float>(line.size());
+    const auto i0 = static_cast<size_t>(pos);
+    const float frac = pos - static_cast<float>(i0);
+    const float a = line[i0 % line.size()], b = line[(i0 + 1) % line.size()];
+    return a + (b - a) * frac;
+}
+
+void Tape::process(float& l, float& r)
+{
+    line_[0][write_] = l;
+    line_[1][write_] = r;
+    // The transport is never quite steady: slow wow, fast flutter, and a random drift.
+    wowPhase_ += 0.6f / sampleRate_;
+    wowPhase_ -= std::floor(wowPhase_);
+    flutterPhase_ += 7.3f / sampleRate_;
+    flutterPhase_ -= std::floor(flutterPhase_);
+    const float wander = drift_.tick(), level = level_.tick();
+    const float delay = baseDelay_ + wowDepth_ * (std::sin(dsp::kTwoPi * wowPhase_) + 0.6f * wander)
+                        + flutterDepth_ * std::sin(dsp::kTwoPi * flutterPhase_);
+    float tl = read(line_[0], delay), tr = read(line_[1], delay);
+    write_ = (write_ + 1) % line_[0].size();
+
+    const float peak = std::max(std::abs(tl), std::abs(tr));
+    hissEnv_ = peak > hissEnv_ ? peak : hissEnv_ * hissRelease_;
+    if (mix_ <= 0.0f)
+    {
+        l = tl;
+        r = tr;
+        return;
+    }
+    const float sl = dsp::fastTanh(tl * gain_) * makeup_, sr = dsp::fastTanh(tr * gain_) * makeup_;
+    tl += (sl - tl) * mix_;
+    tr += (sr - tr) * mix_;
+    tl = highs_[0].lowpass(tl);
+    tr = highs_[1].lowpass(tr);
+    tl += bump_[0].lowpass(tl) * 0.3f * amount_;
+    tr += bump_[1].lowpass(tr) * 0.3f * amount_;
+    const float wobble = 1.0f + 0.05f * amount_ * level;
+    // Hiss only while there is music: it fades out with the tails instead of sitting in silence.
+    const float hiss = hissTone_.highpass(hiss_.next()) * hissLevel_ * std::min(1.0f, hissEnv_ * 25.0f);
+    l = tl * wobble + hiss;
+    r = tr * wobble + hiss;
+}
+
 void Glue::prepare(float sampleRate)
 {
     attack_ = 1.0f - std::exp(-1.0f / (0.004f * sampleRate));  // 4 ms
@@ -316,6 +493,14 @@ void Glue::prepare(float sampleRate)
     dcR_.setLowpass(8.0f, sampleRate);
     gainGlide_ = 1.0f - std::exp(-1.0f / (0.0002f * sampleRate)); // ~0.2 ms
     reset();
+}
+
+void Glue::setPump(float amount)
+{
+    const float a = dsp::clamp01(amount);
+    threshold_ = 0.6f - 0.42f * a;
+    ratio_ = 3.0f + 7.0f * a;
+    makeup_ = 1.0f + 0.9f * a;
 }
 
 void Glue::reset()
@@ -335,8 +520,7 @@ void Glue::process(float& l, float& r)
     env_ += (peak - env_) * (peak > env_ ? attack_ : release_);
     if (--counter_ <= 0) // the gain curve is computed every 8 samples and glided in between
     {
-        constexpr float threshold = 0.6f, ratio = 3.0f;
-        target_ = env_ > threshold ? std::pow(env_ / threshold, 1.0f / ratio - 1.0f) : 1.0f;
+        target_ = (env_ > threshold_ ? std::pow(env_ / threshold_, 1.0f / ratio_ - 1.0f) : 1.0f) * makeup_;
         counter_ = 8;
     }
     gain_ += (target_ - gain_) * gainGlide_;

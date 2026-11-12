@@ -69,6 +69,21 @@ struct FxParams
     double bpm = 120.0;
 };
 
+// The character of the whole sound. Dirt is one amount; Grit picks what kind:
+// Tape (saturation, wow and flutter, hiss, soft highs), Crunch (an old sampler's low
+// sample rate and coarse converters) or Drive (overdriven channels into a compressor
+// that pumps). Alive is how much nothing repeats exactly: oscillator and filter drift,
+// drums that differ from hit to hit, parts that move a little in the stereo field.
+enum class Grit : int { Tape = 0, Crunch, Drive, Count };
+const char* gritName(Grit grit);
+
+struct CharacterParams
+{
+    float dirt = 0.3f;  // 0..1
+    Grit grit = Grit::Tape;
+    float alive = 0.5f; // 0..1
+};
+
 // A one-shot sample that replaces a drum voice's synthesized sound.
 struct SampleData
 {
@@ -99,6 +114,7 @@ public:
     void setKit(const KitParams& params);
     void setSynth(int synth, const SynthParams& params);
     void setFx(const FxParams& params);
+    void setCharacter(const CharacterParams& params);
 
     // A drum voice plays this sample instead of its synthesized sound (nullptr: back to
     // the kit). The caller keeps the data alive while it is set. Tune, Decay (shorter

@@ -36,6 +36,13 @@ struct SoundEngine::Impl
     float duckEnv = 0.0f, duckRelease = 0.0f, duckAttack = 0.0f, duckGain[kNumSynths] { 1.0f, 1.0f, 1.0f, 1.0f };
     float tremoloPhase[kNumSynths] {};
     Glue glue;
+    // Character: grit per part (kit, then each synth), tape on the whole mix.
+    CharacterParams character;
+    Crusher crusher[1 + kNumSynths];
+    Overdrive overdrive[1 + kNumSynths];
+    Tape tape;
+    Wobble panDrift[kNumSynths];
+    dsp::Noise variation { 0x5eed5u };
     // Sends glide to new settings so lanes don't zipper: kit, then each synth.
     float revSend[1 + kNumSynths] {}, dlySend[1 + kNumSynths] {};
     float sendCoef = 0.0017f;
@@ -83,6 +90,14 @@ void SoundEngine::prepare(double sampleRate)
     for (int s = 0; s < kNumSynths; ++s)
         m.chorus[s].prepare(m.sampleRate, 0.25f * static_cast<float>(s)); // staggered LFOs
     m.glue.prepare(m.sampleRate);
+    for (auto& c : m.crusher)
+        c.prepare(m.sampleRate);
+    for (auto& o : m.overdrive)
+        o.prepare(m.sampleRate);
+    m.tape.prepare(m.sampleRate);
+    for (int s = 0; s < kNumSynths; ++s)
+        m.panDrift[s].prepare(m.sampleRate, 0.25f, 0xa11ceu + static_cast<std::uint32_t>(s) * 977u);
+    setCharacter(m.character);
     m.sendCoef = 1.0f - std::exp(-1.0f / (0.012f * m.sampleRate));
     m.chokeCoef = dsp::decayCoef(0.03f, m.sampleRate);
     m.duckRelease = std::exp(-1.0f / (0.11f * m.sampleRate)); // back up over ~250 ms
@@ -108,6 +123,11 @@ void SoundEngine::reset()
     for (auto& c : m.chorus)
         c.reset();
     m.glue.reset();
+    for (auto& c : m.crusher)
+        c.reset();
+    for (auto& o : m.overdrive)
+        o.reset();
+    m.tape.reset();
     for (auto* f : { &m.busToneL, &m.busToneR, &m.busAirL, &m.busAirR, &m.busColourL, &m.busColourR })
         f->reset();
     m.configureBus();
@@ -165,6 +185,37 @@ void SoundEngine::setFx(const FxParams& params)
     m.delay.set(static_cast<float>(fx.delayBeats * 60.0 / bpm), fx.delayFeedback);
 }
 
+const char* gritName(Grit grit)
+{
+    switch (grit)
+    {
+        case Grit::Tape: return "Tape";
+        case Grit::Crunch: return "Crunch";
+        case Grit::Drive: return "Drive";
+        default: return "";
+    }
+}
+
+void SoundEngine::setCharacter(const CharacterParams& params)
+{
+    auto& m = *impl_;
+    CharacterParams c = params;
+    c.dirt = dsp::clamp01(finite(c.dirt, 0.0f));
+    c.alive = dsp::clamp01(finite(c.alive, 0.5f));
+    m.character = c;
+    // One knob, three machines: the chosen one gets all of it, the others a trace.
+    const float d = c.dirt;
+    const bool tape = c.grit == Grit::Tape, crunch = c.grit == Grit::Crunch, drive = c.grit == Grit::Drive;
+    for (auto& crusher : m.crusher)
+        crusher.set(crunch ? d : 0.0f);
+    for (auto& overdrive : m.overdrive)
+        overdrive.set(drive ? d : 0.15f * d);
+    m.tape.set(tape ? d : 0.15f * d);
+    m.glue.setPump(drive ? d : 0.2f * d);
+    for (auto& synth : m.synths)
+        synth.setAlive(c.alive);
+}
+
 void SoundEngine::setDrumSample(int voice, const SampleData* sample)
 {
     auto& m = *impl_;
@@ -194,8 +245,9 @@ void SoundEngine::triggerDrum(int voice, float velocity)
         const float v = dsp::clamp01(velocity);
         player.data = sample;
         player.position = 0.0;
-        player.increment = sample->sampleRate / static_cast<double>(m.sampleRate) * std::exp2(std::clamp(m.kit.tune, -12.0f, 12.0f) / 12.0f);
-        player.gain = 0.1f + 0.9f * v * v;
+        player.increment = sample->sampleRate / static_cast<double>(m.sampleRate)
+                           * std::exp2(std::clamp(m.kit.tune, -12.0f, 12.0f) / 12.0f + m.variation.next() * 0.006f * m.character.alive);
+        player.gain = (0.1f + 0.9f * v * v) * (1.0f + 0.08f * m.character.alive * m.variation.next());
         player.fade = 1.0f;
         // Decay below 50 % shortens the sample (from about 2 s down to 60 ms); above, it plays out.
         player.fadeCoef = m.kit.decay < 0.5f ? dsp::decayCoef(dsp::macroLog(m.kit.decay * 2.0f, 0.06f, 0.4f, 2.0f), m.sampleRate) : 1.0f;
@@ -205,7 +257,7 @@ void SoundEngine::triggerDrum(int voice, float velocity)
     }
     const KitPatch& patch = kitPatch(m.kit.kit);
     const float decayScale = dsp::macroLog(m.kit.decay, 0.3f, 1.0f, 2.5f);
-    m.drums[voice].trigger(patch.voices[voice], dsp::clamp01(velocity), std::clamp(m.kit.tune, -12.0f, 12.0f), decayScale);
+    m.drums[voice].trigger(patch.voices[voice], dsp::clamp01(velocity), std::clamp(m.kit.tune, -12.0f, 12.0f), decayScale, m.character.alive);
 }
 
 void SoundEngine::noteOn(int synth, int id, float pitch, float velocity)
@@ -317,6 +369,10 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
         }
         kl = dsp::drive(kl, busDrive) * patch.gain;
         kr = dsp::drive(kr, busDrive) * patch.gain;
+        if (m.crusher[0].on())
+            m.crusher[0].process(kl, kr);
+        if (m.overdrive[0].on())
+            m.overdrive[0].process(kl, kr);
 
         auto glide = [&m](float& value, float target) { value += (target - value) * m.sendCoef; };
         glide(m.revSend[0], m.kit.reverbSend);
@@ -357,12 +413,18 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
                 yl *= 1.0f + lfo;
                 yr *= sp.tremoloPan ? 1.0f - lfo : 1.0f + lfo;
             }
+            if (m.crusher[1 + s].on())
+                m.crusher[1 + s].process(yl, yr);
+            if (m.overdrive[1 + s].on())
+                m.overdrive[1 + s].process(yl, yr);
             if (synthStem[s])
                 toStem(stems->synth[s], i, yl, yr);
             else
             {
-                l += yl * (1.0f - kSynthPan[s]);
-                r += yr * (1.0f + kSynthPan[s]);
+                // Basses and leads stay put; everything else moves a little in the stereo field.
+                const float pan = kSynthPan[s] + (m.synths[s].patch().mono ? 0.0f : 0.14f * m.character.alive * m.panDrift[s].tick());
+                l += yl * (1.0f - pan);
+                r += yr * (1.0f + pan);
             }
             revIn += y * m.revSend[1 + s];
             dlyIn += y * m.dlySend[1 + s];
@@ -379,6 +441,7 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             r += dr + rr;
         }
 
+        m.tape.process(l, r);
         l *= gain;
         r *= gain;
         if (!std::isfinite(l) || !std::isfinite(r)) // last line of defence: never output NaN,

@@ -46,6 +46,7 @@ public:
         drift_ = dsp::Noise(seed);
     }
     void start(const SynthPatch& patch, const SynthParams& macros, int id, float pitch, float velocity);
+    void setAlive(float alive) { alive_ = alive; }
     void legato(int id, float pitch, float velocity); // glide to a new pitch, no retrigger
     void release(const SynthParams& macros);
     void kill() { amp_.kill(); }
@@ -79,6 +80,9 @@ private:
     bool filterPrimed_ = false;
     dsp::Noise drift_;
     int controlCounter_ = 0;
+    // Alive: the pitch and the filter never sit quite still (slow random movement).
+    float alive_ = 0.5f, wander_[2] {}, wanderTarget_[2] {}, driftRatio_ = 1.0f, cutoffDrift_ = 1.0f;
+    int wanderCounter_ = 0;
 };
 
 class Synth
@@ -89,6 +93,7 @@ public:
     // Poly: every note gets its own voice (chords). Otherwise a note that starts while
     // another is held is a slide (arps).
     void setPoly(bool poly) { poly_ = poly; }
+    void setAlive(float alive);
     void reset();
     // Level, cutoff and resonance glide to new settings (no zipper noise when lanes
     // move them block by block); the rest applies at once.

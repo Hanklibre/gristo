@@ -311,14 +311,14 @@ void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int i
     id_ = id;
     pitch_ = targetPitch_ = pitch;
     velocity_ = dsp::clamp01(velocity);
-    detune_ = patch_.driftCents * drift_.next() / 100.0f; // semitones
+    detune_ = (patch_.driftCents * (0.5f + alive_) + 5.0f * alive_) * drift_.next() / 100.0f; // semitones
     {
         constexpr float spread[5] = { -1.0f, -0.5f, 0.0f, 0.5f, 1.0f };
         const bool reese = patch_.osc == Osc::Reese;
         for (int i = 0; i < 5; ++i)
             detuneRatio_[i] = std::exp2((reese ? (i == 0 ? -1.0f : 1.0f) : spread[i]) * patch_.detuneCents / 1200.0f);
     }
-    amp_.set(attackTime(patch_, macros), patch_.d, patch_.s, releaseTime(patch_, macros), sampleRate_);
+    amp_.set(attackTime(patch_, macros), patch_.d * (1.0f + 0.2f * alive_ * drift_.next()), patch_.s, releaseTime(patch_, macros), sampleRate_);
     filterEnv_.set(patch_.fa, patch_.fd, patch_.fs, patch_.fr, sampleRate_);
     amp_.gateOn();
     filterEnv_.gateOn();
@@ -479,7 +479,7 @@ void SynthVoice::updateFilter(const SynthParams& m, float hz)
     if (patch_.envOctaves < 0.5f)
         envOct += std::max(0.0f, m.envAmount - 0.5f) * 6.0f; // lets static patches get an envelope
     envOct *= 0.5f + 0.5f * velocity_;
-    const float cutoff = base * keyTrack * std::exp2(envOct * filterEnv_.value());
+    const float cutoff = base * keyTrack * std::exp2(envOct * filterEnv_.value()) * cutoffDrift_;
 
     const float r = dsp::clamp01(m.resonance);
     const float reso = r <= 0.5f ? patch_.resonance * r * 2.0f
@@ -514,10 +514,22 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
         hz_ = dsp::midiToHz(pitch);
         fmKeyScale_ = hz_ > 700.0f ? std::sqrt(700.0f / hz_) : 1.0f; // gentler FM up high: less harsh, no aliasing
     }
-    const float hz = hz_;
-
     filterEnv_.tick();
     if (--controlCounter_ <= 0)
+    {
+        if (--wanderCounter_ <= 0) // a new direction two or three times a second
+        {
+            wanderTarget_[0] = drift_.next();
+            wanderTarget_[1] = drift_.next();
+            wanderCounter_ = static_cast<int>(sampleRate_ * (0.3f + 0.2f * drift_.next()) / static_cast<float>(kControlRate));
+        }
+        for (int w = 0; w < 2; ++w)
+            wander_[w] += (wanderTarget_[w] - wander_[w]) * 0.004f;
+        driftRatio_ = std::exp2(wander_[0] * alive_ * 0.09f / 12.0f); // up to +-9 cents
+        cutoffDrift_ = std::exp2(wander_[1] * alive_ * 0.25f);
+    }
+    const float hz = hz_ * driftRatio_;
+    if (controlCounter_ <= 0)
     {
         updateFilter(macros, hz);
         controlCounter_ = kControlRate;
@@ -543,6 +555,12 @@ void Synth::prepare(float sampleRate)
     started_ = false;
     setParams(params_);
     reset();
+}
+
+void Synth::setAlive(float alive)
+{
+    for (auto& v : voices_)
+        v.setAlive(dsp::clamp01(alive));
 }
 
 void Synth::setParams(const SynthParams& params)

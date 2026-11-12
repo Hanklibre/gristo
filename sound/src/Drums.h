@@ -44,7 +44,8 @@ class DrumVoice
 public:
     void prepare(float sampleRate) { sampleRate_ = sampleRate; }
     // Copies the patch (with tune/decay macros applied) so a kit change mid-note is clean.
-    void trigger(const DrumPatch& patch, float velocity, float tuneSemis, float decayScale);
+    // `alive` (0..1) is how much one hit differs from the next.
+    void trigger(const DrumPatch& patch, float velocity, float tuneSemis, float decayScale, float alive = 0.5f);
     void choke() { choke_ = true; }
     bool active() const { return active_; }
     // Mono sample; the caller pans.
