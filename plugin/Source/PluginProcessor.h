@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Parameters.h"
+#include "ControlMap.h"
 #include "Presets.h"
 
 #include <atomic>
@@ -123,9 +124,12 @@ public:
     void writeSamples(juce::ValueTree& parent) const;
     void readSamples(const juce::ValueTree& parent);
 
-    // --- Macro MIDI learn: the next CC on MIDI in is bound to the macro.
-    std::atomic<int> learnMacro { -1 };
-    std::array<std::atomic<int>, gristo::kNumMacros> macroCc;
+    // --- MIDI controllers: learn any control, or load a ready-made layout.
+    ControlMap controls;
+    enum ControllerLayout { LaunchControlRhythm = 0, LaunchControlMelody, Apc40 };
+    // Replaces what is bound on the layout's channel(s). LCXL: everything on `channel`.
+    // APC40: its eight columns on `channel` .. `channel + 7`.
+    void loadControllerLayout(int layout, int channel);
 
     static constexpr int kAllParts = -1, kAllDrums = -2;
     juce::MidiFile exportMidi(int bars, int part) const;
@@ -182,7 +186,7 @@ private:
     std::atomic<bool> samplesChanged_ { false };
     std::int64_t sceneRequestBar_ = -1, chainQueuedBar_ = -1;
     int lastPending_ = -1;
-    std::array<std::atomic<float>, gristo::kNumMacros> macroCcValue; // -1 = nothing new
+    void applyControl(const ControlTarget& target, float value, bool fromNote);
     std::atomic<std::uint32_t> paramGeneration_ { 1 };
     std::uint32_t seenGeneration_ = 0;
 

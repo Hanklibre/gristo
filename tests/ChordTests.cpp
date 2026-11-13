@@ -735,3 +735,28 @@ TEST("macros: Busy, Loose and Wild at rest change nothing; turned, they move the
     for (float f : p.pattern.fill)
         CHECK(f >= 0.0f && f <= 1.0f);
 }
+
+TEST("chords: a bass note folded up by Shift never doubles another chord note")
+{
+    EngineParams p = fourOnFloor();
+    p.chords = cMajor();
+    p.chords.lowestNote = 36;
+    p.chords.voicing = ChordVoicing::SmoothBass;
+    p.chords.shift = -36;
+    p.chords.wander = 1.0f;
+    p.chords.chordSteps = 8;
+    for (int row = 0; row < kHarmonyRows; ++row)
+    {
+        home(p.chords, 0, row);
+        std::map<int, int> on;
+        int bad = 0;
+        for (const Ev& ev : render(p, 256, 16 * kBar))
+            if (ev.voice == kChordVoice)
+            {
+                int& n = on[ev.note];
+                bad += (ev.on ? n > 0 : n == 0) ? 1 : 0;
+                n = ev.on ? 1 : 0;
+            }
+        CHECK_MSG(bad == 0, bad << " unpaired at row " << row);
+    }
+}

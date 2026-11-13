@@ -316,9 +316,15 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
     const float lo = std::clamp(cp.velMin, 0.0f, 1.0f);
     const float hi = std::clamp(cp.velMax, lo, 1.0f);
     auto outNotes = [&cp](const Chord& c) {
-        Chord out = c;
-        for (int i = 0; i < out.count; ++i)
-            out.notes[static_cast<size_t>(i)] = Arp::outputNote(c.notes[static_cast<size_t>(i)], cp.shift);
+        // Shift can fold a low note up an octave onto another chord note: each MIDI
+        // note is sent once.
+        Chord out;
+        for (int i = 0; i < c.count; ++i)
+        {
+            const int note = Arp::outputNote(c.notes[static_cast<size_t>(i)], cp.shift);
+            if (std::find(out.notes.begin(), out.notes.begin() + out.count, note) == out.notes.begin() + out.count)
+                out.notes[static_cast<size_t>(out.count++)] = note;
+        }
         return out;
     };
 

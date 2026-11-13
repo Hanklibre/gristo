@@ -293,6 +293,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { fxTime, kVersion }, "Delay Time",
                                                                 juce::StringArray { "1/16", "1/8", "1/8D", "1/4" }, 2));
         layout.add(percentParam(fxFeedback, "Delay Feedback", 0.35f, 0.9f));
+        layout.add(percentParam(fxShimmer, "Shimmer", 0.0f));
     }
 
     // Free-running clock for standalone use / auditioning without host transport.
@@ -537,6 +538,7 @@ sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& s)
     f.reverbSize = juce::jlimit(0.0f, 1.0f, load(s, fxSize) + 0.35f * more);
     f.delayBeats = kDelayBeatChoices[juce::jlimit(0, 3, static_cast<int>(load(s, fxTime)))];
     f.delayFeedback = juce::jlimit(0.0f, 0.9f, load(s, fxFeedback) + 0.3f * more);
+    f.shimmer = load(s, fxShimmer);
     return f;
 }
 

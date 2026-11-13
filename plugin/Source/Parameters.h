@@ -130,6 +130,7 @@ inline const juce::String synthDuck = "synDuck";
 inline const juce::String fxSize = "fxSize";
 inline const juce::String fxTime = "fxTime";
 inline const juce::String fxFeedback = "fxFb";
+inline const juce::String fxShimmer = "fxShim";
 inline const float kDelayBeatChoices[] = { 0.25f, 0.5f, 0.75f, 1.0f }; // 1/16, 1/8, dotted 1/8, 1/4
 inline const juce::String kitOn = "kitOn";
 inline const juce::String separateOuts = "sepOuts"; // parts to their own output buses

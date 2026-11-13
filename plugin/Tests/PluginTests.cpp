@@ -104,7 +104,7 @@ TEST("plugin: plays out of the box, finite audio and paired notes")
 TEST("plugin: every factory preset loads cleanly and plays")
 {
     const auto& list = PresetManager::factoryPresets();
-    CHECK(list.size() >= 14);
+    CHECK(list.size() >= 22);
     for (int i = 0; i < static_cast<int>(list.size()); ++i)
     {
         auto proc = makeProcessor();
@@ -116,7 +116,7 @@ TEST("plugin: every factory preset loads cleanly and plays")
             {
                 const auto range = proc->state.getParameterRange(id);
                 CHECK_MSG(value >= range.start && value <= range.end, id.toStdString() << " out of range");
-                CHECK_MSG(!PresetManager::isRoutingParameter(id), id.toStdString() << " is a routing parameter");
+                CHECK_MSG(id == p::freeTempo || !PresetManager::isRoutingParameter(id), id.toStdString() << " is a routing parameter");
             }
         }
         proc->presets.loadFactory(i);
@@ -576,4 +576,71 @@ TEST("plugin: morphing blends knobs towards a scene and flips switches halfway")
     proc->endMorph();
     const Run run = play(*proc, 200);
     CHECK(run.unpaired == 0 && run.nonFinite == 0);
+}
+
+TEST("plugin: MIDI learn binds a controller; the controller layouts drive knobs, switches, scenes and the harmony grid")
+{
+    auto proc = makeProcessor();
+    juce::AudioBuffer<float> buffer(2, 256);
+    auto send = [&](const juce::MidiMessage& m) {
+        juce::MidiBuffer midi;
+        midi.addEvent(m, 0);
+        proc->processBlock(buffer, midi);
+        proc->pump(2);
+    };
+    // Learn: the next controller moved is bound, and from then on it sets the value.
+    proc->controls.startLearn(ControlTarget::param(p::dirt));
+    send(juce::MidiMessage::controllerEvent(3, 21, 10));
+    CHECK(!proc->controls.learning());
+    CHECK(proc->controls.keyFor(ControlTarget::param(p::dirt)) == ControlMap::key(3, false, 21));
+    send(juce::MidiMessage::controllerEvent(3, 21, 127));
+    CHECK(std::abs(getParam(*proc, p::dirt) - 1.0f) < 0.01f);
+    send(juce::MidiMessage::controllerEvent(3, 21, 0));
+    CHECK(getParam(*proc, p::dirt) < 0.01f);
+    send(juce::MidiMessage::controllerEvent(4, 21, 127)); // another channel: not this binding
+    CHECK(getParam(*proc, p::dirt) < 0.01f);
+
+    // Launch Control XL, rhythm layout on channel 15.
+    proc->loadControllerLayout(GristoProcessor::LaunchControlRhythm, 15);
+    send(juce::MidiMessage::controllerEvent(15, 13, 127)); // first knob, top row: Kick Fill
+    CHECK(getParam(*proc, p::voiceId(p::fill, 0)) > 0.99f);
+    send(juce::MidiMessage::controllerEvent(15, 82, 0)); // sixth fader: Perc 2 level
+    CHECK(getParam(*proc, p::voiceId(p::drumLevel, 5)) < 0.01f);
+    send(juce::MidiMessage::noteOn(15, 42, 1.0f)); // second Track Focus button: Snare mute
+    send(juce::MidiMessage::noteOff(15, 42));
+    CHECK(getParam(*proc, p::voiceId(p::partMute, 1)) > 0.5f);
+    send(juce::MidiMessage::noteOn(15, 42, 1.0f));
+    CHECK(getParam(*proc, p::voiceId(p::partMute, 1)) < 0.5f);
+    CHECK(!proc->sceneUsed(2));
+    send(juce::MidiMessage::noteOn(15, 75, 1.0f)); // third Track Control button: scene 3 (empty: stores)
+    CHECK(proc->sceneUsed(2));
+    CHECK(std::abs(getParam(*proc, p::dirt)) < 0.01f); // the learned binding on channel 3 is untouched
+    CHECK(proc->controls.keyFor(ControlTarget::param(p::dirt)) >= 0);
+
+    // Melody layout on channel 14: Grit buttons pick the kind.
+    proc->loadControllerLayout(GristoProcessor::LaunchControlMelody, 14);
+    send(juce::MidiMessage::noteOn(14, 92, 1.0f));
+    CHECK(getParam(*proc, p::grit) == 2.0f);
+    send(juce::MidiMessage::controllerEvent(14, 34, 127));
+    CHECK(getParam(*proc, p::fxShimmer) > 0.99f);
+
+    // APC40: column 5 (its channel), top row = the tonic column, richest row.
+    proc->loadControllerLayout(GristoProcessor::Apc40, 5);
+    send(juce::MidiMessage::noteOn(9, 53, 1.0f));
+    CHECK(std::abs(getParam(*proc, p::chordHomeX) - 0.5f) < 0.01f);
+    CHECK(getParam(*proc, p::chordHomeY) > 0.99f);
+    send(juce::MidiMessage::noteOn(5, 57, 1.0f)); // first column, bottom row: far left, plain triads
+    CHECK(std::abs(getParam(*proc, p::chordHomeX) - 0.1f) < 0.01f);
+    CHECK(getParam(*proc, p::chordHomeY) < 0.01f);
+
+    // Bound notes never reach the arps; the map comes back with the project.
+    juce::MemoryBlock saved;
+    proc->getStateInformation(saved);
+    auto other = makeProcessor();
+    other->setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+    CHECK(other->controls.bindings().size() == proc->controls.bindings().size());
+    // One controller per control: the layout loaded last (APC40, fourth track knob) holds Dirt now.
+    CHECK(other->controls.keyFor(ControlTarget::param(p::dirt)) == ControlMap::key(5, false, 51));
+    const Run run = play(*proc, 200);
+    CHECK(run.nonFinite == 0);
 }

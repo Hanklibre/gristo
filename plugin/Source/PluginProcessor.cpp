@@ -29,10 +29,6 @@ GristoProcessor::GristoProcessor()
     for (auto* param : getParameters())
         if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
             state.addParameterListener(withId->paramID, this);
-    for (auto& cc : macroCc)
-        cc.store(-1);
-    for (auto& v : macroCcValue)
-        v.store(-1.0f);
     lastSnapshot_ = presets.captureSnapshot();
     startTimerHz(100);
 }
@@ -434,20 +430,10 @@ void GristoProcessor::handleMidiInput(const juce::MidiBuffer& midi)
     for (const auto meta : midi)
     {
         const auto m = meta.getMessage();
-        if (m.isController())
-        {
-            const int cc = m.getControllerNumber();
-            const int learning = learnMacro.load(std::memory_order_relaxed);
-            if (learning >= 0 && learning < gristo::kNumMacros)
-            {
-                macroCc[static_cast<size_t>(learning)].store(cc);
-                learnMacro.store(-1);
-            }
-            for (int k = 0; k < gristo::kNumMacros; ++k)
-                if (macroCc[static_cast<size_t>(k)].load(std::memory_order_relaxed) == cc)
-                    macroCcValue[static_cast<size_t>(k)].store(static_cast<float>(m.getControllerValue()) / 127.0f);
+        if (controls.handle(m)) // a bound controller (or the one being learned)
             continue;
-        }
+        if (m.isController())
+            continue;
         if (m.getChannel() == 16 && (m.isNoteOn() || m.isNoteOff()))
         {
             // Channel 16, C1..G1: scene recall (not notes for the arps).
@@ -530,10 +516,8 @@ void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
     tree.removeChild(tree.getChildWithName("SCENES"), nullptr);
     writeScenes(tree);
     writeSamples(tree);
-    juce::StringArray ccs;
-    for (const auto& cc : macroCc)
-        ccs.add(juce::String(cc.load()));
-    tree.setProperty("macroCc", ccs.joinIntoString(","), nullptr);
+    tree.removeChild(tree.getChildWithName("MIDIMAP"), nullptr);
+    tree.appendChild(controls.toTree(), nullptr);
     tree.setProperty("diceLocks", diceLocks.load(), nullptr);
     if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
@@ -566,9 +550,7 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
             presets.readFrom(tree);
             readScenes(tree);
             readSamples(tree);
-            const auto ccs = juce::StringArray::fromTokens(tree.getProperty("macroCc", "").toString(), ",", {});
-            for (int k = 0; k < gristo::kNumMacros; ++k)
-                macroCc[static_cast<size_t>(k)].store(k < ccs.size() ? juce::jlimit(-1, 127, ccs[k].getIntValue()) : -1);
+            controls.fromTree(tree.getChildWithName("MIDIMAP"));
             diceLocks.store(static_cast<int>(tree.getProperty("diceLocks", 0)));
             lastSnapshot_ = presets.captureSnapshot(); // opening a project isn't an undo step
             undo_.clear();
@@ -868,15 +850,180 @@ void GristoProcessor::setValue(const juce::String& id, float value)
         param->setValueNotifyingHost(param->convertTo0to1(value));
 }
 
+void GristoProcessor::applyControl(const ControlTarget& t, float value, bool fromNote)
+{
+    const bool press = value > 0.0f;
+    auto normalised = [this](const juce::String& id, float v) {
+        if (auto* param = state.getParameter(id))
+            if (std::abs(param->getValue() - v) > 1.0e-6f)
+                param->setValueNotifyingHost(juce::jlimit(0.0f, 1.0f, v));
+    };
+    switch (t.kind)
+    {
+        case ControlTarget::Param:
+            // A fader or knob sets the value; a button is 1 while held (a switch stays on).
+            if (auto* param = state.getParameter(t.paramA))
+            {
+                const bool isSwitch = dynamic_cast<juce::AudioParameterBool*>(param) != nullptr;
+                if (fromNote && isSwitch)
+                {
+                    if (press)
+                        normalised(t.paramA, param->getValue() > 0.5f ? 0.0f : 1.0f);
+                }
+                else
+                    normalised(t.paramA, isSwitch ? (value >= 0.5f ? 1.0f : 0.0f) : value);
+            }
+            break;
+        case ControlTarget::Toggle:
+            if (press || !fromNote)
+                if (auto* param = state.getParameter(t.paramA))
+                    if (fromNote || value >= 0.5f)
+                        normalised(t.paramA, param->getValue() > 0.5f ? 0.0f : 1.0f);
+            break;
+        case ControlTarget::Set:
+        case ControlTarget::SetXY:
+            if (press)
+            {
+                setValue(t.paramA, t.valueA);
+                if (t.kind == ControlTarget::SetXY)
+                    setValue(t.paramB, t.valueB);
+            }
+            break;
+        case ControlTarget::Action:
+            if (!press)
+                break;
+            if (t.action == ControlTarget::Scene)
+            {
+                if (sceneUsed(t.arg))
+                    recallScene(t.arg);
+                else
+                    storeScene(t.arg);
+            }
+            else if (t.action == ControlTarget::Mutate)
+                mutate(mutateAmount.load());
+            else if (t.action == ControlTarget::Catch)
+                catchHarmony();
+            else if (t.action == ControlTarget::Undo)
+                undo();
+            else if (t.action == ControlTarget::Redo)
+                redo();
+            break;
+        default: break;
+    }
+}
+
+void GristoProcessor::loadControllerLayout(int layout, int channel)
+{
+    using T = ControlTarget;
+    channel = juce::jlimit(1, 16, channel);
+    auto cc = [&](int ch, int number, const T& target) { controls.bind(ControlMap::key(ch, false, number), target); };
+    auto note = [&](int ch, int number, const T& target) { controls.bind(ControlMap::key(ch, true, number), target); };
+    auto level = [](int part) {
+        return part < gristo::kNumVoices ? p::voiceId(p::drumLevel, part) : p::laneId(p::synthLevel, part - gristo::kNumVoices);
+    };
+
+    if (layout == LaunchControlRhythm || layout == LaunchControlMelody)
+    {
+        // Launch Control XL, factory user template numbers: three knob rows on CC 13-20,
+        // 29-36 and 49-56, faders on CC 77-84, the two button rows on notes 41-44 / 57-60
+        // and 73-76 / 89-92.
+        controls.clearChannel(channel);
+        const int focus[8] = { 41, 42, 43, 44, 57, 58, 59, 60 }, control[8] = { 73, 74, 75, 76, 89, 90, 91, 92 };
+        if (layout == LaunchControlRhythm)
+        {
+            for (int v = 0; v < gristo::kNumVoices; ++v) // a column per drum
+            {
+                cc(channel, 13 + v, T::param(p::voiceId(p::fill, v)));
+                cc(channel, 29 + v, T::param(p::voiceId(p::probability, v)));
+                cc(channel, 49 + v, T::param(p::voiceId(p::voiceRatchet, v)));
+                cc(channel, 77 + v, T::param(level(v)));
+                note(channel, focus[v], T::toggle(p::voiceId(p::partMute, v)));
+            }
+            cc(channel, 19, T::param(p::mapX));
+            cc(channel, 20, T::param(p::mapY));
+            cc(channel, 35, T::param(p::busy));
+            cc(channel, 36, T::param(p::loose));
+            cc(channel, 55, T::param(p::wild));
+            cc(channel, 56, T::param(p::kitDecay));
+            cc(channel, 83, T::param(p::kitTone));
+            cc(channel, 84, T::param(p::kitGain));
+            note(channel, focus[6], T::toggle(p::linear));
+            note(channel, focus[7], T::toggle(p::freeRun));
+            for (int i = 0; i < 8; ++i)
+                note(channel, control[i], T::act(T::Scene, i));
+        }
+        else
+        {
+            for (int s = 0; s < gristo::sound::kNumSynths; ++s) // a column per arp, then the chords
+            {
+                if (s < gristo::kNumArps)
+                    cc(channel, 13 + s, T::param(p::laneId(p::arpDensity, s)));
+                cc(channel, 29 + s, T::param(p::laneId(p::synthCutoff, s)));
+                cc(channel, 49 + s, T::param(p::laneId(p::synthResonance, s)));
+                cc(channel, 77 + s, T::param(level(gristo::kNumVoices + s)));
+                cc(channel, 81 + s, T::param(p::laneId(p::synthReverb, s)));
+                note(channel, focus[s], T::toggle(p::voiceId(p::partMute, gristo::kNumVoices + s)));
+                note(channel, control[s], T::toggle(s < gristo::kNumArps ? p::laneId(p::arpOn, s) : p::chordOn));
+            }
+            cc(channel, 16, T::param(p::chordWander));
+            cc(channel, 17, T::param(p::chordHomeX));
+            cc(channel, 18, T::param(p::chordHomeY));
+            cc(channel, 19, T::param(p::dirt));
+            cc(channel, 20, T::param(p::space));
+            cc(channel, 33, T::param(p::fxSize));
+            cc(channel, 34, T::param(p::fxShimmer));
+            cc(channel, 35, T::param(p::alive));
+            cc(channel, 36, T::param(p::chordStrum));
+            for (int m = 0; m < 4; ++m)
+                cc(channel, 53 + m, T::param(p::laneId(p::macroValue, m)));
+            note(channel, focus[4], T::act(T::Catch));
+            note(channel, focus[5], T::act(T::Mutate));
+            note(channel, focus[6], T::act(T::Undo));
+            note(channel, focus[7], T::act(T::Redo));
+            note(channel, control[4], T::toggle(p::chordMode));
+            for (int g = 0; g < 3; ++g)
+                note(channel, control[5 + g], T::set(p::grit, static_cast<float>(g)));
+        }
+        return;
+    }
+
+    // APC40 (original) in its generic mode: a track's controls arrive on that track's
+    // MIDI channel. Clip grid notes 53-57 (top to bottom), clip stop 52, activator 50,
+    // solo 49, track fader CC 7; scene launch notes 82-86, track knobs CC 48-55, device
+    // knobs CC 16-23, master CC 14, crossfader CC 15 on the first channel.
+    const int first = juce::jlimit(1, 9, channel);
+    for (int column = 0; column < 8; ++column)
+        controls.clearChannel(first + column);
+    const int parts[8] = { 0, 1, 2, 3, 6, 7, 8, 9 }; // Kick, Snare, Hat 1, Hat 2, Arp 1-3, Chords
+    for (int column = 0; column < 8; ++column)
+    {
+        const int ch = first + column;
+        for (int row = 0; row < 5; ++row) // the harmony map: eight columns around the tonic, richest on top
+            note(ch, 53 + row, T::setXY(p::chordHomeX, gristo::Chords::columnToX(column - 4), p::chordHomeY, gristo::Chords::rowToY(4 - row)));
+        note(ch, 52, T::act(T::Scene, column));
+        note(ch, 50, T::toggle(p::voiceId(p::partMute, parts[column])));
+        note(ch, 49, T::toggle(p::voiceId(p::partSolo, parts[column])));
+        cc(ch, 7, T::param(level(parts[column])));
+    }
+    const juce::String big[8] = { p::busy, p::loose, p::wild, p::dirt, p::space, p::alive, p::chordWander, p::fxShimmer };
+    for (int k = 0; k < 8; ++k)
+    {
+        cc(first, 48 + k, T::param(big[k]));
+        cc(first, 16 + k, T::param(p::laneId(p::macroValue, k)));
+    }
+    cc(first, 14, T::param(p::kitGain));
+    cc(first, 15, T::param(p::mapX));
+    note(first, 82, T::act(T::Mutate));
+    note(first, 83, T::act(T::Catch));
+    note(first, 84, T::act(T::Undo));
+    note(first, 85, T::act(T::Redo));
+    note(first, 86, T::toggle(p::chordOn));
+    note(first, 91, T::toggle(p::freeRun));
+}
+
 void GristoProcessor::timerCallback()
 {
-    // MIDI-learned macros.
-    for (int k = 0; k < gristo::kNumMacros; ++k)
-    {
-        const float v = macroCcValue[static_cast<size_t>(k)].exchange(-1.0f);
-        if (v >= 0.0f)
-            setValue(p::laneId(p::macroValue, k), v);
-    }
+    controls.drain([this](const ControlTarget& target, float value, bool fromNote) { applyControl(target, value, fromNote); });
 
     // Scenes: recall at once when stopped, else just before the next bar line.
     const bool playing = displayPlaying.load();

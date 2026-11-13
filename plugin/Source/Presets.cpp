@@ -180,6 +180,11 @@ void PresetManager::loadFactory(int index)
         preset.appendChild(child, nullptr);
     }
     apply(preset);
+    // A factory preset may suggest a tempo for the Play button (the host's tempo is the host's).
+    for (const auto& [id, value] : list[static_cast<size_t>(index)].values)
+        if (id == p::freeTempo)
+            if (auto* param = processor_.state.getParameter(id))
+                param->setValueNotifyingHost(param->convertTo0to1(value));
     setIdentity(list[static_cast<size_t>(index)].name, {}, index);
     markClean();
 }

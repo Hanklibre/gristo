@@ -370,9 +370,18 @@ void GristoView::mouseDown(const juce::MouseEvent& e)
 {
     showHelpFor(e.originalComponent); // touch has no hover
     if (e.mods.isPopupMenu())
+    {
         for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
             if (e.originalComponent == &sceneButtons_[i])
+            {
                 showSceneMenu(i);
+                return;
+            }
+        // Switches and action buttons: MIDI learn. (Knobs open their own menu.)
+        if (e.originalComponent != nullptr && dynamic_cast<juce::Slider*>(e.originalComponent) == nullptr
+            && learnables_.count(e.originalComponent) > 0)
+            showLearnMenu(*e.originalComponent);
+    }
 }
 
 void GristoView::mouseDrag(const juce::MouseEvent& e)
@@ -423,6 +432,9 @@ void GristoView::setupKnob(Knob& k, const juce::String& paramId, const juce::Str
     k.label.setColour(juce::Label::textColourId, colours::dim);
     addAndMakeVisible(k.label);
     k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor_.state, paramId, k.slider);
+    learnables_[&k.slider] = ControlTarget::param(paramId);
+    if (!k.slider.onContextMenu)
+        k.slider.onContextMenu = [this, &k] { showLearnMenu(k.slider); };
 }
 
 void GristoView::setupRandomKnob(Knob& k, const juce::String& paramId, const juce::String& text)
@@ -448,6 +460,7 @@ void GristoView::setupToggle(Toggle& t, const juce::String& paramId, const juce:
     t.button.setButtonText(text);
     addAndMakeVisible(t.button);
     t.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(processor_.state, paramId, t.button);
+    learnables_[&t.button] = ControlTarget::toggle(paramId);
 }
 
 void GristoView::setupChoice(Choice& c, const juce::String& paramId, const juce::String& text)
@@ -499,9 +512,13 @@ void GristoView::showModMenu(int target, juce::Component& knob)
         macros.addItem(gristo::kNumModLanes + m + 1, "Macro " + juce::String(m + 1), true, routed);
     }
     menu.addSubMenu("Control with macro", macros, true, nullptr, anyMacro);
+    addMidiItems(menu, knob);
     juce::Component::SafePointer<GristoView> safe(this);
-    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&knob), [safe, slotOf, target](int result) {
+    juce::Component::SafePointer<juce::Component> safeKnob(&knob);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&knob), [safe, safeKnob, slotOf, target](int result) {
         if (safe == nullptr || result <= 0)
+            return;
+        if (safeKnob != nullptr && safe->handleMidiItem(result, *safeKnob))
             return;
         const int source = result - 1, slot = slotOf(source);
         if (slot < 0)
@@ -1393,6 +1410,20 @@ void GristoView::setupPlayPage()
     addAndMakeVisible(mutateAmount_);
     setHelp(mutateAmount_, "Mutate amount", "How far Mutate moves things. Small: a variation of what you have. All the way up: everything new.");
 
+    for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
+        learnables_[&sceneButtons_[i]] = ControlTarget::act(ControlTarget::Scene, i);
+    learnables_[&diceAllButton_] = ControlTarget::act(ControlTarget::Mutate);
+    learnables_[&catchButton_] = ControlTarget::act(ControlTarget::Catch);
+    learnables_[&undoButton_] = ControlTarget::act(ControlTarget::Undo);
+    learnables_[&redoButton_] = ControlTarget::act(ControlTarget::Redo);
+    for (auto* b : { &diceAllButton_, &catchButton_, &undoButton_, &redoButton_ })
+        b->addMouseListener(this, false);
+    midiButton_.onClick = [this] { showMidiMenu(); };
+    addAndMakeVisible(midiButton_);
+    setHelp(midiButton_, "MIDI", "Controllers. Right-click any knob, switch or scene for MIDI learn, or load a ready-made layout for the Launch Control XL or APC40 here.");
+    setupKnob(fxShimmer_, p::fxShimmer, "Shimmer");
+    setHelp(fxShimmer_, "Shimmer", "The reverb feeds itself an octave up: tails climb and glow. Best with a large Size.");
+
     editButton_.setClickingTogglesState(true);
     editButton_.setColour(juce::TextButton::buttonOnColourId, colours::accent);
     editButton_.setColour(juce::TextButton::textColourOnId, colours::background);
@@ -1635,21 +1666,99 @@ void GristoView::setupPerformance()
 void GristoView::showMacroMenu(int macro)
 {
     juce::PopupMenu menu;
-    const int cc = processor_.macroCc[static_cast<size_t>(macro)].load();
-    menu.addSectionHeader("Macro " + juce::String(macro + 1) + (cc >= 0 ? "  (CC " + juce::String(cc) + ")" : juce::String()));
+    menu.addSectionHeader("Macro " + juce::String(macro + 1));
     menu.addItem(1, "Show its routing");
-    menu.addItem(2, processor_.learnMacro.load() == macro ? "Waiting for a MIDI controller..." : "Learn MIDI controller (move one now)");
-    menu.addItem(3, "Forget MIDI controller", cc >= 0);
+    addMidiItems(menu, macros_[macro].slider);
     juce::Component::SafePointer<GristoView> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&macros_[macro].slider), [safe, macro](int result) {
         if (safe == nullptr)
             return;
         if (result == 1)
             safe->selectSource(gristo::kNumModLanes + macro);
-        else if (result == 2)
-            safe->processor_.learnMacro.store(macro);
-        else if (result == 3)
-            safe->processor_.macroCc[static_cast<size_t>(macro)].store(-1);
+        else
+            safe->handleMidiItem(result, safe->macros_[macro].slider);
+    });
+}
+
+void GristoView::addMidiItems(juce::PopupMenu& menu, juce::Component& component)
+{
+    const auto it = learnables_.find(&component);
+    if (it == learnables_.end())
+        return;
+    auto& controls = processor_.controls;
+    const int key = controls.keyFor(it->second);
+    menu.addSeparator();
+    menu.addItem(9001, controls.learning(it->second) ? "Waiting: move a knob or press a button on your controller..." : "MIDI learn (then move a control)");
+    menu.addItem(9002, key >= 0 ? "Forget MIDI (" + ControlMap::describe(key) + ")" : juce::String("Forget MIDI"), key >= 0);
+}
+
+bool GristoView::handleMidiItem(int result, juce::Component& component)
+{
+    const auto it = learnables_.find(&component);
+    if (it == learnables_.end() || (result != 9001 && result != 9002))
+        return false;
+    auto& controls = processor_.controls;
+    if (result == 9001)
+    {
+        // A button learned onto a knob holds it at full while pressed; onto a switch, it flips it.
+        controls.learnAsToggle = dynamic_cast<juce::AudioParameterBool*>(processor_.state.getParameter(it->second.paramA)) != nullptr;
+        controls.startLearn(it->second);
+    }
+    else if (const int key = controls.keyFor(it->second); key >= 0)
+        controls.unbind(key);
+    return true;
+}
+
+void GristoView::showLearnMenu(juce::Component& component)
+{
+    juce::PopupMenu menu;
+    addMidiItems(menu, component);
+    juce::Component::SafePointer<GristoView> safe(this);
+    juce::Component::SafePointer<juce::Component> target(&component);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&component), [safe, target](int result) {
+        if (safe != nullptr && target != nullptr)
+            safe->handleMidiItem(result, *target);
+    });
+}
+
+void GristoView::showMidiMenu()
+{
+    using P = GristoProcessor;
+    juce::PopupMenu menu, lcxl1, lcxl2, apc;
+    menu.addSectionHeader("MIDI controllers");
+    menu.addItem(1, "Any control: right-click it, MIDI learn, move a knob or button", false);
+    lcxl1.addItem(10, "On channel 15 (Live: a MIDI track sending to 15-Gristo)");
+    lcxl1.addItem(11, "On channel 1 (plugged straight into this track)");
+    lcxl2.addItem(20, "On channel 14 (Live: a MIDI track sending to 14-Gristo)");
+    lcxl2.addItem(21, "On channel 1 (plugged straight into this track)");
+    apc.addItem(30, "Columns on channels 5-12 (Live: eight MIDI tracks)");
+    apc.addItem(31, "Columns on channels 1-8 (standalone app)");
+    menu.addSubMenu("Launch Control XL: rhythm layout", lcxl1);
+    menu.addSubMenu("Launch Control XL: melody and sound layout", lcxl2);
+    menu.addSubMenu("APC40: harmony grid layout", apc);
+    menu.addSeparator();
+    const int count = static_cast<int>(processor_.controls.bindings().size());
+    menu.addItem(2, "Stop waiting for a controller", processor_.controls.learning());
+    menu.addItem(3, "Forget all " + juce::String(count) + " MIDI bindings", count > 0);
+    menu.addSeparator();
+    menu.addItem(4, "The layouts are described in docs/CONTROLLERS.md", false);
+    juce::Component::SafePointer<GristoView> safe(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&midiButton_), [safe](int result) {
+        if (safe == nullptr)
+            return;
+        auto& proc = safe->processor_;
+        switch (result)
+        {
+            case 2: proc.controls.cancelLearn(); break;
+            case 3: proc.controls.clearChannel(0); break;
+            case 10: proc.loadControllerLayout(P::LaunchControlRhythm, 15); break;
+            case 11: proc.loadControllerLayout(P::LaunchControlRhythm, 1); break;
+            case 20: proc.loadControllerLayout(P::LaunchControlMelody, 14); break;
+            case 21: proc.loadControllerLayout(P::LaunchControlMelody, 1); break;
+            case 30: proc.loadControllerLayout(P::Apc40, 5); break;
+            case 31: proc.loadControllerLayout(P::Apc40, 1); break;
+            default: break;
+        }
     });
 }
 
@@ -1659,6 +1768,7 @@ void GristoView::showSceneMenu(int scene)
     menu.addSectionHeader("Scene " + juce::String(scene + 1));
     menu.addItem(1, "Store the current state here");
     menu.addItem(2, "Clear", processor_.sceneUsed(scene));
+    addMidiItems(menu, sceneButtons_[scene]);
     juce::Component::SafePointer<GristoView> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&sceneButtons_[scene]), [safe, scene](int result) {
         if (safe == nullptr)
@@ -1667,6 +1777,8 @@ void GristoView::showSceneMenu(int scene)
             safe->processor_.storeScene(scene);
         else if (result == 2)
             safe->processor_.clearScene(scene);
+        else
+            safe->handleMidiItem(result, safe->sceneButtons_[scene]);
     });
 }
 
@@ -1786,7 +1898,8 @@ void GristoView::showVoiceTab(int tab)
 std::vector<juce::Component*> GristoView::masterPageComponents()
 {
     return { &fxSize_.slider, &fxSize_.label, &fxFeedback_.slider, &fxFeedback_.label, &fxTime_.box, &fxTime_.label,
-             &noteLength_.slider, &noteLength_.label, &separateOuts_.button, &alive_.slider, &alive_.label };
+             &noteLength_.slider, &noteLength_.label, &separateOuts_.button, &alive_.slider, &alive_.label,
+             &fxShimmer_.slider, &fxShimmer_.label };
 }
 
 std::vector<juce::Component*> GristoView::synthComponents(int synth)
@@ -1957,6 +2070,7 @@ void GristoView::bindArp(int arp)
     auto bindToggle = [&](Toggle& t, const juce::String& id) {
         t.attachment.reset();
         t.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(st, id, t.button);
+        learnables_[&t.button] = ControlTarget::toggle(id);
     };
     auto bindChoice = [&](Choice& c, const juce::String& id) {
         c.attachment.reset();
@@ -1965,6 +2079,7 @@ void GristoView::bindArp(int arp)
     auto bindKnob = [&](Knob& k, const juce::String& id) {
         k.attachment.reset();
         k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(st, id, k.slider);
+        learnables_[&k.slider] = ControlTarget::param(id);
     };
     bindToggle(arpOn_, p::laneId(p::arpOn, arp));
     bindToggle(arpLatch_, p::laneId(p::arpLatch, arp));
@@ -2225,11 +2340,12 @@ void GristoView::resized()
     tempoBar_.setBounds(536, 8, 104, 28);
     levelBar_.setBounds(652, 8, 110, 28);
     kitOn_.button.setBounds(768, 8, 66, 28);
-    undoButton_.setBounds(856, 8, 54, 28);
-    redoButton_.setBounds(914, 8, 54, 28);
-    diceAllButton_.setBounds(980, 8, 66, 28);
-    editButton_.setBounds(1052, 8, 54, 28);
-    keysButton_.setBounds(1112, 8, 56, 28);
+    undoButton_.setBounds(846, 8, 50, 28);
+    redoButton_.setBounds(900, 8, 50, 28);
+    diceAllButton_.setBounds(958, 8, 62, 28);
+    editButton_.setBounds(1024, 8, 46, 28);
+    midiButton_.setBounds(1074, 8, 46, 28);
+    keysButton_.setBounds(1124, 8, 46, 28);
     sizeButton_.setBounds(1174, 8, 96, 28);
     // Row 2: scenes (the help line is painted to their right)
     for (int i = 0; i < GristoProcessor::kNumScenes; ++i)
@@ -2323,7 +2439,8 @@ void GristoView::resized()
     fxTime_.box.setBounds(px + 280, py + 86, 100, 28);
     placeKnob(noteLength_, { px + 960, py + 30, 96, 110 });
     separateOuts_.button.setBounds(px + 548, py + 40, 190, 28);
-    placeLabeled(alive_, { px + 400, py + 40, 110, 130 });
+    placeLabeled(alive_, { px + 760, py + 40, 110, 110 });
+    placeLabeled(fxShimmer_, { px + 390, py + 40, 110, 130 });
 
     // Synth of the shown arp / the chords
     for (int s = 0; s < gristo::sound::kNumSynths; ++s)

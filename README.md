@@ -80,6 +80,21 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### Controllers, and sounds for hybrid styles
+
+* **MIDI controllers:** right-click any control for **MIDI learn**, or load a
+  layout from the **MIDI** button: two Launch Control XLs (one for the drums,
+  one for arps, harmony and sound) and the APC40 (its grid plays the harmony
+  map). See [docs/CONTROLLERS.md](docs/CONTROLLERS.md).
+* **New sounds:** 808 Bass (drops onto its note, slides when notes overlap),
+  Monk Choir and Vox Pad (formant voices whose vowel slowly moves), Singing
+  Bowl, Nylon Guitar and Koto (plucked strings). Kits **Temple** (frame drum,
+  wood fish, rattle, bell, bowl, gong) and **Dusty Soul**.
+* **Shimmer** (Master / FX): the reverb feeds itself an octave up.
+* **Arp scales:** Insen, Hirajoshi, Phrygian dominant.
+* **Presets** that cross styles: Jungle Monastery, Liquid Soul, Trap Sutra,
+  Dust Hymn, Bowl Drift, Indie Soul Tape, Slow Jam 808, Chant Break.
+
 ### Gristo 3: play it, don't program it
 
 The plugin opens on the **Play** screen:

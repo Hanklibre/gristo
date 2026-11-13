@@ -3,6 +3,8 @@
 #include "PluginProcessor.h"
 #include "Widgets.h"
 
+#include <map>
+
 #include <juce_audio_utils/juce_audio_utils.h>
 
 // The whole UI at its design size (1280 x 790). GristoEditor scales it.
@@ -215,6 +217,14 @@ private:
     Choice grit_;
     juce::Slider mutateAmount_;
     void setupPlayPage();
+    // MIDI controllers: what each learnable control on screen stands for.
+    std::map<juce::Component*, ControlTarget> learnables_;
+    juce::TextButton midiButton_ { "MIDI" };
+    Knob fxShimmer_;
+    void showMidiMenu();
+    void addMidiItems(juce::PopupMenu& menu, juce::Component& component); // ids 9001 / 9002
+    bool handleMidiItem(int result, juce::Component& component);
+    void showLearnMenu(juce::Component& component);
     std::vector<juce::Component*> playPageComponents();
     void setEditMode(bool edit);
     LaneHandle soundLaneHandles_[gristo::kNumModLanes];
