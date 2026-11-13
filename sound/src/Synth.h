@@ -3,9 +3,11 @@
 #include "Dsp.h"
 #include "gristo/sound/Sound.h"
 
+#include <vector>
+
 namespace gristo::sound {
 
-enum class Osc { Saw, Square, Supersaw, Reese, Sine, Fm, Organ, Sync };
+enum class Osc { Saw, Square, Supersaw, Reese, Sine, Fm, Organ, Sync, Voice, String, Bowl };
 
 struct SynthPatch
 {
@@ -32,6 +34,9 @@ struct SynthPatch
     bool tremoloPan = false; // stereo: the two sides swap level (suitcase e-piano, rotary speaker)
     float hammer = 0.0f;   // noise burst at the attack: hammer, mallet, finger, organ key click
     float noise = 0.0f;    // steady noise under the tone: breath, bow
+    float formantA[3] { 430.0f, 820.0f, 2600.0f }, formantB[3] { 300.0f, 700.0f, 2300.0f }; // Voice: the vowel drifts between the two
+    float pitchDrop = 0.0f; // semitones above the note at the attack, falling in ~50 ms (808)
+    float stringDamp = 0.3f, stringDecay = 3.0f; // String: 0 = bright .. 0.5 = soft; seconds of ring
 };
 
 const SynthPatch& synthPatch(SynthSound sound);
@@ -44,6 +49,7 @@ public:
     {
         sampleRate_ = sampleRate;
         drift_ = dsp::Noise(seed);
+        string_.assign(static_cast<size_t>(sampleRate / 20.0f) + 8, 0.0f);
     }
     void start(const SynthPatch& patch, const SynthParams& macros, int id, float pitch, float velocity);
     void setAlive(float alive) { alive_ = alive; }
@@ -83,6 +89,12 @@ private:
     // Alive: the pitch and the filter never sit quite still (slow random movement).
     float alive_ = 0.5f, wander_[2] {}, wanderTarget_[2] {}, driftRatio_ = 1.0f, cutoffDrift_ = 1.0f;
     int wanderCounter_ = 0;
+    dsp::Svf formant_[3];
+    float vowelPhase_ = 0.0f, pitchEnv_ = 0.0f, pitchEnvCoef_ = 0.0f;
+    std::vector<float> string_; // plucked string: allocated in prepare
+    size_t stringWrite_ = 0;
+    float stringPrev_ = 0.0f, stringFb_ = 0.99f, exciteLp_ = 0.0f;
+    int excite_ = 0;
 };
 
 class Synth

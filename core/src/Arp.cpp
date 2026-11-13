@@ -36,6 +36,9 @@ constexpr ScaleDef kScales[] = {
     { "Major pentatonic", 5, { 0, 2, 4, 7, 9 } },
     { "Blues", 6, { 0, 3, 5, 6, 7, 10 } },
     { "Chromatic", 12, { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } },
+    { "Insen", 5, { 0, 1, 5, 7, 10 } },             // Japanese temple scale
+    { "Hirajoshi", 5, { 0, 2, 3, 7, 8 } },
+    { "Phrygian dominant", 7, { 0, 1, 4, 5, 7, 8, 10 } },
 };
 static_assert(sizeof(kScales) / sizeof(kScales[0]) == static_cast<size_t>(ArpScale::Count), "scale table");
 

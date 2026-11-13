@@ -41,6 +41,8 @@ struct SoundEngine::Impl
     Crusher crusher[1 + kNumSynths];
     Overdrive overdrive[1 + kNumSynths];
     Tape tape;
+    Shimmer shimmer;
+    float shimmerFeed = 0.0f;
     Wobble panDrift[kNumSynths];
     dsp::Noise variation { 0x5eed5u };
     // Sends glide to new settings so lanes don't zipper: kit, then each synth.
@@ -95,6 +97,7 @@ void SoundEngine::prepare(double sampleRate)
     for (auto& o : m.overdrive)
         o.prepare(m.sampleRate);
     m.tape.prepare(m.sampleRate);
+    m.shimmer.prepare(m.sampleRate);
     for (int s = 0; s < kNumSynths; ++s)
         m.panDrift[s].prepare(m.sampleRate, 0.25f, 0xa11ceu + static_cast<std::uint32_t>(s) * 977u);
     setCharacter(m.character);
@@ -128,6 +131,8 @@ void SoundEngine::reset()
     for (auto& o : m.overdrive)
         o.reset();
     m.tape.reset();
+    m.shimmer.reset();
+    m.shimmerFeed = 0.0f;
     for (auto* f : { &m.busToneL, &m.busToneR, &m.busAirL, &m.busAirR, &m.busColourL, &m.busColourR })
         f->reset();
     m.configureBus();
@@ -177,6 +182,7 @@ void SoundEngine::setFx(const FxParams& params)
     fx.reverbSize = finite(fx.reverbSize, d.reverbSize);
     fx.delayBeats = finite(fx.delayBeats, d.delayBeats);
     fx.delayFeedback = finite(fx.delayFeedback, d.delayFeedback);
+    fx.shimmer = dsp::clamp01(finite(fx.shimmer, 0.0f));
     if (!std::isfinite(fx.bpm))
         fx.bpm = d.bpm;
     m.fx = fx;
@@ -432,7 +438,8 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
 
         float dl = 0.0f, dr = 0.0f, rl = 0.0f, rr = 0.0f;
         m.delay.process(dlyIn, dl, dr);
-        m.reverb.process(revIn + (dl + dr) * 0.15f, rl, rr);
+        m.reverb.process(revIn + (dl + dr) * 0.15f + m.shimmerFeed, rl, rr);
+        m.shimmerFeed = m.fx.shimmer > 0.0f ? dsp::fastTanh(m.shimmer.process((rl + rr) * 0.5f) * 2.5f) * 0.8f * m.fx.shimmer : 0.0f;
         if (fxStem)
             toStem(stems->fx, i, dl + rl, dr + rr);
         else

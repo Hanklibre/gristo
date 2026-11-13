@@ -669,3 +669,61 @@ TEST("sound: Crunch folds highs back as grain; Alive makes two hits differ")
     };
     CHECK(difference(1.0f) > difference(0.0f) * 1.5);
 }
+
+TEST("sound: the plucked strings are in tune; shimmer adds an octave to the tail and dies away")
+{
+    for (SynthSound sound : { SynthSound::NylonGuitar, SynthSound::Koto })
+        for (float note : { 45.0f, 57.0f, 69.0f, 81.0f })
+        {
+            SoundEngine e;
+            dryEngine(e);
+            CharacterParams c;
+            c.dirt = 0.0f;
+            c.alive = 0.0f;
+            e.setCharacter(c);
+            SynthParams p;
+            p.sound = sound;
+            p.reverbSend = 0.0f;
+            e.setSynth(kChordSynth, p);
+            e.noteOn(kChordSynth, 60, note, 0.9f);
+            Rendered out;
+            renderInto(e, out, 0.5);
+            CHECK(out.finite && out.peak > 0.02f);
+            // Autocorrelation peak near the expected period.
+            const double period = kRate / (440.0 * std::pow(2.0, (note - 69.0) / 12.0));
+            double best = -1.0;
+            int bestLag = 0;
+            for (int lag = static_cast<int>(period * 0.9); lag <= static_cast<int>(period * 1.1) + 1; ++lag)
+            {
+                double sum = 0.0;
+                for (size_t i = 4800; i < 14400; ++i)
+                    sum += static_cast<double>(out.left[i]) * out.left[i + static_cast<size_t>(lag)];
+                if (sum > best) { best = sum; bestLag = lag; }
+            }
+            CHECK_MSG(std::abs(bestLag - period) <= std::max(1.0, period * 0.012), "note " << note << ": period " << bestLag << " for " << period);
+        }
+
+    auto tail = [](float shimmer) {
+        SoundEngine e;
+        e.prepare(kRate);
+        FxParams fx;
+        fx.reverbSize = 0.8f;
+        fx.shimmer = shimmer;
+        e.setFx(fx);
+        SynthParams p;
+        p.sound = SynthSound::SingingBowl;
+        p.reverbSend = 0.8f;
+        e.setSynth(kChordSynth, p);
+        e.noteOn(kChordSynth, 60, 60.0f, 0.9f);
+        Rendered out;
+        renderInto(e, out, 0.3);
+        e.noteOff(kChordSynth, 60);
+        renderInto(e, out, 40.0);
+        return out;
+    };
+    const Rendered plain = tail(0.0f), lit = tail(1.0f);
+    CHECK(lit.finite && lit.peak <= 1.0f);
+    const size_t a = static_cast<size_t>(3.0 * kRate), b = static_cast<size_t>(6.0 * kRate);
+    CHECK_MSG(lit.rms(a, b) > plain.rms(a, b) * 1.15f, "tail " << lit.rms(a, b) << " against " << plain.rms(a, b)); // the tail is fed again
+    CHECK(lit.rms(lit.left.size() - 48000, lit.left.size()) < 1e-3f);             // and it ends
+}

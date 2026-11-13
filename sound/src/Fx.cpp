@@ -485,6 +485,49 @@ void Tape::process(float& l, float& r)
     r = tr * wobble + hiss;
 }
 
+void Shimmer::prepare(float sampleRate)
+{
+    window_ = 0.085f * sampleRate;
+    line_.assign(static_cast<size_t>(window_) + 8, 0.0f);
+    low_.setLowpass(6000.0f, sampleRate);
+    high_.setLowpass(300.0f, sampleRate);
+    reset();
+}
+
+void Shimmer::reset()
+{
+    std::fill(line_.begin(), line_.end(), 0.0f);
+    write_ = 0;
+    phase_ = 0.0f;
+    low_.reset();
+    high_.reset();
+}
+
+float Shimmer::process(float in)
+{
+    if (line_.empty())
+        return 0.0f;
+    const auto size = line_.size();
+    line_[write_] = high_.highpass(low_.lowpass(in));
+    // Each tap's delay shrinks by a sample per sample: it reads at double speed.
+    phase_ += 1.0f / window_;
+    phase_ -= std::floor(phase_);
+    float out = 0.0f;
+    for (int tap = 0; tap < 2; ++tap)
+    {
+        float ph = phase_ + 0.5f * static_cast<float>(tap);
+        ph -= std::floor(ph);
+        const float pos = static_cast<float>(write_ + size) - window_ * (1.0f - ph);
+        const auto i0 = static_cast<size_t>(pos);
+        const float frac = pos - static_cast<float>(i0);
+        const float a = line_[i0 % size], b = line_[(i0 + 1) % size];
+        const float w = std::sin(dsp::kPi * ph);
+        out += (a + (b - a) * frac) * w * w;
+    }
+    write_ = (write_ + 1) % size;
+    return out;
+}
+
 void Glue::prepare(float sampleRate)
 {
     attack_ = 1.0f - std::exp(-1.0f / (0.004f * sampleRate));  // 4 ms

@@ -45,6 +45,9 @@ enum class ArpScale : int
     MajorPentatonic,
     Blues,
     Chromatic,
+    Insen,
+    Hirajoshi,
+    PhrygianDominant,
     Count
 };
 

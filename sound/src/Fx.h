@@ -148,6 +148,22 @@ private:
     dsp::OnePole highs_[2], bump_[2], hissTone_;
 };
 
+// Octave-up pitch shifter (two crossfaded taps on a short delay line): fed from the
+// reverb's output back into its input, the tail climbs and glows.
+class Shimmer
+{
+public:
+    void prepare(float sampleRate);
+    void reset();
+    float process(float in);
+
+private:
+    std::vector<float> line_;
+    size_t write_ = 0;
+    float window_ = 4096.0f, phase_ = 0.0f;
+    dsp::OnePole low_, high_;
+};
+
 // Gentle bus compressor before the final soft clip: holds loud passages together
 // instead of letting them distort. Pump makes it grab harder and breathe.
 class Glue

@@ -157,6 +157,40 @@ const SynthPatch* buildPatches()
         x.a = 0.003f; x.d = 0.1f; x.s = 1.0f; x.r = 0.05f; x.vibratoHz = 6.8f; x.vibratoSemis = 0.1f;
         x.drive = 1.8f; x.level = 0.45f;
     }
+    { // 808: a sine that drops onto its note and saturates; overlapping notes slide.
+        auto& x = set(SynthSound::Bass808);
+        x.osc = Osc::Sine; x.pitchDrop = 12.0f; x.cutoffHz = 1400.0f; x.resonance = 0.0f; x.keyTrack = 0.0f;
+        x.a = 0.002f; x.d = 3.5f; x.s = 0.0f; x.r = 0.3f; x.drive = 3.2f; x.level = 0.95f; x.mono = true;
+    }
+    { // Monk choir: low voices on "om", the vowel slowly closing and opening.
+        auto& x = set(SynthSound::MonkChoir);
+        x.osc = Osc::Voice; x.detuneCents = 9.0f; x.cutoffHz = 6000.0f; x.keyTrack = 0.0f;
+        x.a = 0.5f; x.d = 1.0f; x.s = 0.9f; x.r = 1.8f; x.vibratoHz = 4.8f; x.vibratoSemis = 0.07f;
+        x.noise = 0.02f; x.chorus = 0.6f; x.driftCents = 5.0f; x.freePhase = true; x.level = 0.9f;
+    }
+    { // Vox pad: airy "ah" to "oh", higher and breathier.
+        auto& x = set(SynthSound::VoxPad);
+        x.osc = Osc::Voice; x.detuneCents = 12.0f; x.cutoffHz = 8000.0f; x.keyTrack = 0.0f;
+        const float a[3] { 800.0f, 1200.0f, 2800.0f }, b[3] { 500.0f, 900.0f, 2700.0f };
+        for (int i = 0; i < 3; ++i) { x.formantA[i] = a[i]; x.formantB[i] = b[i]; }
+        x.a = 0.9f; x.d = 1.0f; x.s = 0.9f; x.r = 2.5f; x.vibratoHz = 5.2f; x.vibratoSemis = 0.05f;
+        x.noise = 0.08f; x.chorus = 0.7f; x.driftCents = 4.0f; x.freePhase = true; x.level = 0.85f;
+    }
+    { // Singing bowl: inharmonic partials that beat slowly, the high ones dying first.
+        auto& x = set(SynthSound::SingingBowl);
+        x.osc = Osc::Bowl; x.fmIndexTime = 3.0f; x.cutoffHz = 10000.0f; x.keyTrack = 0.0f;
+        x.a = 0.004f; x.d = 9.0f; x.s = 0.0f; x.r = 4.0f; x.hammer = 0.05f; x.chorus = 0.2f; x.level = 0.7f;
+    }
+    { // Nylon guitar: a soft plucked string.
+        auto& x = set(SynthSound::NylonGuitar);
+        x.osc = Osc::String; x.stringDamp = 0.38f; x.stringDecay = 2.5f; x.cutoffHz = 5000.0f; x.keyTrack = 0.3f;
+        x.a = 0.001f; x.d = 6.0f; x.s = 0.0f; x.r = 0.25f; x.chorus = 0.1f; x.level = 0.9f;
+    }
+    { // Koto: a bright, long plucked string.
+        auto& x = set(SynthSound::Koto);
+        x.osc = Osc::String; x.stringDamp = 0.12f; x.stringDecay = 4.5f; x.cutoffHz = 9000.0f; x.keyTrack = 0.2f;
+        x.a = 0.001f; x.d = 8.0f; x.s = 0.0f; x.r = 0.6f; x.hammer = 0.05f; x.level = 0.8f;
+    }
     // Stereo ensemble and analog drift, by sound (basses stay mono and in tune).
     struct Colour
     {
@@ -274,6 +308,12 @@ const char* synthSoundName(SynthSound sound)
         case SynthSound::Vibraphone: return "Vibraphone";
         case SynthSound::UprightBass: return "Upright Bass";
         case SynthSound::JazzOrgan: return "Jazz Organ";
+        case SynthSound::Bass808: return "808 Bass";
+        case SynthSound::MonkChoir: return "Monk Choir";
+        case SynthSound::VoxPad: return "Vox Pad";
+        case SynthSound::SingingBowl: return "Singing Bowl";
+        case SynthSound::NylonGuitar: return "Nylon Guitar";
+        case SynthSound::Koto: return "Koto";
         case SynthSound::Count: break;
     }
     return "";
@@ -287,12 +327,15 @@ const char* synthCategoryName(SynthSound sound)
         case SynthSound::AcidBass:
         case SynthSound::ReeseBass:
         case SynthSound::FmBass:
+        case SynthSound::Bass808:
         case SynthSound::UprightBass: return "Bass";
         case SynthSound::WarmPad:
         case SynthSound::GlassPad:
         case SynthSound::DarkPad:
         case SynthSound::BreathPad:
         case SynthSound::SlowStrings:
+        case SynthSound::MonkChoir:
+        case SynthSound::VoxPad:
         case SynthSound::PolyStrings: return "Pads";
         case SynthSound::SquareLead:
         case SynthSound::SyncLead:
@@ -328,8 +371,16 @@ void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int i
     hammerEnv_ = patch_.hammer > 0.0f ? 0.4f + 0.6f * velocity_ : 0.0f; // harder notes, harder hammer
     hammerCoef_ = dsp::decayCoef(0.008f, sampleRate_);
     tineCoef_ = dsp::decayCoef(0.25f, sampleRate_);
+    pitchEnv_ = patch_.pitchDrop > 0.0f ? 1.0f : 0.0f;
+    pitchEnvCoef_ = dsp::decayCoef(0.05f, sampleRate_);
+    excite_ = patch_.osc == Osc::String ? static_cast<int>(sampleRate_ / std::max(20.0f, dsp::midiToHz(pitch))) : 0;
     if (!wasActive)
     {
+        std::fill(string_.begin(), string_.end(), 0.0f);
+        stringPrev_ = exciteLp_ = 0.0f;
+        vowelPhase_ = 0.5f + 0.5f * drift_.next();
+        for (auto& f : formant_)
+            f.reset();
         for (int i = 0; i < 5; ++i) // spread supersaw phases; free-running sounds start anywhere
             phase_[i] = patch_.freePhase ? 0.5f + 0.5f * drift_.next() : 0.2f * static_cast<float>(i);
         syncPhase_ = syncHeld_ = 0.0f;
@@ -365,6 +416,7 @@ float SynthVoice::oscillator(float hz)
     float out = 0.0f;
     switch (patch_.osc)
     {
+        default: break;
         case Osc::Saw:
             advance(phase_[0], dt);
             out = dsp::sawBlep(phase_[0], dt);
@@ -450,6 +502,64 @@ float SynthVoice::oscillator(float hz)
             break;
         }
     }
+    if (patch_.osc == Osc::Voice)
+    {
+        float source = 0.0f;
+        for (int i = 0; i < 3; ++i)
+        {
+            const float d = dt * detuneRatio_[i + 1];
+            advance(phase_[i], d);
+            source += dsp::sawBlep(phase_[i], d);
+        }
+        source = source * 0.4f + patch_.noise * drift_.next();
+        constexpr float gains[3] = { 1.0f, 0.6f, 0.3f };
+        for (int i = 0; i < 3; ++i)
+            out += formant_[i].tick(source).bp * gains[i] * 0.48f;
+        out += source * 0.08f;
+        return out;
+    }
+    if (patch_.osc == Osc::String)
+    {
+        const auto size = string_.size();
+        const float delay = std::clamp(sr / hz - patch_.stringDamp, 2.0f, static_cast<float>(size) - 3.0f);
+        const float pos = static_cast<float>(stringWrite_ + size) - delay;
+        const auto i0 = static_cast<size_t>(pos);
+        const float frac = pos - static_cast<float>(i0);
+        const float read = string_[i0 % size] + (string_[(i0 + 1) % size] - string_[i0 % size]) * frac;
+        float y = ((1.0f - patch_.stringDamp) * read + patch_.stringDamp * stringPrev_) * stringFb_;
+        stringPrev_ = read;
+        if (excite_ > 0) // the pluck: a period of noise, brighter when played harder
+        {
+            exciteLp_ += (0.15f + 0.8f * velocity_) * (drift_.next() - exciteLp_);
+            y += exciteLp_ * 0.9f;
+            --excite_;
+        }
+        string_[stringWrite_] = y;
+        stringWrite_ = (stringWrite_ + 1) % size;
+        if (hammerEnv_ > 1e-4f)
+        {
+            y += patch_.hammer * hammerEnv_ * drift_.next();
+            hammerEnv_ *= hammerCoef_;
+        }
+        return y;
+    }
+    if (patch_.osc == Osc::Bowl)
+    {
+        constexpr float ratios[4] = { 1.0f, 2.76f, 5.2f, 8.4f }, levels[4] = { 1.0f, 0.55f, 0.3f, 0.15f };
+        advance(phase_[4], 0.7f / sr);
+        float e = 1.0f;
+        for (int i = 0; i < 4; ++i)
+        {
+            if (hz * ratios[i] < sr * 0.45f)
+            {
+                advance(phase_[i], dt * ratios[i]);
+                const float beat = 1.0f + 0.35f * std::sin(dsp::kTwoPi * phase_[4] * static_cast<float>(i + 1) + 1.3f * static_cast<float>(i));
+                out += levels[i] * e * beat * std::sin(dsp::kTwoPi * phase_[i]);
+            }
+            e *= fmEnv_;
+        }
+        out *= 0.5f;
+    }
     if (patch_.sub > 0.0f)
     {
         advance(subPhase_, dt * 0.5f);
@@ -502,6 +612,11 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
         return 0.0f;
     pitch_ = targetPitch_ + (pitch_ - targetPitch_) * glideCoef;
     float pitch = pitch_ + detune_;
+    if (pitchEnv_ > 1e-4f)
+    {
+        pitch += patch_.pitchDrop * pitchEnv_;
+        pitchEnv_ *= pitchEnvCoef_;
+    }
     if (patch_.vibratoHz > 0.0f)
     {
         vibPhase_ += patch_.vibratoHz / sampleRate_;
@@ -527,6 +642,16 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
             wander_[w] += (wanderTarget_[w] - wander_[w]) * 0.004f;
         driftRatio_ = std::exp2(wander_[0] * alive_ * 0.09f / 12.0f); // up to +-9 cents
         cutoffDrift_ = std::exp2(wander_[1] * alive_ * 0.25f);
+        if (patch_.osc == Osc::Voice) // the vowel breathes between its two shapes
+        {
+            vowelPhase_ += 0.09f * static_cast<float>(kControlRate) / sampleRate_;
+            vowelPhase_ -= std::floor(vowelPhase_);
+            const float v = dsp::clamp01(0.5f + 0.5f * std::sin(dsp::kTwoPi * vowelPhase_) + 0.3f * alive_ * wander_[1]);
+            for (int i = 0; i < 3; ++i)
+                formant_[i].set(patch_.formantA[i] + (patch_.formantB[i] - patch_.formantA[i]) * v, 0.92f, sampleRate_);
+        }
+        if (patch_.osc == Osc::String)
+            stringFb_ = std::pow(0.001f, 1.0f / (std::max(0.05f, patch_.stringDecay) * std::max(20.0f, hz_)));
     }
     const float hz = hz_ * driftRatio_;
     if (controlCounter_ <= 0)

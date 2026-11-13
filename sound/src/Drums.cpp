@@ -159,6 +159,24 @@ const KitPatch* buildKits()
         P().body(0.5f, 1700.0f, 1650.0f, 0.003f, 0.03f).noise(0.4f, 0.04f, 2800.0f, 0.35f, BP).click(0.3f),
         P().noise(0.75f, 0.2f, 1300.0f, 0.45f, BP).claps(3, 0.01f),
     }, 20000.0f, 1, 1.3f);
+    // Temple: frame drum, wood fish, seed rattle, hand bell, singing bowl, gong.
+    kits[12] = makeKit({
+        P().body(1.0f, 95.0f, 55.0f, 0.03f, 0.9f).hold(0.004f).click(0.1f).noise(0.12f, 0.08f, 400.0f, 0.2f, NoiseFilter::Lowpass),
+        P().body(0.9f, 620.0f, 560.0f, 0.004f, 0.09f).body2(0.4f, 2.4f).click(0.25f),
+        P().noise(0.32f, 0.05f, 6000.0f, 0.3f, BP).gain(1.4f),
+        P().body(0.45f, 2400.0f, 2400.0f, 0.01f, 0.6f).body2(0.25f, 2.76f).click(0.1f),
+        P().body(0.6f, 520.0f, 520.0f, 0.01f, 2.4f).body2(0.3f, 2.71f).click(0.06f),
+        P().body(0.7f, 180.0f, 176.0f, 0.02f, 2.6f).body2(0.4f, 1.51f).metal(0.06f, 1.2f, 3000.0f),
+    }, 20000.0f, 1, 1.1f);
+    // Dusty Soul: a soft, dead live kit: round kick, fat snare, rim, tambourine.
+    kits[13] = makeKit({
+        P().body(1.0f, 120.0f, 52.0f, 0.02f, 0.3f).hold(0.008f).click(0.08f),
+        P().body(0.6f, 190.0f, 170.0f, 0.006f, 0.1f).noise(0.6f, 0.11f, 1800.0f, 0.3f, BP),
+        P().noise(0.3f, 0.03f, 6000.0f, 0.3f, BP).gain(1.5f),
+        P().noise(0.28f, 0.18f, 6500.0f, 0.25f, BP).gain(1.5f),
+        P().body(0.6f, 820.0f, 780.0f, 0.003f, 0.04f).click(0.35f),
+        P().noise(0.3f, 0.12f, 9000.0f, 0.2f, HP).metal(0.15f, 0.1f, 10000.0f),
+    }, 9000.0f, 1, 1.5f);
     return kits;
 }
 
@@ -183,6 +201,8 @@ const char* kitName(Kit kit)
         case Kit::Jungle: return "Jungle";
         case Kit::Amapiano: return "Amapiano";
         case Kit::Dancehall: return "Dancehall";
+        case Kit::Temple: return "Temple";
+        case Kit::DustySoul: return "Dusty Soul";
         case Kit::Count: break;
     }
     return "";

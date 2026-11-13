@@ -15,7 +15,7 @@ constexpr int kNumSynths = 4;     // one per arp, then the chords (polyphonic)
 constexpr int kChordSynth = 3;
 
 // New kits and sounds are appended so saved choices keep their meaning.
-enum class Kit : int { Classic = 0, Eight08, Trap, LoFi, Minimal, Reggaeton, House, Techno, Breakbeat, Jungle, Amapiano, Dancehall, Count };
+enum class Kit : int { Classic = 0, Eight08, Trap, LoFi, Minimal, Reggaeton, House, Techno, Breakbeat, Jungle, Amapiano, Dancehall, Temple, DustySoul, Count };
 const char* kitName(Kit kit);
 
 enum class SynthSound : int
@@ -27,6 +27,7 @@ enum class SynthSound : int
     FeltPiano, Celesta, BreathPad, SlowStrings,   // ambient
     PolyStrings, SynthBrass, PolySynth, TapeKeys, // vintage analog
     SuitcaseKeys, Vibraphone, UprightBass, JazzOrgan, // jazz
+    Bass808, MonkChoir, VoxPad, SingingBowl, NylonGuitar, Koto, // trap, chant, ambient, soul
     Count
 };
 const char* synthSoundName(SynthSound sound);
@@ -66,6 +67,7 @@ struct FxParams
     float reverbSize = 0.5f;     // 0..1
     float delayBeats = 0.75f;    // delay time in beats (0.75 = dotted 8th)
     float delayFeedback = 0.35f; // 0..0.9
+    float shimmer = 0.0f;        // 0..1: the reverb feeds itself an octave up
     double bpm = 120.0;
 };
 
