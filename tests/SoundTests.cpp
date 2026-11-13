@@ -727,3 +727,99 @@ TEST("sound: the plucked strings are in tune; shimmer adds an octave to the tail
     CHECK_MSG(lit.rms(a, b) > plain.rms(a, b) * 1.15f, "tail " << lit.rms(a, b) << " against " << plain.rms(a, b)); // the tail is fed again
     CHECK(lit.rms(lit.left.size() - 48000, lit.left.size()) < 1e-3f);             // and it ends
 }
+
+TEST("sound: a drum's own settings reshape it; Body rings at its tuned pitch and dies away")
+{
+    auto hit = [](const DrumTweak& tweak, int voice, double seconds = 1.0) {
+        SoundEngine e;
+        dryEngine(e);
+        CharacterParams c;
+        c.dirt = 0.0f;
+        c.alive = 0.0f;
+        e.setCharacter(c);
+        KitParams kit;
+        kit.reverbSend = 0.0f;
+        kit.voice[static_cast<size_t>(voice)] = tweak;
+        e.setKit(kit);
+        e.triggerDrum(voice, 0.9f);
+        Rendered out;
+        renderInto(e, out, seconds);
+        return out;
+    };
+    const Rendered plain = hit({}, 1);
+    DrumTweak t;
+    t.decay = 1.0f;
+    const Rendered longer = hit(t, 1);
+    CHECK(longer.rms(9600, 24000) > plain.rms(9600, 24000) * 2.0f);
+    t = {};
+    t.tune = 12.0f;
+    CHECK(zeroCrossings(hit(t, 0).left, 2400, 9600) > zeroCrossings(hit({}, 0).left, 2400, 9600) * 1.5);
+    t = {};
+    t.pan = 1.0f;
+    const Rendered right = hit(t, 0);
+    double l = 0.0, r = 0.0;
+    for (size_t i = 0; i < right.left.size(); ++i)
+    {
+        l += std::abs(right.left[i]);
+        r += std::abs(right.right[i]);
+    }
+    CHECK(r > l * 5.0);
+
+    // Body on the closed hat (a noise drum): the tail now has a pitch, 220 Hz by default.
+    t = {};
+    t.body = 1.0f;
+    t.bodyDecay = 0.8f;
+    const Rendered body = hit(t, 2, 6.0);
+    CHECK(body.finite && body.peak <= 1.0f);
+    CHECK(body.rms(14400, 24000) > hit({}, 2).rms(14400, 24000) * 5.0f + 1e-5f);
+    const double period = kRate / 220.0;
+    double best = -1.0;
+    int bestLag = 0;
+    for (int lag = 150; lag <= 300; ++lag)
+    {
+        double sum = 0.0;
+        for (size_t i = 9600; i < 19200; ++i)
+            sum += static_cast<double>(body.left[i]) * body.left[i + static_cast<size_t>(lag)];
+        if (sum > best) { best = sum; bestLag = lag; }
+    }
+    CHECK_MSG(std::abs(bestLag - period) <= 4.0, "period " << bestLag << " for " << period);
+    CHECK(body.rms(body.left.size() - 24000, body.left.size()) < 1e-4f);
+
+    // Every extreme of every drum of every kit stays finite and bounded.
+    for (int k = 0; k < static_cast<int>(Kit::Count); ++k)
+        for (int extreme = 0; extreme < 2; ++extreme)
+        {
+            SoundEngine e;
+            dryEngine(e);
+            KitParams kit;
+            kit.kit = static_cast<Kit>(k);
+            for (auto& v : kit.voice)
+            {
+                v.tune = extreme ? 24.0f : -24.0f;
+                v.decay = v.tone = v.punch = v.noise = v.drive = v.body = v.bodyDecay = extreme ? 1.0f : 0.0f;
+                v.body = 1.0f;
+                v.bodyTune = extreme ? 24.0f : -24.0f;
+            }
+            e.setKit(kit);
+            Rendered out;
+            for (int round = 0; round < 4; ++round)
+            {
+                for (int v = 0; v < kNumDrumVoices; ++v)
+                    e.triggerDrum(v, 1.0f);
+                renderInto(e, out, 0.25);
+            }
+            CHECK(out.finite && out.peak <= 1.0f);
+        }
+
+    // Synth body: adds something, stays finite.
+    SoundEngine e;
+    dryEngine(e);
+    SynthParams p;
+    p.sound = SynthSound::NylonGuitar;
+    p.body = 1.0f;
+    e.setSynth(kChordSynth, p);
+    e.noteOn(kChordSynth, 60, 60.0f, 0.9f);
+    Rendered out;
+    renderInto(e, out, 1.0);
+    CHECK(out.finite && out.peak > 0.02f && out.peak <= 1.0f);
+}

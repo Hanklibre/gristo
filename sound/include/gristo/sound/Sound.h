@@ -33,6 +33,23 @@ enum class SynthSound : int
 const char* synthSoundName(SynthSound sound);
 const char* synthCategoryName(SynthSound sound); // "Bass", "Keys", "Pads", "Leads", "Brass"
 
+// One drum's own sound, on top of the kit. Everything at its default leaves the kit's
+// sound as designed.
+struct DrumTweak
+{
+    float tune = 0.0f;   // semitones, -24..24
+    float decay = 0.5f;  // 0..1, 0.5 = as designed
+    float tone = 0.5f;   // 0..1, darker .. brighter
+    float punch = 0.5f;  // 0..1, click and pitch sweep of the attack
+    float noise = 0.5f;  // 0..1, the noise / metal layer against the body
+    float drive = 0.0f;  // 0..1
+    float pan = 0.0f;    // -1..1, added to the kit's position
+    // Body: a tuned comb resonator the drum excites, like a shell, tube or string.
+    float body = 0.0f;      // 0..1 amount
+    float bodyTune = 0.0f;  // semitones from the drum's own pitch, -24..24
+    float bodyDecay = 0.5f; // 0..1, short and woody .. long and ringing
+};
+
 struct KitParams
 {
     Kit kit = Kit::Eight08;
@@ -43,6 +60,7 @@ struct KitParams
     std::array<float, kNumDrumVoices> level { 0.8f, 0.8f, 0.8f, 0.8f, 0.8f, 0.8f };
     float reverbSend = 0.08f;
     float delaySend = 0.0f;
+    std::array<DrumTweak, kNumDrumVoices> voice {};
 };
 
 // Macro knobs are 0..1 with 0.5 = the sound as designed (glide and level excepted).
@@ -60,6 +78,7 @@ struct SynthParams
     float delaySend = 0.0f;
     float cutoffMod = 0.0f; // modulation lane offset, added to `cutoff`
     float duck = 0.0f;      // 0..1: how far the kick pushes this synth down (sidechain pumping)
+    float body = 0.0f;      // 0..1: a wooden resonant body around the sound
 };
 
 struct FxParams

@@ -68,7 +68,7 @@ private:
     {
         juce::ComboBox target;
         ModSlider amount;
-        std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> targetAttachment;
+        std::unique_ptr<ComboIdAttachment> targetAttachment; // by id: the list holds every parameter
         std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> amountAttachment;
     };
 
@@ -118,7 +118,13 @@ private:
     Knob voiceDynamics_[gristo::kNumVoices];
     Knob voiceRatchet_[gristo::kNumVoices], voiceSwing_[gristo::kNumVoices];
     std::unique_ptr<NumberSelector> voiceLengths_[gristo::kNumVoices];
-    juce::TextButton voiceTabs_[2]; // Pattern (what plays) / Play (how it is played and sent)
+    juce::TextButton voiceTabs_[3]; // Pattern (what plays) / Play (how it is played and sent) / Sound (the selected drum)
+    // Sound tab: one set of knobs, bound to the drum selected in the part strip.
+    Knob drumSound_[10];
+    Choice drumCondition_;
+    int soundVoice_ = -1;
+    void bindDrumSound(int voice);
+    void showKnobMenu(juce::Slider& knob);
     int voiceTab_ = 0;
     void showVoiceTab(int tab);
     std::unique_ptr<VelocityRange> velocityRanges_[gristo::kNumVoices];
@@ -188,7 +194,7 @@ private:
     {
         juce::ComboBox sound;
         std::unique_ptr<ComboIdAttachment> soundAttachment; // the menu is grouped by category
-        Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck;
+        Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck, body;
     };
     Choice soundKit_, fxTime_;
     Knob kitTune_, kitDecay_, kitTone_, kitDrive_, kitReverb_, kitDelay_, fxSize_, fxFeedback_;

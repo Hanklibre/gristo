@@ -42,6 +42,8 @@ struct SoundEngine::Impl
     Overdrive overdrive[1 + kNumSynths];
     Tape tape;
     Shimmer shimmer;
+    Resonator drumBody[kNumDrumVoices], synthBody[kNumSynths][2];
+    float drumBodyRing[kNumDrumVoices] {};
     float shimmerFeed = 0.0f;
     Wobble panDrift[kNumSynths];
     dsp::Noise variation { 0x5eed5u };
@@ -98,6 +100,16 @@ void SoundEngine::prepare(double sampleRate)
         o.prepare(m.sampleRate);
     m.tape.prepare(m.sampleRate);
     m.shimmer.prepare(m.sampleRate);
+    for (auto& r : m.drumBody)
+        r.prepare(m.sampleRate);
+    for (auto& pair : m.synthBody)
+    {
+        // Two body modes a fourth apart, short and dull: wood, not a note.
+        pair[0].prepare(m.sampleRate);
+        pair[1].prepare(m.sampleRate);
+        pair[0].set(155.0f, 0.18f, 0.7f);
+        pair[1].set(233.0f, 0.12f, 0.6f);
+    }
     for (int s = 0; s < kNumSynths; ++s)
         m.panDrift[s].prepare(m.sampleRate, 0.25f, 0xa11ceu + static_cast<std::uint32_t>(s) * 977u);
     setCharacter(m.character);
@@ -132,6 +144,13 @@ void SoundEngine::reset()
         o.reset();
     m.tape.reset();
     m.shimmer.reset();
+    for (auto& r : m.drumBody)
+        r.reset();
+    for (auto& pair : m.synthBody)
+        for (auto& r : pair)
+            r.reset();
+    for (auto& ring : m.drumBodyRing)
+        ring = 0.0f;
     m.shimmerFeed = 0.0f;
     for (auto* f : { &m.busToneL, &m.busToneR, &m.busAirL, &m.busAirR, &m.busColourL, &m.busColourR })
         f->reset();
@@ -155,6 +174,16 @@ void SoundEngine::setKit(const KitParams& params)
     k.delaySend = finite(k.delaySend, 0.0f);
     for (auto& level : k.level)
         level = finite(level, 0.0f);
+    for (auto& t : k.voice)
+    {
+        const DrumTweak clean;
+        t.tune = std::clamp(finite(t.tune, 0.0f), -24.0f, 24.0f);
+        t.bodyTune = std::clamp(finite(t.bodyTune, 0.0f), -24.0f, 24.0f);
+        t.pan = std::clamp(finite(t.pan, 0.0f), -1.0f, 1.0f);
+        for (auto [value, fallback] : { std::pair<float*, float> { &t.decay, clean.decay }, { &t.tone, clean.tone }, { &t.punch, clean.punch },
+                                        { &t.noise, clean.noise }, { &t.drive, 0.0f }, { &t.body, 0.0f }, { &t.bodyDecay, clean.bodyDecay } })
+            *value = dsp::clamp01(finite(*value, fallback));
+    }
     impl_->kit = k;
     impl_->configureBus();
 }
@@ -168,7 +197,7 @@ void SoundEngine::setSynth(int synth, const SynthParams& params)
     for (auto [value, fallback] : { std::pair<float*, float> { &p.cutoff, d.cutoff }, { &p.resonance, d.resonance },
                                     { &p.envAmount, d.envAmount }, { &p.attack, d.attack }, { &p.release, d.release },
                                     { &p.glide, d.glide }, { &p.level, 0.0f }, { &p.reverbSend, 0.0f },
-                                    { &p.delaySend, 0.0f }, { &p.cutoffMod, 0.0f }, { &p.duck, 0.0f } })
+                                    { &p.delaySend, 0.0f }, { &p.cutoffMod, 0.0f }, { &p.duck, 0.0f }, { &p.body, 0.0f } })
         *value = finite(*value, fallback);
     impl_->synthParams[synth] = p;
     impl_->synths[synth].setParams(p);
@@ -262,8 +291,29 @@ void SoundEngine::triggerDrum(int voice, float velocity)
         return;
     }
     const KitPatch& patch = kitPatch(m.kit.kit);
-    const float decayScale = dsp::macroLog(m.kit.decay, 0.3f, 1.0f, 2.5f);
-    m.drums[voice].trigger(patch.voices[voice], dsp::clamp01(velocity), std::clamp(m.kit.tune, -12.0f, 12.0f), decayScale, m.character.alive);
+    const DrumTweak& t = m.kit.voice[static_cast<size_t>(voice)];
+    // The drum's own settings reshape the kit's patch for this hit.
+    DrumPatch d = patch.voices[voice];
+    const float bright = std::exp2((t.tone - 0.5f) * 2.0f);
+    d.noiseHz *= bright;
+    d.metalHz *= bright;
+    d.body2 *= 0.5f + t.tone;
+    d.click *= t.punch * 2.0f;
+    d.f0 = d.f1 + (d.f0 - d.f1) * t.punch * 2.0f;
+    d.noise *= t.noise * 2.0f;
+    d.metal *= t.noise * 2.0f;
+    d.drive *= 1.0f + 4.0f * t.drive;
+    d.pan = std::clamp(d.pan + t.pan, -1.0f, 1.0f);
+    const float tune = std::clamp(m.kit.tune, -12.0f, 12.0f) + t.tune;
+    const float decayScale = dsp::macroLog(m.kit.decay, 0.3f, 1.0f, 2.5f) * dsp::macroLog(t.decay, 0.25f, 1.0f, 3.0f);
+    if (t.body > 0.0f)
+    {
+        // Tonal drums ring at their own pitch; noise drums get a mid-range shell.
+        const float base = d.body > 0.0f ? d.f1 : 220.0f;
+        m.drumBody[voice].set(base * std::exp2((tune + t.bodyTune) / 12.0f), dsp::macroLog(t.bodyDecay, 0.04f, 0.3f, 2.5f), 0.35f);
+        m.drumBodyRing[voice] = 4.0f * m.sampleRate; // keep it running while it can still ring
+    }
+    m.drums[voice].trigger(d, dsp::clamp01(velocity), tune, decayScale, m.character.alive);
 }
 
 void SoundEngine::noteOn(int synth, int id, float pitch, float velocity)
@@ -324,9 +374,17 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
         float kl = 0.0f, kr = 0.0f;
         for (int v = 0; v < kNumDrumVoices; ++v)
         {
-            if (!m.drums[v].active())
+            const float amount = m.kit.voice[static_cast<size_t>(v)].body;
+            const bool ringing = amount > 0.0f && m.drumBodyRing[v] > 0.0f;
+            if (!m.drums[v].active() && !ringing)
                 continue;
-            const float s = m.drums[v].tick() * m.kit.level[static_cast<size_t>(v)];
+            float s = m.drums[v].active() ? m.drums[v].tick() : 0.0f;
+            if (ringing)
+            {
+                m.drumBodyRing[v] -= 1.0f;
+                s = s * (1.0f - 0.4f * amount) + m.drumBody[v].process(s) * amount * 0.8f;
+            }
+            s *= m.kit.level[static_cast<size_t>(v)];
             const float pan = m.drums[v].pan();
             kl += s * (1.0f - pan);
             kr += s * (1.0f + pan);
@@ -400,7 +458,9 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             m.duckGain[s] += (duckTarget - m.duckGain[s]) * m.duckAttack;
             glide(m.revSend[1 + s], m.synthParams[s].reverbSend);
             glide(m.dlySend[1 + s], m.synthParams[s].delaySend);
-            const float y = m.synths[s].tick() * m.duckGain[s];
+            float y = m.synths[s].tick() * m.duckGain[s];
+            if (const float bodyAmount = m.synthParams[s].body; bodyAmount > 0.0f)
+                y += (m.synthBody[s][0].process(y) + m.synthBody[s][1].process(y)) * 0.35f * bodyAmount;
             const float amount = m.synths[s].chorus();
             if (amount > 0.0f && !m.chorusOn[s])
                 m.chorus[s].reset(); // back to an ensemble sound: no stale audio from before

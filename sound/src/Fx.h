@@ -148,6 +148,35 @@ private:
     dsp::OnePole highs_[2], bump_[2], hissTone_;
 };
 
+// Tuned comb resonator: a short delay line with damped feedback. Fed with a drum it
+// rings at its pitch like a shell or a string; fed with a synth it adds a body.
+class Resonator
+{
+public:
+    void prepare(float sampleRate);
+    void reset();
+    void set(float hz, float decaySeconds, float damping); // damping 0 = bright .. 1 = dull
+    float process(float in)
+    {
+        const auto size = line_.size();
+        const float pos = static_cast<float>(write_ + size) - delay_;
+        const auto i0 = static_cast<size_t>(pos);
+        const float frac = pos - static_cast<float>(i0);
+        const float read = line_[i0 % size] + (line_[(i0 + 1) % size] - line_[i0 % size]) * frac;
+        lp_ += damp_ * (read - lp_);
+        if (std::abs(lp_) < 1e-20f)
+            lp_ = 0.0f;
+        line_[write_] = in + dsp::fastTanh(lp_ * feedback_);
+        write_ = (write_ + 1) % size;
+        return read;
+    }
+
+private:
+    std::vector<float> line_ { 0.0f, 0.0f, 0.0f, 0.0f };
+    size_t write_ = 0;
+    float sampleRate_ = 48000.0f, delay_ = 2.0f, feedback_ = 0.0f, damp_ = 1.0f, lp_ = 0.0f;
+};
+
 // Octave-up pitch shifter (two crossfaded taps on a short delay line): fed from the
 // reverb's output back into its input, the tail climbs and glows.
 class Shimmer

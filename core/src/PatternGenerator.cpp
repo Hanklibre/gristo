@@ -74,6 +74,13 @@ StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absolut
         h.level = level;
         h.threshold = 1.0f - fillAt(p, v, absoluteStep);
         h.on = level > h.threshold && level > 0.0f && !p.mute[static_cast<size_t>(v)];
+        if (const int condition = p.condition[static_cast<size_t>(v)]; condition > 0)
+        {
+            const std::int64_t bar = floorDiv(absoluteStep, kStepsPerBar);
+            const bool plays = condition == 1 ? floorMod(bar, 2) == 0 : condition == 2 ? floorMod(bar, 2) == 1
+                             : condition == 3 ? floorMod(bar, 4) == 0 : floorMod(bar, 4) == 3;
+            h.on = h.on && plays;
+        }
 
         const float probability = probabilityAt(p, v, absoluteStep);
         if (h.on && probability < 1.0f)

@@ -110,15 +110,39 @@ GristoView::GristoView(GristoProcessor& proc)
         setHelp(sampleButtons_[v], juce::String(gristo::voiceName(v)) + " sample",
                 "Load your own one-shot for this drum instead of the kit's sound. Kit Tune, Decay (below 50% = shorter) and level still apply.");
     }
-    for (int t = 0; t < 2; ++t)
+    for (int t = 0; t < 3; ++t)
     {
-        voiceTabs_[t].setButtonText(t == 0 ? "Pattern" : "Play");
+        voiceTabs_[t].setButtonText(t == 0 ? "Pattern" : t == 1 ? "Play" : "Sound");
         voiceTabs_[t].setClickingTogglesState(false);
         voiceTabs_[t].onClick = [this, t] { showVoiceTab(t); };
         addAndMakeVisible(voiceTabs_[t]);
     }
     setHelp(voiceTabs_[0], "Pattern", "What each drum plays: how many notes, how likely, ratchets and its loop length.");
     setHelp(voiceTabs_[1], "Play", "How each drum is played and sent: feel, swing, velocity, MIDI note and channel, your own sample.");
+    setHelp(voiceTabs_[2], "Sound", "The sound of the drum selected on the left: tune, decay, tone, punch, noise, drive, pan and its resonant Body.");
+    {
+        const char* const names[10] = { "Tune", "Decay", "Tone", "Punch", "Noise", "Drive", "Pan", "Body", "Body Tune", "Body Decay" };
+        const char* const help[10] = {
+            "Pitch of this drum, in semitones, on top of the kit's Tune.",
+            "Length of this drum. The middle is the kit's own.",
+            "Darker to the left, brighter to the right.",
+            "The attack: click and pitch drop. Left is soft and round, right is hard.",
+            "The noise and metal layer against the tonal body. Left: all tone. Right: all rattle and sizzle.",
+            "Saturation of this drum alone.",
+            "Where this drum sits between left and right.",
+            "A tuned resonator the drum excites, like a shell, a tube or a string: adds an acoustic ring.",
+            "Pitch of the Body against the drum's own pitch, in semitones. Try 7, 12 or -5.",
+            "How long the Body rings: short and woody, or long like a tuned string." };
+        const juce::String ids[10] = { p::drumTune, p::drumDecay, p::drumTone, p::drumPunch, p::drumNoise, p::drumDrive, p::drumPan,
+                                       p::drumBody, p::drumBodyTune, p::drumBodyDecay };
+        for (int i = 0; i < 10; ++i)
+        {
+            setupKnob(drumSound_[i], p::voiceId(ids[i], 0), names[i]);
+            setHelp(drumSound_[i], names[i], help[i]);
+        }
+        setupChoice(drumCondition_, p::voiceId(p::voiceCondition, 0), "Plays");
+        setHelp(drumCondition_.box, "Plays", "When this drum plays at all: every bar, or only in some bars of two or four (a fill every fourth bar, a hit that answers every other bar).");
+    }
     setupChoice(timing_, p::timing, "Timing");
     setupKnob(shuffle_, p::shuffle, "Shuffle");
     setupChoice(feeling_, p::feeling, "Feeling");
@@ -209,12 +233,14 @@ GristoView::GristoView(GristoProcessor& proc)
     setHelp(laneWave_, "Lane mode", "Drawn: the curve you draw. LFO: a wave that runs in time with the tempo instead.");
     setHelp(laneRate_, "LFO rate", "How long one cycle of the LFO lasts.");
 
-    juce::StringArray targetNames;
-    for (int t = 0; t < mod::kNumTargets; ++t)
-        targetNames.add(mod::targetName(t));
     for (auto& slot : slots_)
     {
-        slot.target.addItemList(targetNames, 1);
+        for (int t = 0; t < mod::kNumTargets + p::numParameterTargets(); ++t)
+        {
+            if (t == mod::kNumTargets)
+                slot.target.addSeparator();
+            slot.target.addItem(p::targetDisplayName(t), t + 1);
+        }
         addAndMakeVisible(slot.target);
         slot.amount.setSliderStyle(juce::Slider::LinearBar);
         slot.amount.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 60, 20);
@@ -434,7 +460,7 @@ void GristoView::setupKnob(Knob& k, const juce::String& paramId, const juce::Str
     k.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(processor_.state, paramId, k.slider);
     learnables_[&k.slider] = ControlTarget::param(paramId);
     if (!k.slider.onContextMenu)
-        k.slider.onContextMenu = [this, &k] { showLearnMenu(k.slider); };
+        k.slider.onContextMenu = [this, &k] { showKnobMenu(k.slider); };
 }
 
 void GristoView::setupRandomKnob(Knob& k, const juce::String& paramId, const juce::String& text)
@@ -501,7 +527,7 @@ void GristoView::showModMenu(int target, juce::Component& knob)
         return -1;
     };
     juce::PopupMenu menu, macros;
-    menu.addSectionHeader(mod::targetName(target));
+    menu.addSectionHeader(p::targetDisplayName(target));
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
         menu.addItem(lane + 1, "Modulate with lane " + juce::String(lane + 1), true, slotOf(lane) >= 0);
     bool anyMacro = false;
@@ -564,7 +590,9 @@ void GristoView::assignSource(int source, int target)
         // Start with an audible amount that points into the knob's free travel: a knob
         // above halfway gets -50 %, below halfway +50 %. Velocity starts with dips.
         float start = 0.5f;
-        if (auto* s = targetSliders_[static_cast<size_t>(target)])
+        if (target >= mod::kNumTargets)
+            start = 0.5f;
+        else if (auto* s = targetSliders_[static_cast<size_t>(target)])
             start = s->valueToProportionOfLength(s->getValue()) > 0.5 ? -0.5f : 0.5f;
         else if (target == mod::kMapX || target == mod::kMapY)
             start = processor_.state.getRawParameterValue(target == mod::kMapX ? p::mapX : p::mapY)->load() > 0.5f ? -0.5f : 0.5f;
@@ -617,8 +645,7 @@ void GristoView::selectSource(int source)
         auto& slot = slots_[s];
         slot.targetAttachment.reset();
         slot.amountAttachment.reset();
-        slot.targetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
-            processor_.state, p::sourceTargetId(source, s), slot.target);
+        slot.targetAttachment = std::make_unique<ComboIdAttachment>(*processor_.state.getParameter(p::sourceTargetId(source, s)), slot.target);
         slot.amountAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
             processor_.state, p::sourceAmountId(source, s), slot.amount);
         slot.amount.setColour(juce::Slider::trackColourId, sourceColour(source));
@@ -1213,6 +1240,8 @@ void GristoView::setupSoundPage()
         setHelp(row.level, name + "Level", "Volume of this arp's synth.");
         setHelp(row.reverb, name + "Reverb", "How much of this synth goes to the reverb.");
         setHelp(row.delay, name + "Delay", "How much of this synth goes to the delay.");
+        setupSmallKnob(row.body, p::laneId(p::synthBody, a), "Body");
+        setHelp(row.body, name + "Body", "A wooden resonant body around the sound: makes plucks, keys and voices feel acoustic.");
         setupSmallKnob(row.duck, p::laneId(p::synthDuck, a), "Duck");
         setHelp(row.duck, name + "Duck", "Sidechain pumping: every kick pushes this sound down and it swells back.");
         if (arp >= 0)
@@ -1464,7 +1493,7 @@ std::vector<juce::Component*> GristoView::soundPageComponents()
     for (auto& row : synthRows_)
     {
         list.push_back(&row.sound);
-        for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck })
+        for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck, &row.body })
             addKnob(*k);
     }
     for (auto& h : soundLaneHandles_)
@@ -1871,8 +1900,8 @@ std::vector<juce::Component*> GristoView::drumsPageComponents()
         list.push_back(channels_[v].get());
         list.push_back(&sampleButtons_[v]);
     }
-    list.push_back(&voiceTabs_[0]);
-    list.push_back(&voiceTabs_[1]);
+    for (auto& tab : voiceTabs_)
+        list.push_back(&tab);
     return list;
 }
 
@@ -1880,8 +1909,17 @@ void GristoView::showVoiceTab(int tab)
 {
     voiceTab_ = tab;
     const bool drums = page_ == 0;
-    for (int t = 0; t < 2; ++t)
+    for (int t = 0; t < 3; ++t)
         voiceTabs_[t].setColour(juce::TextButton::buttonColourId, t == tab ? colours::accent.withAlpha(0.55f) : colours::panel);
+    for (auto& k : drumSound_)
+    {
+        k.slider.setVisible(drums && tab == 2);
+        k.label.setVisible(drums && tab == 2);
+    }
+    drumCondition_.box.setVisible(drums && tab == 2);
+    drumCondition_.label.setVisible(drums && tab == 2);
+    if (drums && tab == 2)
+        bindDrumSound(selectedPart_ < gristo::kNumVoices ? selectedPart_ : 0);
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
         for (Knob* k : { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceRatchet_[v] })
@@ -1895,6 +1933,36 @@ void GristoView::showVoiceTab(int tab)
     repaint();
 }
 
+void GristoView::bindDrumSound(int voice)
+{
+    if (voice == soundVoice_)
+        return;
+    soundVoice_ = voice;
+    const juce::String ids[10] = { p::drumTune, p::drumDecay, p::drumTone, p::drumPunch, p::drumNoise, p::drumDrive, p::drumPan,
+                                   p::drumBody, p::drumBodyTune, p::drumBodyDecay };
+    auto& st = processor_.state;
+    for (int i = 0; i < 10; ++i)
+    {
+        const auto id = p::voiceId(ids[i], voice);
+        drumSound_[i].attachment.reset();
+        drumSound_[i].attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(st, id, drumSound_[i].slider);
+        learnables_[&drumSound_[i].slider] = ControlTarget::param(id);
+    }
+    drumCondition_.attachment.reset();
+    drumCondition_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(st, p::voiceId(p::voiceCondition, voice), drumCondition_.box);
+}
+
+// A knob the engine has no lane target for: lanes and macros reach it as a parameter.
+void GristoView::showKnobMenu(juce::Slider& knob)
+{
+    const auto it = learnables_.find(&knob);
+    const int target = it != learnables_.end() ? p::parameterTarget(it->second.paramA) : -1;
+    if (target >= 0)
+        showModMenu(target, knob);
+    else
+        showLearnMenu(knob);
+}
+
 std::vector<juce::Component*> GristoView::masterPageComponents()
 {
     return { &fxSize_.slider, &fxSize_.label, &fxFeedback_.slider, &fxFeedback_.label, &fxTime_.box, &fxTime_.label,
@@ -1906,7 +1974,7 @@ std::vector<juce::Component*> GristoView::synthComponents(int synth)
 {
     auto& row = synthRows_[synth];
     std::vector<juce::Component*> list { &row.sound };
-    for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck })
+    for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck, &row.body })
     {
         list.push_back(&k->slider);
         list.push_back(&k->label);
@@ -2206,7 +2274,17 @@ void GristoView::paint(juce::Graphics& g)
         g.setFont(juce::FontOptions(11.5f));
         static const char* const patternRows[] = { "Fill", "Random", "Probability", "Random", "Ratchet", "Length" };
         static const char* const playRows[] = { "Humanize", "Dynamics", "Swing", "Velocity", "Note", "Channel", "Sample" };
-        const int count = voiceTab_ == 0 ? 6 : 7;
+        const int count = voiceTab_ == 0 ? 6 : voiceTab_ == 1 ? 7 : 0;
+        if (voiceTab_ == 2)
+        {
+            const int voice = selectedPart_ < gristo::kNumVoices ? selectedPart_ : 0;
+            g.setColour(voiceColours[voice]);
+            g.setFont(juce::FontOptions(15.0f, juce::Font::bold));
+            g.drawText(juce::String(gristo::voiceName(voice)) + " sound", px + 326, py + 48, 300, 20, juce::Justification::centredLeft);
+            g.setColour(colours::dim);
+            g.setFont(juce::FontOptions(11.5f));
+            g.drawText("Pick another drum on the left. Right-click a knob to modulate it.", px + 536, py + 348, 270, 26, juce::Justification::centredLeft);
+        }
         for (int r = 0; r < count; ++r)
         {
             const int y = voiceTab_ == 0 ? kVoiceRowY[r] : kPlayRowY[r];
@@ -2391,6 +2469,11 @@ void GristoView::resized()
 
     voiceTabs_[0].setBounds(px + 308 + 76, py + 5, 70, 18);
     voiceTabs_[1].setBounds(px + 308 + 150, py + 5, 56, 18);
+    voiceTabs_[2].setBounds(px + 308 + 210, py + 5, 60, 18);
+    for (int i = 0; i < 10; ++i)
+        placeKnob(drumSound_[i], { px + 322 + (i % 5) * 96, py + 78 + (i / 5) * 132, 90, 118 });
+    drumCondition_.label.setBounds(px + 326, py + 348, 44, 26);
+    drumCondition_.box.setBounds(px + 372, py + 348, 150, 26);
     // Voices matrix: one column per voice, one row per parameter
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
@@ -2447,9 +2530,9 @@ void GristoView::resized()
     {
         auto& row = synthRows_[s];
         row.sound.setBounds(px + 24, py + 352, 190, 30);
-        Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck };
-        for (int i = 0; i < 10; ++i)
-            placeLabeled(*knobs[i], { px + 232 + i * 82 + (i >= 7 ? 14 : 0), py + 332, 78, 142 });
+        Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.body, &row.reverb, &row.delay, &row.duck };
+        for (int i = 0; i < 11; ++i)
+            placeLabeled(*knobs[i], { px + 228 + i * 75 + (i >= 8 ? 12 : 0), py + 332, 72, 142 });
     }
 
     // Timeline: lanes, the pattern, routing

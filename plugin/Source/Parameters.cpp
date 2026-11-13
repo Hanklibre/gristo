@@ -52,9 +52,21 @@ constexpr int kVersion = 1;
 // arps play, so Live can split drums from arps by note. A Pitch +36 restores GM.
 const int kDefaultNotes[kNumVoices] = { 0, 2, 6, 10, 3, 9 };
 
+thread_local const ParamOffsets* activeOffsets = nullptr;
+
 float load(const juce::AudioProcessorValueTreeState& s, const juce::String& id)
 {
-    return s.getRawParameterValue(id)->load(std::memory_order_relaxed);
+    const float raw = s.getRawParameterValue(id)->load(std::memory_order_relaxed);
+    if (activeOffsets != nullptr)
+        for (int i = 0; i < activeOffsets->count; ++i)
+            if (const auto& e = activeOffsets->entries[static_cast<size_t>(i)]; e.id != nullptr && *e.id == id)
+                if (auto* param = s.getParameter(id))
+                {
+                    const auto& range = param->getNormalisableRange();
+                    const float moved = juce::jlimit(0.0f, 1.0f, range.convertTo0to1(raw) + e.offset);
+                    return range.snapToLegalValue(range.convertFrom0to1(moved));
+                }
+    return raw;
 }
 
 std::unique_ptr<juce::AudioParameterFloat> floatParam(const juce::String& id, const juce::String& name,
@@ -112,6 +124,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(voiceLength, v), kVersion }, name + " Length", 1, kPatternSteps, kPatternSteps));
         layout.add(percentParam(voiceId(voiceRatchet, v), name + " Ratchet", 0.0f));
         layout.add(percentParam(voiceId(voiceSwing, v), name + " Swing", 1.0f));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { voiceId(voiceCondition, v), kVersion }, name + " Plays",
+                                                                juce::StringArray { "Every bar", "1st of 2 bars", "2nd of 2 bars", "1st of 4 bars", "4th of 4 bars" }, 0));
+        layout.add(floatParam(voiceId(drumTune, v), name + " Tune", { -24.0f, 24.0f, 0.1f }, 0.0f, "st", 1));
+        layout.add(percentParam(voiceId(drumDecay, v), name + " Decay", 0.5f));
+        layout.add(percentParam(voiceId(drumTone, v), name + " Tone", 0.5f));
+        layout.add(percentParam(voiceId(drumPunch, v), name + " Punch", 0.5f));
+        layout.add(percentParam(voiceId(drumNoise, v), name + " Noise", 0.5f));
+        layout.add(percentParam(voiceId(drumDrive, v), name + " Drive", 0.0f));
+        layout.add(floatParam(voiceId(drumPan, v), name + " Pan", { -1.0f, 1.0f, 0.01f }, 0.0f));
+        layout.add(percentParam(voiceId(drumBody, v), name + " Body", 0.0f));
+        layout.add(floatParam(voiceId(drumBodyTune, v), name + " Body Tune", { -24.0f, 24.0f, 0.1f }, 0.0f, "st", 1));
+        layout.add(percentParam(voiceId(drumBodyDecay, v), name + " Body Decay", 0.5f));
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMin, v), kVersion }, name + " Velocity Min", 1, 127,
                                                              juce::roundToInt(dyn.velMin[static_cast<size_t>(v)] * 127.0f)));
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMax, v), kVersion }, name + " Velocity Max", 1, 127,
@@ -254,6 +278,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             layout.add(percentParam(laneId(synthReverb, a), name + "Reverb", a == 0 ? 0.1f : a == 1 ? 0.25f : 0.3f));
             layout.add(percentParam(laneId(synthDelay, a), name + "Delay", a == 1 || a == 2 ? 0.2f : 0.0f));
             layout.add(percentParam(laneId(synthDuck, a), name + "Duck", 0.0f));
+            layout.add(percentParam(laneId(synthBody, a), name + "Body", 0.0f));
         }
         // Chord sequencer
         {
@@ -300,9 +325,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add(boolParam(freeRun, "Free Run", false));
     layout.add(floatParam(freeTempo, "Free Tempo", { 40.0f, 240.0f, 0.1f }, 95.0f, "bpm", 1));
     // Modulation lanes
-    juce::StringArray targetNames;
-    for (int t = 0; t < mod::kNumTargets; ++t)
-        targetNames.add(mod::targetName(t));
+    const auto targetAttributes = juce::AudioParameterIntAttributes().withStringFromValueFunction([](int v, int) { return targetDisplayName(v); });
     for (int lane = 0; lane < kNumModLanes; ++lane)
     {
         const juce::String laneName = "Lane " + juce::String(lane + 1);
@@ -320,8 +343,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         for (int slot = 0; slot < kModSlotsPerLane; ++slot)
         {
             const juce::String slotName = laneName + " Slot " + juce::String(slot + 1);
-            layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { slotId(modTarget, lane, slot), kVersion },
-                                                                    slotName + " Target", targetNames, 0));
+            layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { slotId(modTarget, lane, slot), kVersion }, slotName + " Target",
+                                                                 0, kMaxTargets - 1, 0, targetAttributes));
             auto attributes = juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) {
                 const int pct = juce::roundToInt(v * 100.0f);
                 return (pct > 0 ? "+" : "") + juce::String(pct) + "%";
@@ -338,8 +361,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         for (int slot = 0; slot < kModSlotsPerLane; ++slot)
         {
             const juce::String slotName = name + " Slot " + juce::String(slot + 1);
-            layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { slotId(macroTarget, m, slot), kVersion },
-                                                                    slotName + " Target", targetNames, 0));
+            layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { slotId(macroTarget, m, slot), kVersion }, slotName + " Target",
+                                                                 0, kMaxTargets - 1, 0, targetAttributes));
             layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID { slotId(macroAmount, m, slot), kVersion },
                                                                    slotName + " Amount", juce::NormalisableRange<float> { -1.0f, 1.0f }, 0.0f));
         }
@@ -371,6 +394,7 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         p.pattern.length[i] = static_cast<int>(load(s, voiceId(voiceLength, v)));
         p.groove.ratchet[i] = load(s, voiceId(voiceRatchet, v));
         p.groove.swing[i] = load(s, voiceId(voiceSwing, v));
+        p.pattern.condition[i] = static_cast<int>(load(s, voiceId(voiceCondition, v)));
         const float lo = load(s, voiceId(velMin, v)) / 127.0f;
         const float hi = load(s, voiceId(velMax, v)) / 127.0f;
         p.dynamics.velMin[i] = std::min(lo, hi);
@@ -506,7 +530,20 @@ sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& s)
     k.tone = load(s, kitTone);
     k.drive = load(s, kitDrive);
     for (int v = 0; v < kNumVoices; ++v)
+    {
         k.level[static_cast<size_t>(v)] = load(s, voiceId(drumLevel, v));
+        auto& t = k.voice[static_cast<size_t>(v)];
+        t.tune = load(s, voiceId(drumTune, v));
+        t.decay = load(s, voiceId(drumDecay, v));
+        t.tone = load(s, voiceId(drumTone, v));
+        t.punch = load(s, voiceId(drumPunch, v));
+        t.noise = load(s, voiceId(drumNoise, v));
+        t.drive = load(s, voiceId(drumDrive, v));
+        t.pan = load(s, voiceId(drumPan, v));
+        t.body = load(s, voiceId(drumBody, v));
+        t.bodyTune = load(s, voiceId(drumBodyTune, v));
+        t.bodyDecay = load(s, voiceId(drumBodyDecay, v));
+    }
     k.reverbSend = spaceSend(s, load(s, kitReverb));
     k.delaySend = spaceSend(s, load(s, kitDelay));
     return k;
@@ -527,6 +564,7 @@ sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& s, 
     p.reverbSend = spaceSend(s, load(s, laneId(synthReverb, arp)));
     p.delaySend = spaceSend(s, load(s, laneId(synthDelay, arp)));
     p.duck = load(s, laneId(synthDuck, arp));
+    p.body = load(s, laneId(synthBody, arp));
     return p;
 }
 
@@ -550,5 +588,64 @@ sound::CharacterParams readCharacterParams(const juce::AudioProcessorValueTreeSt
     c.alive = load(s, alive);
     return c;
 }
+
+namespace {
+struct TargetTable
+{
+    juce::StringArray ids, names;
+};
+TargetTable& targetTable()
+{
+    static TargetTable table;
+    return table;
+}
+} // namespace
+
+void registerParameterTargets(const juce::AudioProcessor& processor)
+{
+    auto& table = targetTable();
+    if (!table.ids.isEmpty()) // every instance has the same parameters
+        return;
+    static const char* const excluded[] = { "modTgt", "modAmt", "macTgt", "macAmt", "note", "chan", "arpChan", "arpShift", "chChan", "chShift",
+                                            "kitOn", "freeRun", "partSolo", "sepOuts", "chLoop", "chFrozen" };
+    for (auto* param : processor.getParameters())
+        if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
+        {
+            const auto base = withId->paramID.trimCharactersAtEnd("0123456789_").trimCharactersAtEnd("0123456789");
+            bool skip = false;
+            for (const char* e : excluded)
+                skip = skip || base == e;
+            if (!skip && table.ids.size() < kMaxTargets - mod::kNumTargets)
+            {
+                table.ids.add(withId->paramID);
+                table.names.add(withId->getName(64));
+            }
+        }
+}
+
+int numParameterTargets() { return targetTable().ids.size(); }
+
+int parameterTarget(const juce::String& paramId)
+{
+    const int index = targetTable().ids.indexOf(paramId);
+    return index >= 0 ? mod::kNumTargets + index : -1;
+}
+
+const juce::String& parameterTargetId(int target)
+{
+    static const juce::String none;
+    const int index = target - mod::kNumTargets;
+    return index >= 0 && index < targetTable().ids.size() ? targetTable().ids.getReference(index) : none;
+}
+
+juce::String targetDisplayName(int target)
+{
+    if (target >= 0 && target < mod::kNumTargets)
+        return mod::targetName(target);
+    const int index = target - mod::kNumTargets;
+    return index >= 0 && index < targetTable().names.size() ? targetTable().names[index] : juce::String("None");
+}
+
+void setActiveOffsets(const ParamOffsets* offsets) { activeOffsets = offsets; }
 
 } // namespace gristo::params

@@ -19,6 +19,19 @@ inline const juce::String voiceHumanize = "human";
 inline const juce::String voiceLength = "len";     // polymeter: steps before the voice loops
 inline const juce::String voiceRatchet = "ratch";
 inline const juce::String voiceSwing = "swing";
+inline const juce::String voiceCondition = "cond"; // trig condition (every bar, 1st of 2, ...)
+// Each drum's own sound
+inline const juce::String drumTune = "dTune";
+inline const juce::String drumDecay = "dDecay";
+inline const juce::String drumTone = "dTone";
+inline const juce::String drumPunch = "dPunch";
+inline const juce::String drumNoise = "dNoise";
+inline const juce::String drumDrive = "dDrive";
+inline const juce::String drumPan = "dPan";
+inline const juce::String drumBody = "dBody";
+inline const juce::String drumBodyTune = "dBodyTune";
+inline const juce::String drumBodyDecay = "dBodyDec";
+inline const juce::String synthBody = "synBody";
 inline const juce::String voiceDynamics = "dyn";
 inline const juce::String partMute = "partMute"; // per part: 6 drums, 3 arps, chords
 inline const juce::String partSolo = "partSolo";
@@ -168,6 +181,29 @@ inline juce::String noteDisplayName(int noteNumber)
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
+
+// Lane and macro targets: the engine's own targets (0 .. mod::kNumTargets - 1, with
+// rings on the knobs), then every other parameter of the plugin.
+constexpr int kMaxTargets = mod::kNumTargets + 1024;
+void registerParameterTargets(const juce::AudioProcessor& processor); // once the parameters exist
+int numParameterTargets();
+int parameterTarget(const juce::String& paramId); // -1: not a target (routing, the slots themselves)
+const juce::String& parameterTargetId(int target);
+juce::String targetDisplayName(int target);
+
+// Offsets (in normalised units) added to parameters while they are read, on the
+// calling thread: how lanes reach parameters the engine has no target for.
+struct ParamOffsets
+{
+    struct Entry
+    {
+        const juce::String* id = nullptr;
+        float offset = 0.0f;
+    };
+    std::array<Entry, kNumModSources * kModSlotsPerLane> entries {};
+    int count = 0;
+};
+void setActiveOffsets(const ParamOffsets* offsets);
 
 // Reads the current parameter values into engine parameters. Lock-free (atomic
 // loads only), so it is safe on both the audio and the message thread.

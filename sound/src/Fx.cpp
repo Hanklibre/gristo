@@ -485,6 +485,29 @@ void Tape::process(float& l, float& r)
     r = tr * wobble + hiss;
 }
 
+void Resonator::prepare(float sampleRate)
+{
+    sampleRate_ = sampleRate;
+    line_.assign(static_cast<size_t>(sampleRate / 25.0f) + 8, 0.0f);
+    reset();
+}
+
+void Resonator::reset()
+{
+    std::fill(line_.begin(), line_.end(), 0.0f);
+    write_ = 0;
+    lp_ = 0.0f;
+}
+
+void Resonator::set(float hz, float decaySeconds, float damping)
+{
+    hz = std::clamp(hz, 30.0f, sampleRate_ * 0.25f);
+    damp_ = 1.0f - 0.85f * dsp::clamp01(damping);
+    // The loop filter delays by about (1 - a) / a samples: take it off the line.
+    delay_ = std::clamp(sampleRate_ / hz - (1.0f - damp_) / damp_, 2.0f, static_cast<float>(line_.size()) - 3.0f);
+    feedback_ = std::min(0.995f, std::pow(0.001f, 1.0f / (std::max(0.01f, decaySeconds) * hz)));
+}
+
 void Shimmer::prepare(float sampleRate)
 {
     window_ = 0.085f * sampleRate;

@@ -24,6 +24,7 @@ GristoProcessor::GristoProcessor()
                          .withOutput("FX", juce::AudioChannelSet::stereo(), false)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
+    p::registerParameterTargets(*this);
     resetLanes();
     presets.markClean();
     for (auto* param : getParameters())
@@ -53,12 +54,7 @@ void GristoProcessor::refreshSettings()
     {
         seenGeneration_ = generation;
         auto& c = settings_;
-        c.engine = p::readEngineParams(state, modPoints);
-        c.kit = p::readKitParams(state);
-        for (int sIndex = 0; sIndex < gristo::sound::kNumSynths; ++sIndex)
-            c.synths[sIndex] = p::readSynthParams(state, sIndex);
-        c.fx = p::readFxParams(state);
-        c.character = p::readCharacterParams(state);
+        readSettings();
         auto value = [this](const juce::String& id) { return state.getRawParameterValue(id)->load(std::memory_order_relaxed); };
         for (int v = 0; v < gristo::kNumVoices; ++v)
         {
@@ -82,6 +78,14 @@ void GristoProcessor::refreshSettings()
         for (const auto& lane : c.engine.modulation.lanes)
             for (const auto& slot : lane.slots)
                 c.soundModulated = c.soundModulated || (slot.target >= gristo::mod::kSoundBase && std::abs(slot.amount) > 0.0f);
+        parameterTargetCount_ = 0;
+        for (const auto& lane : c.engine.modulation.lanes)
+            for (const auto& slot : lane.slots)
+                if (slot.target >= gristo::mod::kNumTargets && std::abs(slot.amount) > 0.0f && !p::parameterTargetId(slot.target).isEmpty()
+                    && std::find(parameterTargets_.begin(), parameterTargets_.begin() + parameterTargetCount_, slot.target)
+                           == parameterTargets_.begin() + parameterTargetCount_)
+                    parameterTargets_[static_cast<size_t>(parameterTargetCount_++)] = slot.target;
+        parameterOffsetsStale_ = true;
     }
     else
     {
@@ -101,6 +105,42 @@ void GristoProcessor::refreshSettings()
     }
     if (changed)
         engine_.setParams(settings_.engine);
+}
+
+void GristoProcessor::readSettings()
+{
+    auto& c = settings_;
+    c.engine = p::readEngineParams(state, modPoints);
+    c.kit = p::readKitParams(state);
+    for (int sIndex = 0; sIndex < gristo::sound::kNumSynths; ++sIndex)
+        c.synths[sIndex] = p::readSynthParams(state, sIndex);
+    c.fx = p::readFxParams(state);
+    c.character = p::readCharacterParams(state);
+}
+
+void GristoProcessor::applyParameterModulation(std::int64_t step, bool playing)
+{
+    if (parameterTargetCount_ == 0)
+        return;
+    const int firstSource = playing ? 0 : gristo::kNumModLanes; // stopped: macros only
+    p::ParamOffsets offsets;
+    bool moved = parameterOffsetsStale_;
+    for (int i = 0; i < parameterTargetCount_; ++i)
+    {
+        const int target = parameterTargets_[static_cast<size_t>(i)];
+        const float offset = engine_.modulationAt(target, step, firstSource);
+        moved = moved || std::abs(offset - parameterOffsets_[static_cast<size_t>(i)]) > 1.0e-4f;
+        parameterOffsets_[static_cast<size_t>(i)] = offset;
+        offsets.entries[static_cast<size_t>(i)] = { &p::parameterTargetId(target), offset };
+    }
+    if (!moved)
+        return;
+    offsets.count = parameterTargetCount_;
+    parameterOffsetsStale_ = false;
+    p::setActiveOffsets(&offsets);
+    readSettings();
+    p::setActiveOffsets(nullptr);
+    engine_.setParams(settings_.engine);
 }
 
 void GristoProcessor::applySoundSettings(std::int64_t step, bool playing)
@@ -271,13 +311,14 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // glides levels, filters and sends in between).
     const double beatsPerSample = block.bpm / (60.0 * sampleRate_);
     auto nextStep = static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat));
+    applyParameterModulation(nextStep, block.playing);
     if (kitOn)
         applySoundSettings(nextStep, block.playing);
     ++nextStep;
     auto boundarySample = [&](std::int64_t step) {
         return static_cast<int>(std::ceil((static_cast<double>(step) / gristo::kStepsPerBeat - block.ppqStart) / beatsPerSample));
     };
-    const bool stepwise = kitOn && block.playing && settings_.soundModulated && beatsPerSample > 0.0;
+    const bool stepwise = kitOn && block.playing && (settings_.soundModulated || parameterTargetCount_ > 0) && beatsPerSample > 0.0;
     const float kitGain = settings_.kitGain;
     auto mainOut = getBusBuffer(buffer, false, 0);
     float* left = mainOut.getWritePointer(0);
@@ -327,6 +368,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         while (stepwise && boundarySample(nextStep) < end)
         {
             renderKitTo(std::max(rendered, boundarySample(nextStep)));
+            applyParameterModulation(nextStep, true);
             applySoundSettings(nextStep, true);
             ++nextStep;
         }

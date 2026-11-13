@@ -29,6 +29,9 @@ struct PatternParams
     std::array<bool, kNumVoices> mute {};
     // Polymeter: a voice loops its first `length` steps (kPatternSteps = the whole pattern).
     std::array<int, kNumVoices> length { kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps };
+    // Elektron-style trig condition per voice: 0 = every bar, 1 = 1st of 2 bars,
+    // 2 = 2nd of 2, 3 = 1st of 4, 4 = 4th of 4 (a fill every four bars).
+    std::array<int, kNumVoices> condition {};
     bool linear = false;
     std::uint32_t seed = 0x67726973u;
 };

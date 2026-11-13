@@ -644,3 +644,59 @@ TEST("plugin: MIDI learn binds a controller; the controller layouts drive knobs,
     const Run run = play(*proc, 200);
     CHECK(run.nonFinite == 0);
 }
+
+TEST("plugin: a lane or macro can move any parameter; drum sound settings and trig conditions reach the engine")
+{
+    auto proc = makeProcessor();
+    // Every knob-like parameter is a target and has a name.
+    const int dirt = p::parameterTarget(p::dirt), bodyTune = p::parameterTarget(p::voiceId(p::drumBodyTune, 3));
+    CHECK(dirt >= gristo::mod::kNumTargets && bodyTune > dirt - 2000 && bodyTune >= gristo::mod::kNumTargets);
+    CHECK(p::targetDisplayName(dirt) == "Dirt");
+    CHECK(p::parameterTarget(p::voiceId(p::note, 0)) < 0);   // MIDI routing stays put
+    CHECK(p::parameterTarget(p::sourceTargetId(0, 0)) < 0);  // and so do the slots themselves
+    CHECK(p::numParameterTargets() > 300);
+    int unnamed = 0;
+    for (int t = gristo::mod::kNumTargets; t < gristo::mod::kNumTargets + p::numParameterTargets(); ++t)
+        unnamed += p::targetDisplayName(t).isEmpty() ? 1 : 0;
+    CHECK(unnamed == 0);
+
+    // Macro 1 routed to Busy at -100 %: turning the macro up empties the drums, without
+    // touching the Busy knob itself.
+    setParam(*proc, p::sourceTargetId(gristo::kNumModLanes, 0), static_cast<float>(p::parameterTarget(p::busy)));
+    setParam(*proc, p::sourceAmountId(gristo::kNumModLanes, 0), -1.0f);
+    proc->pump(2);
+    const Run before = play(*proc, 400);
+    CHECK(before.noteOns[10] > 8);
+    setParam(*proc, p::laneId(p::macroValue, 0), 1.0f);
+    proc->pump(2);
+    const Run muted = play(*proc, 400, 256, &before);
+    CHECK_MSG(muted.noteOns[10] <= 2, muted.noteOns[10] << " drum notes with Busy pulled down by the macro");
+    CHECK(std::abs(getParam(*proc, p::busy) - 0.5f) < 1e-4f);
+    CHECK(muted.unpaired == 0);
+    setParam(*proc, p::laneId(p::macroValue, 0), 0.0f);
+    proc->pump(2);
+    const Run back = play(*proc, 400, 256, &muted);
+    CHECK(back.noteOns[10] > 8);
+
+    // A drawn lane on a drum's Body Tune: plays, finite, paired.
+    setParam(*proc, p::sourceTargetId(0, 0), static_cast<float>(bodyTune));
+    setParam(*proc, p::sourceAmountId(0, 0), 1.0f);
+    setParam(*proc, p::voiceId(p::drumBody, 3), 1.0f);
+    setParam(*proc, p::voiceId(p::drumBody, 0), 0.8f);
+    setParam(*proc, p::voiceId(p::drumTune, 1), -7.0f);
+    proc->pump(2);
+    const Run lane = play(*proc, 800, 256, &back);
+    CHECK(lane.nonFinite == 0 && lane.peak <= 1.0f && lane.unpaired == 0);
+
+    // Trig condition: the kick only in the 4th of 4 bars.
+    auto fresh = makeProcessor();
+    setParam(*fresh, p::voiceId(p::voiceCondition, 0), 4.0f);
+    for (int v = 1; v < gristo::kNumVoices; ++v)
+        setParam(*fresh, p::voiceId(p::partMute, v), 1.0f);
+    fresh->pump(2);
+    const double blocksPerBar = 4.0 * 60.0 / 95.0 * 48000.0 / 256.0;
+    const Run three = play(*fresh, static_cast<int>(blocksPerBar * 2.9));
+    CHECK(three.noteOns[10] == 0);
+    const Run fourth = play(*fresh, static_cast<int>(blocksPerBar * 1.1), 256, &three);
+    CHECK(fourth.noteOns[10] > 0);
+}

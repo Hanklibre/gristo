@@ -166,6 +166,14 @@ private:
     };
     void parameterChanged(const juce::String& id, float value) override;
     void refreshSettings();
+    // Lanes and macros routed to parameters the engine has no target for: their
+    // offsets are worked out per 16th and the settings read again with them.
+    void applyParameterModulation(std::int64_t step, bool playing);
+    void readSettings();
+    std::array<int, gristo::kNumModSources * gristo::kModSlotsPerLane> parameterTargets_ {};
+    std::array<float, gristo::kNumModSources * gristo::kModSlotsPerLane> parameterOffsets_ {};
+    int parameterTargetCount_ = 0;
+    bool parameterOffsetsStale_ = false;
     void applySoundSettings(std::int64_t step, bool playing); // lanes applied to the sound knobs at `step`
     Settings settings_;
 
