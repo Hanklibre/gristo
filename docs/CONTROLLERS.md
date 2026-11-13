@@ -17,6 +17,14 @@ used for its control only; it does not reach the arps or the chord keys.
 > them. They have **not** been checked against the hardware. If a control does
 > the wrong thing, re-learn it (right-click the control in Gristo).
 
+## Printable sheets
+
+[Gristo-controller-overlays.pdf](Gristo-controller-overlays.pdf) has, for each
+layout, a labelled diagram and cut-out label strips (one per row of controls).
+The strips' column spacing is a guess (27 mm for the Launch Control XL, 30 mm for
+the APC40): measure yours and regenerate with
+`python3 tools/make_overlays.py --lcxl-pitch <mm> --apc-pitch <mm>`. Print at 100 %.
+
 ## Getting the controllers to Gristo in Ableton Live
 
 Live sends everything on a track to the plugin on channel 1, so two controllers

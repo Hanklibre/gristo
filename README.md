@@ -80,6 +80,20 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### Drum sound pages, Body, any-parameter modulation
+
+* **A sound page per drum:** in Edit, pick a drum on the left and open the
+  **Sound** tab: Tune, Decay, Tone, Punch, Noise, Drive, Pan, and **Body**, a
+  tuned comb resonator the drum excites (with Body Tune and Body Decay) for an
+  acoustic ring: shells, tubes, tuned strings.
+* **Body on the synths:** a small resonant wooden body around any sound.
+* **Plays** (trig condition, per drum): every bar, 1st or 2nd of 2 bars, 1st
+  or 4th of 4 bars.
+* **Lanes and macros reach every parameter:** right-click any knob, or pick it
+  in a routing slot. (MIDI notes, channels and Out Shift are left out.) Knobs
+  the engine has its own target for still show rings; the others don't.
+* **Printable controller sheets:** docs/Gristo-controller-overlays.pdf.
+
 ### Controllers, and sounds for hybrid styles
 
 * **MIDI controllers:** right-click any control for **MIDI learn**, or load a
