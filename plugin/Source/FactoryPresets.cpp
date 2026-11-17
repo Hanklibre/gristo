@@ -15,7 +15,7 @@ enum Feeling { Tight = 0, Rolls, Flam, Slop };
 enum KitIndex { Classic = 0, K808, Trap, LoFi, Minimal, Reggaeton, House, Techno, Breakbeat, Jungle, Amapiano, Dancehall, Temple, DustySoul, Acoustic };
 enum Sound { Sub = 0, Acid, Reese, FmBass, EPiano, Bell, Pluck, Organ, WarmPad, GlassPad, DarkPad, SquareLead, SyncLead, SoftLead,
              FeltPiano, Celesta, BreathPad, SlowStrings, PolyStrings, SynthBrass, PolySynth, TapeKeys,
-             SuitcaseKeys, Vibraphone, UprightBass, JazzOrgan, Bass808, MonkChoir, VoxPad, SingingBowl, NylonGuitar, Koto };
+             SuitcaseKeys, Vibraphone, UprightBass, JazzOrgan, Bass808, MonkChoir, VoxPad, SingingBowl, NylonGuitar, Koto, PhaseBass, ResoLead, PhasePad, PhaseKeys, FoldDrone };
 enum ChordPlay { Off = 0, Held, Stabs };
 enum Scale { Major = 0, Minor, Dorian, Phrygian, Lydian, Mixolydian, HarmonicMinor, MinorPenta, MajorPenta, Blues, Chromatic, Insen, Hirajoshi, PhrygianDom };
 
@@ -203,6 +203,11 @@ const std::vector<PresetManager::Factory>& PresetManager::factoryPresets()
                    { "kitType", Acoustic }, { "kitRev", 0.18f }, { "freeTempo", 92.0f } },
                  chords(4, false, 0, 2, 0.45f, Stabs, NylonGuitar, { Snare }), dirt(Tape, 0.35f), { { "chStrum", 24.0f }, { "chGate", 4.0f } },
                  arp(0, UprightBass, 36, Major, { Kick }, 0.85f, 3.0f), { { "arpFollow0", 1.0f } } }) },
+        { "Phase Jungle", // phase-distortion bass and keys over breaks
+          join({ { { "mapX", 0.6f }, { "mapY", 0.4f }, { "timing", Shake }, { "shuffle", 0.5f }, { "kitType", Jungle }, { "freeTempo", 168.0f } },
+                 chords(9, true, 0, 2, 0.5f, Held, PhasePad), dirt(Crunch, 0.35f), { { "synRev3", 0.5f }, { "chRate", 2.0f } },
+                 arp(0, PhaseBass, 36, Minor, { Kick }, 0.85f), { { "arpFollow0", 1.0f }, { "arpSlide0", 0.25f } },
+                 arp(1, PhaseKeys, 72, MinorPenta, { Snare, Perc1 }, 0.5f, 3.0f), { { "arpFollow1", 1.0f }, { "synDly1", 0.3f }, { "synRev1", 0.4f } } }) },
         { "Chant Break", // boom bap break, wood fish, throat drone
           join({ { { "mapX", 0.6f }, { "mapY", 0.6f }, { "timing", Shake }, { "shuffle", 3.0f }, { "kitType", Temple },
                    { "freeTempo", 90.0f }, { "wild", 0.25f } },

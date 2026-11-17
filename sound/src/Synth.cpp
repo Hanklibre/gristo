@@ -191,6 +191,36 @@ const SynthPatch* buildPatches()
         x.osc = Osc::String; x.stringDamp = 0.12f; x.stringDecay = 4.5f; x.cutoffHz = 9000.0f; x.keyTrack = 0.2f;
         x.a = 0.001f; x.d = 8.0f; x.s = 0.0f; x.r = 0.6f; x.hammer = 0.05f; x.level = 0.8f;
     }
+    { // Phase bass: a bent saw that snaps shut, with a sub.
+        auto& x = set(SynthSound::PhaseBass);
+        x.osc = Osc::Phase; x.pdWave = 0; x.pdDepth = 0.25f; x.pdEnv = 0.7f; x.sub = 0.4f; x.cutoffHz = 9000.0f; x.keyTrack = 0.0f;
+        x.fa = 0.001f; x.fd = 0.25f; x.fs = 0.1f; x.fr = 0.1f;
+        x.a = 0.002f; x.d = 0.6f; x.s = 0.8f; x.r = 0.08f; x.level = 0.8f; x.mono = true;
+    }
+    { // Reso lead: the resonant saw window, swept by the envelope.
+        auto& x = set(SynthSound::ResoLead);
+        x.osc = Osc::Phase; x.pdWave = 5; x.pdDepth = 0.2f; x.pdEnv = 0.8f; x.pdDetune = 7.0f; x.cutoffHz = 10000.0f; x.keyTrack = 0.0f;
+        x.fa = 0.005f; x.fd = 0.5f; x.fs = 0.3f; x.fr = 0.2f;
+        x.a = 0.004f; x.d = 0.4f; x.s = 0.9f; x.r = 0.15f; x.level = 0.75f; x.mono = true;
+    }
+    { // Phase pad: double sine and saw on alternate cycles, two detuned lines, a slow bend.
+        auto& x = set(SynthSound::PhasePad);
+        x.osc = Osc::Phase; x.pdWave = 3; x.pdWave2 = 0; x.pdDepth = 0.2f; x.pdEnv = 0.5f; x.pdDetune = 11.0f;
+        x.cutoffHz = 9000.0f; x.keyTrack = 0.0f; x.fa = 1.5f; x.fd = 3.0f; x.fs = 0.5f; x.fr = 2.0f;
+        x.a = 0.8f; x.d = 1.0f; x.s = 0.9f; x.r = 2.0f; x.chorus = 0.6f; x.driftCents = 4.0f; x.freePhase = true; x.level = 0.7f;
+    }
+    { // Phase keys: ring-modulated resonant triangles, a glassy struck tone.
+        auto& x = set(SynthSound::PhaseKeys);
+        x.osc = Osc::Phase; x.pdWave = 6; x.pdDepth = 0.15f; x.pdEnv = 0.9f; x.pdDetune = 1200.0f; x.pdRing = true;
+        x.cutoffHz = 10000.0f; x.keyTrack = 0.0f; x.fa = 0.001f; x.fd = 0.9f; x.fs = 0.0f; x.fr = 0.4f;
+        x.a = 0.002f; x.d = 2.5f; x.s = 0.0f; x.r = 0.6f; x.chorus = 0.25f; x.hammer = 0.04f; x.level = 0.9f;
+    }
+    { // Fold drone: a bent pulse through the wavefolder; Cutoff walks through the folds.
+        auto& x = set(SynthSound::FoldDrone);
+        x.osc = Osc::Phase; x.pdWave = 4; x.pdWave2 = 3; x.pdDepth = 0.3f; x.pdEnv = 0.3f; x.pdDetune = 5.0f; x.pdFold = 0.35f;
+        x.sub = 0.3f; x.cutoffHz = 6000.0f; x.keyTrack = 0.0f; x.fa = 2.0f; x.fd = 4.0f; x.fs = 0.6f; x.fr = 2.0f;
+        x.a = 1.2f; x.d = 1.0f; x.s = 1.0f; x.r = 3.0f; x.chorus = 0.4f; x.driftCents = 3.0f; x.freePhase = true; x.level = 0.55f;
+    }
     // Stereo ensemble and analog drift, by sound (basses stay mono and in tune).
     struct Colour
     {
@@ -314,6 +344,11 @@ const char* synthSoundName(SynthSound sound)
         case SynthSound::SingingBowl: return "Singing Bowl";
         case SynthSound::NylonGuitar: return "Nylon Guitar";
         case SynthSound::Koto: return "Koto";
+        case SynthSound::PhaseBass: return "Phase Bass";
+        case SynthSound::ResoLead: return "Reso Lead";
+        case SynthSound::PhasePad: return "Phase Pad";
+        case SynthSound::PhaseKeys: return "Phase Keys";
+        case SynthSound::FoldDrone: return "Fold Drone";
         case SynthSound::Count: break;
     }
     return "";
@@ -328,6 +363,7 @@ const char* synthCategoryName(SynthSound sound)
         case SynthSound::ReeseBass:
         case SynthSound::FmBass:
         case SynthSound::Bass808:
+        case SynthSound::PhaseBass:
         case SynthSound::UprightBass: return "Bass";
         case SynthSound::WarmPad:
         case SynthSound::GlassPad:
@@ -335,10 +371,13 @@ const char* synthCategoryName(SynthSound sound)
         case SynthSound::BreathPad:
         case SynthSound::SlowStrings:
         case SynthSound::MonkChoir:
+        case SynthSound::PhasePad:
+        case SynthSound::FoldDrone:
         case SynthSound::VoxPad:
         case SynthSound::PolyStrings: return "Pads";
         case SynthSound::SquareLead:
         case SynthSound::SyncLead:
+        case SynthSound::ResoLead:
         case SynthSound::SoftLead: return "Leads";
         case SynthSound::SynthBrass: return "Brass";
         default: return "Keys";
@@ -346,6 +385,59 @@ const char* synthCategoryName(SynthSound sound)
 }
 
 // ---------------------------------------------------------------------------------
+// Phase distortion, after the PHASE engine of Felucca-Engines
+// (Copyright (C) 2026 Leo Kuroshita, Hügelton Instruments; MIT licence): its eight
+// waves and its fold, in floating point.
+
+namespace {
+float pdWave(int wave, float ph, float dcw)
+{
+    auto negCos = [](float p) { return -std::cos(dsp::kTwoPi * p); };
+    float pd = ph;
+    switch (wave)
+    {
+        case 0: // saw
+        {
+            const float x = 0.5f + dcw * 0.5f;
+            pd = ph < x ? ph * 0.5f / x : 0.5f + (ph - x) * 0.5f / std::max(1.0f - x, 1e-4f);
+            break;
+        }
+        case 1: // square
+        {
+            const float x = 0.5f - dcw * 0.4749f;
+            pd = ph < x ? ph * 0.5f / x : ph < 0.5f ? 0.5f : ph < 0.5f + x ? 0.5f + (ph - 0.5f) * 0.5f / x : 1.0f;
+            break;
+        }
+        case 2: // pulse
+        {
+            const float x = 1.0f - dcw * 0.9687f;
+            pd = ph < x ? ph / x : 1.0f;
+            break;
+        }
+        case 3: // double sine
+        {
+            const float x = 1.0f - dcw * 0.75f;
+            pd = ph < x ? ph / x : (ph - x) / std::max(1.0f - x, 1e-4f);
+            break;
+        }
+        case 4: // saw-pulse
+        {
+            const float x = 1.0f - dcw * 0.5f, peak = std::max(1e-4f, x * (0.5f + dcw * 0.45f));
+            pd = ph >= x ? 1.0f : ph < peak ? ph * 0.5f / peak : 0.5f + (ph - peak) * 0.5f / std::max(x - peak, 1e-4f);
+            break;
+        }
+        default: // resonance: a sine whose pitch rises with the bend, under a saw, triangle or trapezoid window
+        {
+            float rp = ph + ph * dcw * 0.6714f * 7.0f;
+            rp -= std::floor(rp);
+            const float window = wave == 5 ? 1.0f - ph : wave == 6 ? (ph < 0.5f ? ph * 2.0f : (1.0f - ph) * 2.0f)
+                                                                   : std::min(1.0f, ph < 0.25f ? ph * 4.0f : ph > 0.75f ? (1.0f - ph) * 4.0f : 1.0f);
+            return negCos(rp) * 0.625f * window;
+        }
+    }
+    return negCos(pd);
+}
+} // namespace
 
 void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int id, float pitch, float velocity)
 {
@@ -373,6 +465,12 @@ void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int i
     tineCoef_ = dsp::decayCoef(0.25f, sampleRate_);
     pitchEnv_ = patch_.pitchDrop > 0.0f ? 1.0f : 0.0f;
     pitchEnvCoef_ = dsp::decayCoef(0.05f, sampleRate_);
+    pdDetuneRatio_ = std::exp2(patch_.pdDetune / 1200.0f);
+    if (!wasActive)
+    {
+        pdToggle_[0] = pdToggle_[1] = false;
+        foldLast_ = foldOut_ = 0.0f;
+    }
     excite_ = patch_.osc == Osc::String ? static_cast<int>(sampleRate_ / std::max(20.0f, dsp::midiToHz(pitch))) : 0;
     if (!wasActive)
     {
@@ -543,6 +641,38 @@ float SynthVoice::oscillator(float hz)
         }
         return y;
     }
+    if (patch_.osc == Osc::Phase)
+    {
+        auto line = [&](int index, float inc) {
+            float& ph = phase_[index];
+            const int wave = pdToggle_[index] && patch_.pdWave2 >= 0 ? patch_.pdWave2 : patch_.pdWave;
+            const float y = pdWave(wave, ph, pdBend_);
+            ph += inc;
+            if (ph >= 1.0f)
+            {
+                ph -= 1.0f;
+                pdToggle_[index] = !pdToggle_[index]; // the second wave every other cycle
+            }
+            return y;
+        };
+        out = line(0, dt);
+        if (patch_.pdDetune != 0.0f || patch_.pdRing)
+        {
+            const float second = line(1, std::min(dt * pdDetuneRatio_, 0.45f));
+            out = patch_.pdRing ? out * second : (out + second) * 0.5f;
+        }
+        if (patch_.pdFold > 0.0f)
+        {
+            // A sine fold (no corners), less of it above A4; then a DC blocker.
+            float gain = 0.64f + patch_.pdFold * 7.36f;
+            if (hz > 440.0f)
+                gain = 0.64f + (gain - 0.64f) * 440.0f / hz;
+            const float folded = std::sin(0.5f * dsp::kPi * out * gain);
+            foldOut_ += folded - foldLast_ - foldOut_ * 0.002f;
+            foldLast_ = folded;
+            out = foldOut_;
+        }
+    }
     if (patch_.osc == Osc::Bowl)
     {
         constexpr float ratios[4] = { 1.0f, 2.76f, 5.2f, 8.4f }, levels[4] = { 1.0f, 0.55f, 0.3f, 0.15f };
@@ -649,6 +779,13 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
             const float v = dsp::clamp01(0.5f + 0.5f * std::sin(dsp::kTwoPi * vowelPhase_) + 0.3f * alive_ * wander_[1]);
             for (int i = 0; i < 3; ++i)
                 formant_[i].set(patch_.formantA[i] + (patch_.formantB[i] - patch_.formantA[i]) * v, 0.92f, sampleRate_);
+        }
+        if (patch_.osc == Osc::Phase)
+        {
+            // The Cutoff knob and the filter envelope bend the phase; high notes bend less (less aliasing).
+            const float knob = macros.cutoff + macros.cutoffMod - 0.5f;
+            const float bend = patch_.pdDepth + knob + patch_.pdEnv * macros.envAmount * 2.0f * filterEnv_.value() * (0.5f + 0.5f * velocity_);
+            pdBend_ = dsp::clamp01(bend) * 0.8545f * std::min(1.0f, 1800.0f / std::max(hz_, 1.0f));
         }
         if (patch_.osc == Osc::String)
             stringFb_ = std::pow(0.001f, 1.0f / (std::max(0.05f, patch_.stringDecay) * std::max(20.0f, hz_)));

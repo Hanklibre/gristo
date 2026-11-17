@@ -31,6 +31,7 @@ struct P
     }
     P& reso(float level, float interval) { d.reso = level; d.resoInterval = interval; return *this; }
     P& wires(float level) { d.wires = level; return *this; }
+    P& cymbal(float level, float decay, float size) { d.cymbal = level; d.cymbalDecay = decay; d.cymbalSize = size; return *this; }
     P& shell(float level, float hz) { d.shell = level; d.shellHz = hz; return *this; }
     P& drive(float amount) { d.drive = amount; return *this; }
     P& gain(float g) { d.gain = g; return *this; }
@@ -190,8 +191,8 @@ const KitPatch* buildKits()
     kits[14] = makeKit({
         P().head(5, 1.6f, 58.0f, 0.55f, 7.0f).reso(0.7f, -2.0f).shell(0.03f, 520.0f).click(0.22f).noise(0.1f, 0.03f, 1800.0f, 0.3f, BP),
         P().head(5, 1.1f, 185.0f, 0.3f, 3.0f).reso(0.6f, 3.0f).wires(1.3f).shell(0.05f, 690.0f).click(0.3f).noise(0.22f, 0.05f, 3000.0f, 0.3f, BP),
-        P().noise(0.25f, 0.04f, 8000.0f, 0.2f, HP).metal(0.3f, 0.045f, 9500.0f).gain(1.3f),
-        P().noise(0.2f, 0.3f, 7500.0f, 0.2f, HP).metal(0.3f, 0.4f, 9000.0f).gain(1.3f),
+        P().cymbal(1.0f, 0.06f, 0.25f).click(0.1f),
+        P().cymbal(1.0f, 0.9f, 0.3f).click(0.08f),
         P().head(5, 1.3f, 135.0f, 0.5f, 5.0f).reso(0.7f, -1.0f).shell(0.04f, 600.0f).click(0.2f),
         P().head(5, 1.3f, 92.0f, 0.65f, 5.0f).reso(0.7f, -1.0f).shell(0.04f, 540.0f).click(0.2f),
     }, 20000.0f, 1, 1.15f);
@@ -326,6 +327,25 @@ void DrumVoice::trigger(const DrumPatch& patch, float velocity, float tuneSemis,
     shellEnv_ = patch_.shell > 0.0f ? v * v * v : 0.0f;
     shellCoef_ = dsp::decayCoef(patch_.headDecay * decayScale * 0.5f, sr);
 
+    if (patch_.cymbal > 0.0f)
+    {
+        // A new hit adds to what is still ringing (the combs are not cleared).
+        cymbalStrike_ = std::max(cymbalStrike_, v);
+        cymbalStrikeCoef_ = dsp::decayCoef(0.2f + 0.04f * patch_.cymbalSize, sr);
+        cymbalEnergy_ = std::min(1.0f, std::max(cymbalEnergy_ + 0.5f * v, v));
+        cymbalEnergyCoef_ = dsp::decayCoef(std::max(0.03f, patch_.cymbalDecay * decayScale), sr);
+        cymbalTune_ = tune;
+        constexpr float hz[4] = { 120.54f, 163.38f, 189.64f, 85.0f };
+        for (int i = 0; i < 4; ++i)
+        {
+            const float f = hz[i] * tune;
+            combDelay_[i] = std::min(sr / f, static_cast<float>(kCombLength - 2));
+            combFb_[i] = 0.9999f * std::pow(0.001f, 1.0f / (std::max(0.03f, patch_.cymbalDecay * decayScale) * f));
+        }
+        cymbalHp2_.setLowpass(400.0f * tune, sr);
+        cymbalControl_ = 0;
+    }
+
     clickEnv_ = patch_.click > 0.0f ? 1.0f : 0.0f;
     clickCoef_ = dsp::decayCoef(0.004f, sr);
     clickLp_.reset();
@@ -435,6 +455,46 @@ float DrumVoice::tick()
             out += wireLp_.lowpass(tick * 0.5f + f.bp * 1.2f) * patch_.wires;
         }
     }
+    if (patch_.cymbal > 0.0f && cymbalEnergy_ > 1e-5f)
+    {
+        if (--cymbalControl_ <= 0)
+        {
+            cymbalControl_ = 16;
+            // Bright and thin right after the hit, fuller as it settles: the low cut falls
+            // with the energy, on a pitch scale, further for a large cymbal.
+            auto between = [](float t, float from, float to) { return from * std::pow(to / from, std::clamp(t, 0.0f, 1.0f)); };
+            const float rest = between(patch_.cymbalSize, 4800.0f, 1000.0f), excited = between(patch_.cymbalSize, 4800.0f, 150.0f);
+            cymbalHp_.set(std::min(between(cymbalEnergy_, rest, excited) * cymbalTune_, sr * 0.4f), 0.2f, sr);
+            cymbalLp_.set(std::min(between(patch_.cymbalSize, 8000.0f, 12800.0f) * cymbalTune_, sr * 0.45f), 0.2f, sr);
+        }
+        cymbalLfo_[0] += 15.31f / sr;
+        cymbalLfo_[0] -= std::floor(cymbalLfo_[0]);
+        cymbalLfo_[1] += 9.31f / sr;
+        cymbalLfo_[1] -= std::floor(cymbalLfo_[1]);
+        const float wander = (1.0f + 0.006f * std::sin(dsp::kTwoPi * cymbalLfo_[0])) * (1.0f + 0.006f * std::sin(dsp::kTwoPi * cymbalLfo_[1]));
+        constexpr float levels[4] = { 1.0f, 1.0f, 0.8f, 0.6f };
+        float sum = 0.0f;
+        for (int i = 0; i < 4; ++i)
+        {
+            float* line = comb_.data() + i * kCombLength;
+            const float delay = std::clamp(combDelay_[i] / wander, 2.0f, static_cast<float>(kCombLength - 2));
+            const float pos = static_cast<float>(combWrite_ + kCombLength) - delay;
+            const int i0 = static_cast<int>(pos);
+            const float frac = pos - static_cast<float>(i0);
+            const float read = line[i0 % kCombLength] + (line[(i0 + 1) % kCombLength] - line[i0 % kCombLength]) * frac;
+            // Harder hits crunch the strike noise before it rings.
+            const float strike = dsp::fastTanh(noiseGen_.next() * cymbalStrike_ * (1.0f + 2.0f * velocity_));
+            const float y = strike + read * combFb_[i];
+            line[combWrite_] = std::abs(y) < 1e-20f ? 0.0f : y;
+            sum += y * levels[i];
+        }
+        combWrite_ = (combWrite_ + 1) % kCombLength;
+        cymbalStrike_ *= cymbalStrikeCoef_;
+        cymbalEnergy_ *= cymbalEnergyCoef_;
+        float c = cymbalHp_.tick(sum * 0.07f).hp;
+        c = cymbalLp_.tick(cymbalHp2_.highpass(c)).lp;
+        out += c * patch_.cymbal;
+    }
     if (shellEnv_ > 1e-5f)
     {
         shellFm_ += 117.0f / sr;
@@ -469,7 +529,8 @@ float DrumVoice::tick()
 
     const bool clapsPending = clapIndex_ < patch_.claps;
     const bool headsDone = patch_.headModes == 0 || (headEnv_[0][0] <= 1e-5f && headEnv_[1][0] <= 1e-5f && wireEnv_ <= 1e-5f);
-    if (!clapsPending && headsDone && shellEnv_ <= 1e-5f && bodyEnv_ <= 1e-5f && noiseEnv_ <= 1e-5f && metalEnv_ <= 1e-5f && clickEnv_ <= 1e-5f)
+    const bool cymbalDone = patch_.cymbal <= 0.0f || cymbalEnergy_ <= 1e-5f;
+    if (!clapsPending && headsDone && cymbalDone && shellEnv_ <= 1e-5f && bodyEnv_ <= 1e-5f && noiseEnv_ <= 1e-5f && metalEnv_ <= 1e-5f && clickEnv_ <= 1e-5f)
         active_ = false;
     if (choke_ && chokeGain_ < 1e-4f)
         active_ = false;

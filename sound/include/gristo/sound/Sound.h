@@ -28,6 +28,7 @@ enum class SynthSound : int
     PolyStrings, SynthBrass, PolySynth, TapeKeys, // vintage analog
     SuitcaseKeys, Vibraphone, UprightBass, JazzOrgan, // jazz
     Bass808, MonkChoir, VoxPad, SingingBowl, NylonGuitar, Koto, // trap, chant, ambient, soul
+    PhaseBass, ResoLead, PhasePad, PhaseKeys, FoldDrone,        // phase distortion (after Felucca's PHASE engine)
     Count
 };
 const char* synthSoundName(SynthSound sound);

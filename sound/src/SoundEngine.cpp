@@ -304,6 +304,7 @@ void SoundEngine::triggerDrum(int voice, float velocity)
     d.wires *= t.noise * 2.0f;
     d.tension *= t.punch * 2.0f;
     d.shell *= 0.5f + t.tone;
+    d.cymbalSize = dsp::clamp01(d.cymbalSize + (0.5f - t.tone));
     d.metal *= t.noise * 2.0f;
     d.drive *= 1.0f + 4.0f * t.drive;
     d.pan = std::clamp(d.pan + t.pan, -1.0f, 1.0f);

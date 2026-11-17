@@ -860,3 +860,58 @@ TEST("sound: the modelled drums: pitch sags after the hit, wires ring only while
     // A soft hit is duller, not just quieter: fewer crossings in the first 20 ms.
     CHECK(zeroCrossings(hit(1, 0.25f).left, 0, 960) < zeroCrossings(snare.left, 0, 960));
 }
+
+TEST("sound: modelled cymbals ring and choke; the phase sounds get brighter as Cutoff bends them")
+{
+    auto hat = [](int voice, bool choke) {
+        SoundEngine e;
+        dryEngine(e);
+        KitParams kit;
+        kit.kit = Kit::Acoustic;
+        kit.reverbSend = 0.0f;
+        e.setKit(kit);
+        e.triggerDrum(voice, 1.0f);
+        Rendered out;
+        renderInto(e, out, 0.1);
+        if (choke)
+            e.triggerDrum(2, 0.5f);
+        renderInto(e, out, 5.9);
+        return out;
+    };
+    const Rendered closed = hat(2, false), open = hat(3, false), choked = hat(3, true);
+    for (const Rendered* r : { &closed, &open, &choked })
+        CHECK(r->finite && r->peak > 0.03f && r->peak <= 1.0f);
+    CHECK(open.rms(14400, 28800) > closed.rms(14400, 28800) * 4.0f);   // the open hat rings on
+    CHECK(choked.rms(14400, 28800) < open.rms(14400, 28800) * 0.5f);   // unless the closed one stops it
+    CHECK(open.rms(open.left.size() - 24000, open.left.size()) < 1e-4f);
+
+    for (SynthSound sound : { SynthSound::PhaseBass, SynthSound::ResoLead, SynthSound::PhasePad, SynthSound::PhaseKeys, SynthSound::FoldDrone })
+    {
+        auto crossings = [sound](float cutoff) {
+            SoundEngine e;
+            dryEngine(e);
+            CharacterParams c;
+            c.dirt = 0.0f;
+            c.alive = 0.0f;
+            e.setCharacter(c);
+            SynthParams p;
+            p.sound = sound;
+            p.cutoff = cutoff;
+            p.envAmount = 0.0f;
+            p.reverbSend = 0.0f;
+            e.setSynth(0, p);
+            e.noteOn(0, 48, 48.0f, 0.9f);
+            Rendered out;
+            renderInto(e, out, 3.0);
+            CHECK(out.finite && out.peak > 0.01f && out.peak <= 1.0f);
+            double rough = 0.0, level = 1e-9; // how much of the signal is sample-to-sample change
+            for (size_t i = 96000; i < 144000; ++i)
+            {
+                rough += std::abs(out.left[i] - out.left[i - 1]);
+                level += std::abs(out.left[i]);
+            }
+            return rough / level;
+        };
+        CHECK_MSG(crossings(1.0f) > crossings(0.0f), synthSoundName(sound));
+    }
+}

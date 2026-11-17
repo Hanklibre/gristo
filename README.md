@@ -92,9 +92,19 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
 * On a drum's Sound tab, Punch sets how far the pitch sags, Noise the wires,
   and Body rings at the head's pitch.
 
-The approach (modal heads, energy-dependent pitch, wires driven by the resonant
-head) follows the design of Punk Labs' open-source drum synth OneTrick URCHIN.
-Gristo's implementation is written from scratch and contains none of its code.
+* **Modelled cymbals** on the Acoustic kit's hats: strike noise into four long
+  feedback combs at low, unrelated pitches, behind filters that open with the
+  hit and close as it fades. The closed hat chokes the open one.
+* **Phase distortion synth** (Casio CZ-style): five sounds, Phase Bass, Reso
+  Lead, Phase Pad, Phase Keys and Fold Drone. Their Cutoff knob and filter
+  envelope bend the wave instead of only filtering it.
+
+The drum and cymbal models follow Punk Labs' **OneTrick URCHIN** (GPL-3.0-or-later,
+Copyright (c) 2023 Punk Labs LLC); the cymbal's comb pitches and filter ranges are
+taken from it. The phase-distortion waves and fold are ported from the PHASE engine
+of **Felucca-Engines** (MIT, Copyright (C) 2026 Leo Kuroshita, Hügelton
+Instruments). Because of the URCHIN-derived parts, Gristo as a whole is under
+GPL-3.0-or-later.
 
 ### Drum sound pages, Body, any-parameter modulation
 

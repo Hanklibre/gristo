@@ -3,6 +3,8 @@
 #include "Dsp.h"
 #include "gristo/sound/Sound.h"
 
+#include <array>
+
 namespace gristo::sound {
 
 enum class NoiseFilter { Highpass, Bandpass, Lowpass };
@@ -31,6 +33,9 @@ struct DrumPatch
     float reso = 0.0f, resoInterval = 0.0f; // resonant head: level, semitones from the batter head
     float wires = 0.0f;         // snare wires under the resonant head
     float shell = 0.0f, shellHz = 600.0f;
+    // Cymbal: strike noise into four long, slightly wandering feedback combs at low,
+    // unrelated pitches, then filters that open with the hit and close as it fades.
+    float cymbal = 0.0f, cymbalDecay = 0.5f, cymbalSize = 0.3f; // level, seconds, 0 = small .. 1 = large
     float click = 0.0f; // short transient
     float drive = 1.0f; // >1 saturates the voice
     float pan = 0.0f;   // -1..1
@@ -83,6 +88,13 @@ private:
     float headPhase_[2][kMaxModes] {}, headEnv_[2][kMaxModes] {}, headCoef_[2][kMaxModes] {}, headGain_[kMaxModes] {};
     float energy_ = 0.0f, energyCoef_ = 0.0f, wireEnv_ = 0.0f, wireAttack_ = 0.0f, wireRelease_ = 0.0f;
     float shellPhase_ = 0.0f, shellFm_ = 0.0f, shellEnv_ = 0.0f, shellCoef_ = 0.0f;
+    static constexpr int kCombLength = 2400; // 85 Hz at 192 kHz
+    std::array<float, 4 * kCombLength> comb_ {};
+    int combWrite_ = 0, cymbalControl_ = 0;
+    float combFb_[4] {}, combDelay_[4] {}, cymbalStrike_ = 0.0f, cymbalStrikeCoef_ = 0.0f, cymbalEnergy_ = 0.0f, cymbalEnergyCoef_ = 0.0f;
+    float cymbalLfo_[2] {}, cymbalTune_ = 1.0f;
+    dsp::Svf cymbalHp_, cymbalLp_;
+    dsp::OnePole cymbalHp2_;
     dsp::Svf wireFilter_;
     dsp::OnePole wireLp_;
     dsp::Noise noiseGen_ { 0x1234567u };

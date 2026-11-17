@@ -7,7 +7,7 @@
 
 namespace gristo::sound {
 
-enum class Osc { Saw, Square, Supersaw, Reese, Sine, Fm, Organ, Sync, Voice, String, Bowl };
+enum class Osc { Saw, Square, Supersaw, Reese, Sine, Fm, Organ, Sync, Voice, String, Bowl, Phase };
 
 struct SynthPatch
 {
@@ -36,6 +36,13 @@ struct SynthPatch
     float noise = 0.0f;    // steady noise under the tone: breath, bow
     float formantA[3] { 430.0f, 820.0f, 2600.0f }, formantB[3] { 300.0f, 700.0f, 2300.0f }; // Voice: the vowel drifts between the two
     float pitchDrop = 0.0f; // semitones above the note at the attack, falling in ~50 ms (808)
+    // Phase distortion: wave 0..7 (saw, square, pulse, double sine, saw-pulse, and three
+    // resonant windows), an optional second wave every other cycle (-1 = none), the bend
+    // depth (the Cutoff knob and the filter envelope move it), a detuned second line
+    // mixed or ring-modulated, and a sine wavefolder.
+    int pdWave = 0, pdWave2 = -1;
+    float pdDepth = 0.5f, pdEnv = 0.0f, pdDetune = 0.0f, pdFold = 0.0f;
+    bool pdRing = false;
     float stringDamp = 0.3f, stringDecay = 3.0f; // String: 0 = bright .. 0.5 = soft; seconds of ring
 };
 
@@ -95,6 +102,8 @@ private:
     size_t stringWrite_ = 0;
     float stringPrev_ = 0.0f, stringFb_ = 0.99f, exciteLp_ = 0.0f;
     int excite_ = 0;
+    float pdBend_ = 0.0f, pdDetuneRatio_ = 1.0f, foldLast_ = 0.0f, foldOut_ = 0.0f;
+    bool pdToggle_[2] {};
 };
 
 class Synth
