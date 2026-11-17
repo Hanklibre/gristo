@@ -2,6 +2,9 @@
 // ported to floating point for Gristo.
 #include "BeadsReverb.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace gristo::sound {
 
 namespace {
@@ -12,7 +15,21 @@ constexpr int kLengths[10] = { 150, 214, 319, 527, 2182, 2690, 4501, 2525, 2197,
 void BeadsReverb::prepare(float sampleRate)
 {
     sampleRate_ = sampleRate;
-    scale_ = sampleRate / 48000.0f;
+    // Room for the longest layout (Clean tape: 1.5 times the module's 48 kHz delays).
+    int total = 0;
+    for (int length : kLengths)
+        total += static_cast<int>(std::ceil(static_cast<float>(length) * 1.5f * sampleRate / 48000.0f)) + 1;
+    int size = 1;
+    while (size < total + 8 + static_cast<int>(150.0f * sampleRate / 48000.0f)) // room for the smear's reads below line 0
+        size <<= 1;
+    buffer_.assign(static_cast<size_t>(size), 0.0f);
+    mask_ = size - 1;
+    layout();
+}
+
+void BeadsReverb::layout()
+{
+    scale_ = sampleRate_ * stretch_ / 48000.0f;
     int base = 0;
     for (int i = 0; i < kLines; ++i)
     {
@@ -20,14 +37,22 @@ void BeadsReverb::prepare(float sampleRate)
         base_[i] = base;
         base += length_[i] + 1;
     }
-    int size = 1;
-    while (size < base + 8 + static_cast<int>(100.0f * scale_)) // room for the smear's reads below line 0
-        size <<= 1;
-    buffer_.assign(static_cast<size_t>(size), 0.0f);
-    mask_ = size - 1;
-    lfoInc_[0] = 0.5f / sampleRate;
-    lfoInc_[1] = 0.3f / sampleRate;
+    lfoInc_[0] = 0.5f / (sampleRate_ * stretch_);
+    lfoInc_[1] = 0.3f / (sampleRate_ * stretch_);
+    lpFor_ = -1.0f;
+    // The 32 kHz converter keeps below ~14.5 kHz.
+    band_ = stretch_ > 1.0f ? 1.0f - std::exp(-dsp::kTwoPi * std::min(14500.0f, 0.45f * sampleRate_) / sampleRate_) : 1.0f;
     reset();
+}
+
+void BeadsReverb::setMedium(int quality)
+{
+    const float stretch = quality == 2 ? 1.5f : 1.0f;
+    if (stretch == stretch_)
+        return;
+    stretch_ = stretch;
+    if (!buffer_.empty())
+        layout();
 }
 
 void BeadsReverb::reset()
@@ -40,6 +65,7 @@ void BeadsReverb::reset()
     lfoCount_ = 0;
     wetGain_ = send_ = 0.0f;
     dryGain_ = 1.0f;
+    bandL_[0] = bandL_[1] = bandR_[0] = bandR_[1] = 0.0f;
 }
 
 float BeadsReverb::read(int line, float offset) const
@@ -62,6 +88,8 @@ float BeadsReverb::interpolate(int line, float offset) const
 
 void BeadsReverb::write(int line, float value, int offset)
 {
+    // 16-bit memory, as on the module: it clips at full scale.
+    value = std::clamp(value, -1.0f, 32767.0f / 32768.0f);
     buffer_[static_cast<size_t>((writePtr_ + base_[line] + offset) & mask_)] = std::abs(value) < 1e-20f ? 0.0f : value;
 }
 
@@ -80,7 +108,13 @@ void BeadsReverb::process(float& l, float& r)
         }
 
     constexpr float kap = 0.625f;
-    const float krt = time_, klp = lp_;
+    if (lp_ != lpFor_) // the module's damping per sample at its own rate, per sample at ours
+    {
+        lpFor_ = lp_;
+        const float moduleRate = 48000.0f / stretch_;
+        klp_ = 1.0f - std::pow(1.0f - std::clamp(lp_, 0.0f, 0.999f), moduleRate / sampleRate_);
+    }
+    const float krt = time_, klp = klp_;
     const float inputGain = 0.2f * (1.0f - 0.333f * krt);
     const float outputGain = 0.4f / inputGain;
     const float sendSqrt = mix_ * (2.0f - mix_);
@@ -145,8 +179,18 @@ void BeadsReverb::process(float& l, float& r)
     write(9, acc);
     const float wetR = acc;
 
-    l = l * dryGain_ + wetL * wetGain_;
-    r = r * dryGain_ + wetR * wetGain_;
+    float outL = wetL, outR = wetR;
+    if (band_ < 1.0f)
+    {
+        bandL_[0] += band_ * (outL - bandL_[0]);
+        bandL_[1] += band_ * (bandL_[0] - bandL_[1]);
+        bandR_[0] += band_ * (outR - bandR_[0]);
+        bandR_[1] += band_ * (bandR_[0] - bandR_[1]);
+        outL = bandL_[1];
+        outR = bandR_[1];
+    }
+    l = l * dryGain_ + outL * wetGain_;
+    r = r * dryGain_ + outR * wetGain_;
 }
 
 } // namespace gristo::sound

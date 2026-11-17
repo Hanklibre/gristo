@@ -342,7 +342,7 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
             if (beats >= ppqEnd && !byKeys)
                 break;
             const ChordPosition pos = chordPositionAt(s);
-            const Chord chord = pos.valid ? outNotes(Chords::build(cp, pos.cell)) : Chord {};
+            const Chord chord = pos.valid ? outNotes(Chords::thin(cp, Chords::build(cp, pos.cell), pos.serial)) : Chord {};
             const bool edited = st.haveChord && (chord.count != st.held.count
                                                  || !std::equal(chord.notes.begin(), chord.notes.begin() + chord.count, st.held.notes.begin()));
             if (!st.haveChord || pos.serial != st.lastSerial || edited)
@@ -388,7 +388,7 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
                 break;
             if (found)
             {
-                const Chord chord = outNotes(chordAt(s));
+                const Chord chord = outNotes(Chords::thin(cp, chordAt(s), s));
                 // A new stab cuts the previous one.
                 dropChordOnsAfter(best.timeBeats);
                 for (Pending& p : pending_)

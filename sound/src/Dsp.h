@@ -55,6 +55,41 @@ inline float filterG(float cutoffHz, float sampleRate)
 {
     return std::tan(kPi * std::clamp(cutoffHz, 10.0f, sampleRate * 0.45f) / sampleRate);
 }
+// Soft saturation tanh(x + bias) - tanh(bias), the bias adding even harmonics, with
+// first-order antiderivative anti-aliasing (Parker et al., 2016): the curve is applied
+// to the change between samples through its antiderivative, so a hard-driven signal
+// folds far less of its harmonics back down as grit.
+class SoftSaturator
+{
+public:
+    void setBias(float bias)
+    {
+        bias_ = bias;
+        tb_ = std::tanh(static_cast<double>(bias));
+    }
+    void reset() { x1_ = 0.0, f1_ = antiderivative(0.0); }
+    float process(float in)
+    {
+        // In double: the difference of two antiderivative values loses too much in float.
+        const double x = in;
+        const double f = antiderivative(x);
+        const double d = x - x1_;
+        const double y = std::abs(d) > 1e-5 ? (f - f1_) / d : std::tanh(0.5 * (x + x1_) + bias_) - tb_;
+        x1_ = x;
+        f1_ = f;
+        return static_cast<float>(y);
+    }
+
+private:
+    static double logCosh(double x)
+    {
+        const double a = std::abs(x);
+        return a + std::log1p(std::exp(-2.0 * a)) - 0.6931471805599453;
+    }
+    double antiderivative(double x) const { return logCosh(x + bias_) - tb_ * x; }
+    double bias_ = 0.0, tb_ = 0.0, x1_ = 0.0, f1_ = 0.0;
+};
+
 inline float drive(float x, float amount) // amount >= 1
 {
     return amount <= 1.0f ? x : std::tanh(x * amount) / std::tanh(amount);

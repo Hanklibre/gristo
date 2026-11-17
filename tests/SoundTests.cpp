@@ -768,25 +768,48 @@ TEST("sound: a drum's own settings reshape it; Body rings at its tuned pitch and
     }
     CHECK(r > l * 5.0);
 
-    // Body on the closed hat (a noise drum): the tail now has a pitch, 220 Hz by default.
+    // Body on the closed hat (a noise drum): the tail now has a pitch, 620 Hz by default;
+    // Tube (a harmonic series) rings right at it.
     t = {};
     t.body = 1.0f;
     t.bodyDecay = 0.8f;
+    t.bodyType = 3;
     const Rendered body = hit(t, 2, 6.0);
     CHECK(body.finite && body.peak <= 1.0f);
     CHECK(body.rms(14400, 24000) > hit({}, 2).rms(14400, 24000) * 5.0f + 1e-5f);
-    const double period = kRate / 220.0;
+    const double period = kRate / 620.0;
     double best = -1.0;
     int bestLag = 0;
-    for (int lag = 150; lag <= 300; ++lag)
+    for (int lag = 60; lag <= 100; ++lag)
     {
         double sum = 0.0;
         for (size_t i = 9600; i < 19200; ++i)
             sum += static_cast<double>(body.left[i]) * body.left[i + static_cast<size_t>(lag)];
         if (sum > best) { best = sum; bestLag = lag; }
     }
-    CHECK_MSG(std::abs(bestLag - period) <= 4.0, "period " << bestLag << " for " << period);
+    CHECK_MSG(std::abs(bestLag - period) <= 2.0, "period " << bestLag << " for " << period);
     CHECK(body.rms(body.left.size() - 24000, body.left.size()) < 1e-4f);
+    // The four types are four different bodies, and all of them die away.
+    std::vector<Rendered> types;
+    for (int type = 0; type < 4; ++type)
+    {
+        t.bodyType = type;
+        types.push_back(hit(t, 1, 6.0));
+        const Rendered& b = types.back();
+        CHECK(b.finite && b.peak <= 1.0f);
+        CHECK(b.rms(b.left.size() - 24000, b.left.size()) < 1e-4f);
+    }
+    for (int a = 0; a < 4; ++a)
+        for (int b = a + 1; b < 4; ++b)
+        {
+            double diff = 0.0, size = 0.0;
+            for (size_t i = 2400; i < 24000; ++i)
+            {
+                diff += std::abs(types[static_cast<size_t>(a)].left[i] - types[static_cast<size_t>(b)].left[i]);
+                size += std::abs(types[static_cast<size_t>(a)].left[i]);
+            }
+            CHECK_MSG(diff > 0.2 * size, "body types " << a << " and " << b << " sound alike");
+        }
 
     // Every extreme of every drum of every kit stays finite and bounded.
     for (int k = 0; k < static_cast<int>(Kit::Count); ++k)
@@ -1092,15 +1115,17 @@ TEST("sound: fuzz: random sounds, settings and Beads, changed while playing, sta
     }
 }
 
-TEST("sound: the Beads reverb gives a long, vast tail that still ends, as the main reverb and on Beads")
+TEST("sound: the Beads reverb gives a long, vast tail that still ends, as the main reverb and on Beads, on every medium")
 {
-    auto tail = [](int type) {
+    auto tail = [](int quality) {
         SoundEngine e;
         e.prepare(kRate);
         FxParams fx;
         fx.reverbSize = 1.0f;
-        fx.reverbType = type;
         e.setFx(fx);
+        BeadsParams media; // the main reverb follows Beads' Quality, even with Beads silent
+        media.quality = quality;
+        e.setBeads(media);
         CharacterParams c;
         c.dirt = 0.0f;
         e.setCharacter(c);
@@ -1112,7 +1137,7 @@ TEST("sound: the Beads reverb gives a long, vast tail that still ends, as the ma
         renderInto(e, out, 40.0);
         return out;
     };
-    const Rendered vast = tail(1), plate = tail(0);
+    const Rendered vast = tail(0);
     CHECK(vast.finite && vast.peak <= 1.0f);
     const size_t at3 = static_cast<size_t>(3.0 * kRate), at4 = static_cast<size_t>(4.0 * kRate);
     CHECK(vast.rms(at3, at4) > 1e-4f);
@@ -1122,7 +1147,17 @@ TEST("sound: the Beads reverb gives a long, vast tail that still ends, as the ma
     for (size_t i = at3; i < at4; ++i)
         diff += std::abs(vast.left[i] - vast.right[i]);
     CHECK(diff > 1.0);
-    CHECK(plate.finite);
+    // The other media: darker and longer, and Clean tape (the module at 32 kHz) longer still.
+    std::array<double, 4> late {};
+    for (int q = 0; q < 4; ++q)
+    {
+        const Rendered r = q == 0 ? vast : tail(q);
+        CHECK(r.finite && r.peak <= 1.0f);
+        CHECK(r.rms(r.left.size() - 48000, r.left.size()) < 1e-4f);
+        late[static_cast<size_t>(q)] = r.rms(static_cast<size_t>(6.0 * kRate), static_cast<size_t>(7.0 * kRate));
+    }
+    CHECK(late[1] > late[0]);
+    CHECK(late[2] > late[1]);
 
     // On Beads: full Reverb keeps the grains ringing after they stop.
     SoundEngine e;
@@ -1147,4 +1182,99 @@ TEST("sound: the Beads reverb gives a long, vast tail that still ends, as the ma
     renderInto(e, out, 8.0);
     CHECK(out.finite && out.peak <= 1.0f);
     CHECK(out.rms(static_cast<size_t>(5.0 * kRate), static_cast<size_t>(6.0 * kRate)) > 1e-4f);
+}
+
+namespace {
+// Fundamental by autocorrelation between 60 and 1000 Hz.
+float pitchOf(const std::vector<float>& x, double rate)
+{
+    const int lo = static_cast<int>(rate / 1000.0), hi = static_cast<int>(rate / 60.0);
+    double best = -1.0;
+    int lag = lo;
+    const size_t n = std::min<size_t>(x.size() - static_cast<size_t>(hi), static_cast<size_t>(rate * 0.2));
+    std::vector<double> r(static_cast<size_t>(hi + 1), 0.0);
+    for (int k = lo; k <= hi; ++k)
+        for (size_t i = 0; i < n; ++i)
+            r[static_cast<size_t>(k)] += static_cast<double>(x[i]) * x[i + static_cast<size_t>(k)];
+    double top = 0.0;
+    for (int k = lo; k <= hi; ++k)
+        top = std::max(top, r[static_cast<size_t>(k)]);
+    for (int k = lo; k <= hi; ++k) // the first lag close to the best one (not a multiple of the period)
+        if (r[static_cast<size_t>(k)] > 0.9 * top && r[static_cast<size_t>(k)] > best)
+        {
+            best = r[static_cast<size_t>(k)];
+            lag = k;
+            while (k + 1 <= hi && r[static_cast<size_t>(k + 1)] > best)
+                best = r[static_cast<size_t>(++k)], lag = k;
+            break;
+        }
+    return static_cast<float>(rate / lag);
+}
+} // namespace
+
+TEST("sound: Rings rings in tune at any host rate, on every model, strummed by its part's notes")
+{
+    for (const double rate : { 44100.0, 48000.0, 96000.0 })
+        for (int model = 0; model < 6; ++model)
+        {
+            SoundEngine e;
+            e.prepare(rate);
+            CharacterParams c;
+            c.dirt = 0.0f;
+            c.alive = 0.0f;
+            e.setCharacter(c);
+            SynthParams quiet;
+            quiet.level = 0.0f;
+            quiet.reverbSend = quiet.delaySend = 0.0f;
+            e.setSynth(1, quiet);
+            RingsParams r;
+            r.on = true;
+            r.source = 1;
+            r.model = model;
+            r.polyphony = 1;
+            r.level = 1.0f;
+            r.reverb = 0.0f;
+            r.structure = model == 0 ? 0.25f : 0.25f; // harmonic partials
+            r.brightness = 0.5f;
+            r.damping = 0.7f;
+            r.position = 0.3f;
+            e.setRings(r);
+            e.noteOn(1, 57, 57.0f, 0.8f); // A3: 220 Hz
+            const auto n = static_cast<size_t>(rate * 1.0);
+            std::vector<float> l(n, 0.0f), rr(n, 0.0f);
+            for (size_t pos = 0; pos < n; pos += 128)
+                e.render(l.data() + pos, rr.data() + pos, static_cast<int>(std::min<size_t>(128, n - pos)), 1.0f);
+            float peak = 0.0f;
+            bool finite = true;
+            for (size_t i = 0; i < n; ++i)
+            {
+                finite = finite && std::isfinite(l[i]) && std::isfinite(rr[i]);
+                peak = std::max(peak, std::max(std::abs(l[i]), std::abs(rr[i])));
+            }
+            CHECK_MSG(finite && peak > 0.01f && peak <= 1.0f, "rate " << rate << " model " << model << " peak " << peak);
+            if (model == 2 || model == 0)
+            {
+                std::vector<float> mono(n);
+                for (size_t i = 0; i < n; ++i)
+                    mono[i] = l[i] + rr[i];
+                const std::vector<float> part(mono.begin() + static_cast<long>(rate * 0.05), mono.end());
+                const float hz = pitchOf(part, rate);
+                CHECK_MSG(std::abs(12.0f * std::log2(hz / 220.0f)) < 0.3f, "rate " << rate << " model " << model << " pitch " << hz);
+            }
+        }
+    // Off: silent and cheap.
+    SoundEngine e;
+    e.prepare(kRate);
+    dryEngine(e);
+    RingsParams r;
+    r.level = 1.0f;
+    e.setRings(r);
+    e.noteOn(0, 57, 57.0f, 0.8f);
+    e.noteOff(0, 57);
+    Rendered out;
+    SynthParams quiet;
+    quiet.level = 0.0f;
+    e.setSynth(0, quiet);
+    renderInto(e, out, 0.5);
+    CHECK(out.peak < 1e-6f);
 }

@@ -28,8 +28,13 @@ enum class ChordPlay : int { Off = 0, Held, Stabs };
 // Wander: the harmony moves by itself around home. Keys: you play it, one key per chord.
 enum class HarmonyMode : int { Wander = 0, Keys };
 // Close: root position. Smooth folds every chord into one octave so the notes move as
-// little as possible from chord to chord; SmoothBass adds the root underneath.
-enum class ChordVoicing : int { Close = 0, Smooth, SmoothBass };
+// little as possible from chord to chord; SmoothBass adds the root underneath. The rest
+// start from the smooth chord too: Drop2 drops its second note from the top an octave;
+// Open drops the second and fourth and puts the root underneath (wide, piano-ballad);
+// Rootless leaves the root out (neo-soul keys, the bass plays it); Shell is root, third
+// and seventh with the top extension; Upper is a root-fifth bass under the colour notes.
+enum class ChordVoicing : int { Close = 0, Smooth, SmoothBass, Drop2, Open, Rootless, Shell, Upper };
+constexpr int kNumChordVoicings = 8;
 enum class StrumDirection : int { Up = 0, Down, Alternate };
 
 const char* pitchClassName(int pitchClass); // "C", "C#", ...
@@ -68,6 +73,9 @@ struct ChordParams
 
     ChordVoicing voicing = ChordVoicing::SmoothBass;
     float strumMs = 0.0f; // time between the notes of a chord (0 = together)
+    // Chance of each note of a chord to sound, rolled per note every time the chord
+    // starts (a held chord or a stab). If every note misses, the lowest one plays.
+    float noteChance = 1.0f;
     StrumDirection strumDirection = StrumDirection::Up;
 };
 
@@ -105,6 +113,8 @@ public:
     static int rootPitchClass(const ChordParams& p, int column);
     static bool isMinorChord(const ChordParams& p, int column);
     static Chord build(const ChordParams& p, HarmonyCell cell);
+    // The notes of `chord` that pass Note chance for one start (`serial`: which start).
+    static Chord thin(const ChordParams& p, const Chord& chord, std::int64_t serial);
     static std::string name(const ChordParams& p, HarmonyCell cell); // "Am7", "G9sus"
 };
 

@@ -1,5 +1,6 @@
 #include "Beads.h"
 #include "BeadsReverb.h"
+#include "Rings.h"
 #include "Drums.h"
 #include "Fx.h"
 #include "Synth.h"
@@ -8,6 +9,10 @@ namespace gristo::sound {
 
 namespace {
 constexpr float kSynthPan[kNumSynths] = { -0.15f, 0.2f, -0.3f, 0.0f };
+constexpr float kBodyCoupling = 0.12f; // how much of the rest of the kit a drum's body hears
+constexpr float kBodyLevel = 0.5f;
+// Where a noise drum's body sits (a tonal drum's rings at the drum's own pitch).
+constexpr float kBodyBaseHz[kNumDrumVoices] = { 70.0f, 190.0f, 620.0f, 620.0f, 330.0f, 330.0f };
 constexpr int kOpenHat = 3, kClosedHat = 2;
 } // namespace
 
@@ -30,7 +35,6 @@ struct SoundEngine::Impl
     SamplePlayer players[kNumDrumVoices];
     float chokeCoef = 0.999f;
     Synth synths[kNumSynths];
-    Reverb reverb;
     Delay delay;
     Chorus chorus[kNumSynths];
     bool chorusOn[kNumSynths] {};
@@ -45,11 +49,17 @@ struct SoundEngine::Impl
     Tape tape;
     Shimmer shimmer;
     Beads beads;
+    Rings rings;
+    RingsParams ringsParams;
+    float ringsLevel = 0.0f;
     BeadsReverb beadsVerb, vastVerb; // Beads' reverb on the grains; the same as the main reverb
     BeadsParams beadsParams;
     float beadsLevel = 0.0f, beadsReverb = 0.0f;
-    Resonator drumBody[kNumDrumVoices], synthBody[kNumSynths][2];
+    DrumBody drumBody[kNumDrumVoices];
+    Resonator synthBody[kNumSynths][2];
+    std::uint32_t bodyStrikes = 0;
     float drumBodyRing[kNumDrumVoices] {};
+    float drumBodyDrive[kNumDrumVoices] { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f }; // noise drums have little energy where their body rings
     float shimmerFeed = 0.0f;
     Wobble panDrift[kNumSynths];
     dsp::Noise variation { 0x5eed5u };
@@ -95,7 +105,6 @@ void SoundEngine::prepare(double sampleRate)
     for (auto& s : m.synths)
         s.prepare(m.sampleRate);
     m.synths[kChordSynth].setPoly(true);
-    m.reverb.prepare(m.sampleRate);
     m.delay.prepare(m.sampleRate);
     for (int s = 0; s < kNumSynths; ++s)
         m.chorus[s].prepare(m.sampleRate, 0.25f * static_cast<float>(s)); // staggered LFOs
@@ -107,6 +116,7 @@ void SoundEngine::prepare(double sampleRate)
     m.tape.prepare(m.sampleRate);
     m.shimmer.prepare(m.sampleRate);
     m.beads.prepare(m.sampleRate);
+    m.rings.prepare(m.sampleRate);
     m.beadsVerb.prepare(m.sampleRate);
     m.vastVerb.prepare(m.sampleRate);
     for (auto& r : m.drumBody)
@@ -142,7 +152,6 @@ void SoundEngine::reset()
         s.reset();
     for (auto& player : m.players)
         player.active = false;
-    m.reverb.reset();
     m.delay.reset();
     for (auto& c : m.chorus)
         c.reset();
@@ -154,6 +163,8 @@ void SoundEngine::reset()
     m.tape.reset();
     m.shimmer.reset();
     m.beads.reset();
+    m.rings.reset();
+    m.ringsLevel = 0.0f;
     m.beadsVerb.reset();
     m.vastVerb.reset();
     for (auto& r : m.drumBody)
@@ -191,6 +202,7 @@ void SoundEngine::setKit(const KitParams& params)
         const DrumTweak clean;
         t.tune = std::clamp(finite(t.tune, 0.0f), -24.0f, 24.0f);
         t.bodyTune = std::clamp(finite(t.bodyTune, 0.0f), -24.0f, 24.0f);
+        t.bodyType = std::clamp(t.bodyType, 0, static_cast<int>(DrumBody::Count) - 1);
         t.pan = std::clamp(finite(t.pan, 0.0f), -1.0f, 1.0f);
         t.cutoff = dsp::clamp01(finite(t.cutoff, 0.5f));
         t.engine = std::clamp(t.engine, -1, static_cast<int>(DrumEngine::Count) - 1);
@@ -218,6 +230,22 @@ void SoundEngine::setSynth(int synth, const SynthParams& params)
     impl_->synths[synth].setParams(p);
 }
 
+namespace {
+// The main reverb is Beads' reverb, all wet, with the module's curves for its Quality:
+// Size sets the loop as the module's Reverb knob sets it at full, the tape and vintage
+// media are darker and longer, Clean tape runs it as the module's 32 kHz does.
+void updateMainReverb(BeadsReverb& verb, int quality, float size)
+{
+    quality = std::clamp(quality, 0, 3);
+    const bool caveman = quality != 0;
+    size = dsp::clamp01(size);
+    verb.setMix(1.0f);
+    verb.setMedium(quality);
+    verb.setTime(caveman ? 0.45f + 0.5f * size : 0.3f + 0.6f * size);
+    verb.setLowpass(caveman ? 0.4f : 0.6f);
+}
+} // namespace
+
 void SoundEngine::setFx(const FxParams& params)
 {
     auto& m = *impl_;
@@ -227,15 +255,10 @@ void SoundEngine::setFx(const FxParams& params)
     fx.delayBeats = finite(fx.delayBeats, d.delayBeats);
     fx.delayFeedback = finite(fx.delayFeedback, d.delayFeedback);
     fx.shimmer = dsp::clamp01(finite(fx.shimmer, 0.0f));
-    fx.reverbType = std::clamp(fx.reverbType, 0, 1);
-    // The Beads reverb as the main one: all wet, Size sets the loop (up to a vast 0.95).
-    m.vastVerb.setMix(1.0f);
-    m.vastVerb.setTime(0.35f + 0.55f * fx.reverbSize);
-    m.vastVerb.setLowpass(0.72f - 0.22f * fx.reverbSize);
     if (!std::isfinite(fx.bpm))
         fx.bpm = d.bpm;
     m.fx = fx;
-    m.reverb.setSize(fx.reverbSize);
+    updateMainReverb(m.vastVerb, m.beadsParams.quality, fx.reverbSize);
     const double bpm = std::clamp(fx.bpm, 20.0, 400.0);
     m.delay.set(static_cast<float>(fx.delayBeats * 60.0 / bpm), fx.delayFeedback);
 }
@@ -251,6 +274,7 @@ void SoundEngine::setBeads(const BeadsParams& params)
     for (auto& v : b.send)
         v = dsp::clamp01(finite(v, 0.0f));
     m.beadsParams = b;
+    updateMainReverb(m.vastVerb, b.quality, m.fx.reverbSize);
     BeadsSettings s;
     s.density = b.density;
     s.time = b.time;
@@ -368,16 +392,51 @@ void SoundEngine::triggerDrum(int voice, float velocity)
     if (t.body > 0.0f)
     {
         // Tonal drums ring at their own pitch; noise drums get a mid-range shell.
-        const float base = m.drums[voice].tonal() && d.hz > 20.0f ? d.hz : 220.0f * std::exp2(tune / 12.0f);
-        m.drumBody[voice].set(base * std::exp2(t.bodyTune / 12.0f), dsp::macroLog(t.bodyDecay, 0.04f, 0.3f, 2.5f), 0.35f);
+        const bool tonal = m.drums[voice].tonal() && d.hz > 20.0f;
+        const float base = tonal ? d.hz : kBodyBaseHz[voice] * std::exp2(tune / 12.0f);
+        m.drumBodyDrive[voice] = tonal ? 1.0f : 3.0f;
+        m.drumBody[voice].strike(base * std::exp2(t.bodyTune / 12.0f), dsp::macroLog(t.bodyDecay, 0.04f, 0.3f, 2.5f), t.bodyType,
+                                 m.character.alive, ++m.bodyStrikes);
         m.drumBodyRing[voice] = 4.0f * m.sampleRate; // keep it running while it can still ring
     }
+    // The other bodies ring along a little (a snare buzzing to the kick): keep them running.
+    for (int v = 0; v < kNumDrumVoices; ++v)
+        if (v != voice && m.kit.voice[static_cast<size_t>(v)].body > 0.0f)
+            m.drumBodyRing[v] = std::max(m.drumBodyRing[v], 1.5f * m.sampleRate);
 }
 
 void SoundEngine::noteOn(int synth, int id, float pitch, float velocity)
 {
     if (synth >= 0 && synth < kNumSynths)
+    {
         impl_->synths[synth].noteOn(id, pitch, velocity);
+        const RingsParams& r = impl_->ringsParams;
+        if (r.on && r.source == synth)
+            impl_->rings.strum(pitch + 12.0f * static_cast<float>(r.octave));
+    }
+}
+
+void SoundEngine::setRings(const RingsParams& params)
+{
+    auto& m = *impl_;
+    RingsParams r = params;
+    for (float* v : { &r.structure, &r.brightness, &r.damping, &r.position, &r.level, &r.reverb, &r.delay, &r.beads })
+        *v = dsp::clamp01(finite(*v, 0.0f));
+    r.tonic = finite(r.tonic, 0.0f);
+    r.source = std::clamp(r.source, 0, kNumSynths - 1);
+    r.octave = std::clamp(r.octave, -2, 2);
+    r.exciter = std::clamp(r.exciter, 0, 2);
+    m.ringsParams = r;
+    RingsSettings s;
+    s.model = r.model;
+    s.polyphony = r.polyphony;
+    s.structure = r.structure;
+    s.brightness = r.brightness;
+    s.damping = r.damping;
+    s.position = r.position;
+    s.tonic = r.tonic;
+    s.pluck = r.exciter != 1;
+    m.rings.set(s);
 }
 
 void SoundEngine::noteOff(int synth, int id)
@@ -416,6 +475,7 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
     const bool kitStem = stems != nullptr && stems->kit[0] != nullptr && stems->kit[1] != nullptr;
     const bool fxStem = stems != nullptr && stems->fx[0] != nullptr && stems->fx[1] != nullptr;
     const bool beadsStem = stems != nullptr && stems->beads[0] != nullptr && stems->beads[1] != nullptr;
+    const bool ringsStem = stems != nullptr && stems->rings[0] != nullptr && stems->rings[1] != nullptr;
     bool synthStem[kNumSynths] {};
     for (int s = 0; s < kNumSynths; ++s)
         synthStem[s] = stems != nullptr && stems->synth[s][0] != nullptr && stems->synth[s][1] != nullptr;
@@ -431,17 +491,27 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
     {
         // Drums
         float kl = 0.0f, kr = 0.0f;
+        float dry[kNumDrumVoices] {};
+        float kitSum = 0.0f;
+        for (int v = 0; v < kNumDrumVoices; ++v)
+            if (m.drums[v].active())
+            {
+                dry[v] = m.drums[v].tick();
+                kitSum += dry[v];
+            }
         for (int v = 0; v < kNumDrumVoices; ++v)
         {
             const float amount = m.kit.voice[static_cast<size_t>(v)].body;
             const bool ringing = amount > 0.0f && m.drumBodyRing[v] > 0.0f;
             if (!m.drums[v].active() && !ringing)
                 continue;
-            float s = m.drums[v].active() ? m.drums[v].tick() : 0.0f;
+            float s = dry[v];
             if (ringing)
             {
                 m.drumBodyRing[v] -= 1.0f;
-                s = s * (1.0f - 0.4f * amount) + m.drumBody[v].process(s) * amount * 0.8f;
+                // Its own hit, and a little of the rest of the kit (sympathetic resonance).
+                const float excite = (s + kBodyCoupling * (kitSum - s)) * m.drumBodyDrive[v];
+                s = s * (1.0f - 0.35f * amount) + m.drumBody[v].process(excite) * amount * kBodyLevel;
             }
             s *= m.kit.level[static_cast<size_t>(v)];
             const float pan = m.drums[v].pan();
@@ -558,6 +628,31 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             dlyIn += y * m.dlySend[1 + s];
         }
 
+        // Rings: strummed by its part's notes (see noteOn), maybe excited by the drums.
+        m.ringsLevel += ((m.ringsParams.on ? m.ringsParams.level : 0.0f) - m.ringsLevel) * m.sendCoef;
+        if (m.ringsParams.on || m.ringsLevel > 1e-4f)
+        {
+            const float drive = m.ringsParams.exciter != 0 ? (kl + kr) * 0.5f : 0.0f;
+            if (!m.rings.idle() || std::abs(drive) > 1e-6f)
+            {
+                float gl = 0.0f, gr = 0.0f;
+                m.rings.process(drive, gl, gr);
+                gl *= m.ringsLevel;
+                gr *= m.ringsLevel;
+                revIn += (gl + gr) * 0.5f * m.ringsParams.reverb;
+                dlyIn += (gl + gr) * 0.5f * m.ringsParams.delay;
+                beadsInL += gl * m.ringsParams.beads;
+                beadsInR += gr * m.ringsParams.beads;
+                if (ringsStem)
+                    toStem(stems->rings, i, gl, gr);
+                else
+                {
+                    l += gl;
+                    r += gr;
+                }
+            }
+        }
+
         // Beads: the synths it hears, its grains back into the mix and the reverb.
         m.beadsLevel += (m.beadsParams.level - m.beadsLevel) * m.sendCoef;
         m.beadsReverb += (m.beadsParams.reverb - m.beadsReverb) * m.sendCoef;
@@ -570,20 +665,16 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             const bool caveman = m.beadsParams.quality != 0;
             m.beadsVerb.setMix(amount * amount * 0.9f);
             m.beadsVerb.setTime(caveman ? 0.45f + 0.5f * amount * amount * amount : 0.3f + 0.6f * amount * amount * amount);
-            m.beadsVerb.setLowpass(caveman ? (m.beadsParams.quality == 1 ? 0.75f : 0.4f) : 0.6f);
+            m.beadsVerb.setLowpass(caveman ? 0.4f : 0.6f); // as the module's code: every medium but Digital at 0.4
+            m.beadsVerb.setMedium(m.beadsParams.quality);
             m.beadsVerb.process(bl, br);
             bl *= m.beadsLevel * 1.5f;
             br *= m.beadsLevel * 1.5f;
         }
         float dl = 0.0f, dr = 0.0f, rl = 0.0f, rr = 0.0f;
         m.delay.process(dlyIn, dl, dr);
-        if (m.fx.reverbType == 1)
-        {
-            rl = rr = (revIn + (dl + dr) * 0.15f + m.shimmerFeed) * 0.5f;
-            m.vastVerb.process(rl, rr);
-        }
-        else
-            m.reverb.process(revIn + (dl + dr) * 0.15f + m.shimmerFeed, rl, rr);
+        rl = rr = (revIn + (dl + dr) * 0.15f + m.shimmerFeed) * 0.5f;
+        m.vastVerb.process(rl, rr);
         m.shimmerFeed = m.fx.shimmer > 0.0f ? dsp::fastTanh(m.shimmer.process((rl + rr) * 0.5f) * 2.5f) * 0.8f * m.fx.shimmer : 0.0f;
         if (beadsStem)
         {

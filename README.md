@@ -58,7 +58,7 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   monosynth; keys and mallets have a hammer / mallet attack, the suitcase
   e-piano a stereo tremolo, the organs a rotary-style swirl and the vibraphone
   its motor tremolo. Lanes glide the levels, filters and sends smoothly. The
-  reverb is a lush, modulated plate with a short pre-delay, the delay has a bit
+  reverb is the one from Mutable Instruments Beads (see below), the delay has a bit
   of tape wow and warmth, and a gentle glue compressor sits before a clean
   output stage.
   A shared reverb and tempo-synced ping-pong delay with sends. Lanes can drive
@@ -85,8 +85,8 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
 * Beads' **Reverb** knob is now the module's own reverb on the grains (ported
   from Mutable Instruments' code): more is both wetter and longer, up to about
   12 seconds, modulated and wide. Darker on the tape media.
-* The same reverb can be the main reverb: **Reverb: Beads (vast)** on the
-  FX / Beads page. Size sets the length.
+* The same reverb is the main reverb (the plate is gone). Size sets the
+  length; Beads' **Quality** sets its colour, as on the module.
 * Beads' **Pitch** knob steps through musical intervals: unison, fourths,
   fifths, octaves, and octave + fourth / fifth, up to two octaves either way.
 
@@ -119,6 +119,43 @@ source) and the Perkons inspired the choice of engines, not code.
 * **Octave** on each synth's sound panel: moves the built-in sound up or down
   (-3 .. +3 octaves); the MIDI it sends is unchanged.
 * **Beads** has its own plugin output (with Separate outputs on; the eighth bus).
+
+### Rings, chord Chance and voicings, one reverb, a new Body, gentler Dirt
+
+* **Rings** (the **Rings** button under the parts): Mutable Instruments' resonator,
+  the module's own code. Every note of the part it is **Played by** (an arp or
+  the chords) strums it at that note's pitch, so it always plays in the song's
+  key; a chord rolls over a few milliseconds. Model (Modal, Sympathetic strings,
+  String, FM voice, Sympathetic (chords) on the song's key, String + reverb),
+  Polyphony 1 / 2 / 4, Octave, Structure, Brightness, Damping, Position, and
+  **Exciter**: its own pluck, the drums (tuned percussion), or both. Level, sends
+  to the reverb and the delay, and **Into Beads** (grains of the resonance). With
+  Separate outputs on, it has its own plugin output (the ninth bus). Like the
+  module it runs at 48 kHz, resampled to your project's rate.
+* **Chords: Chance** gives each note of a chord its own chance to sound, rolled
+  every time a chord starts (if every note misses, the lowest plays). Five more
+  **voicings**: Drop 2, Open (wide, root underneath), Rootless (neo-soul keys),
+  Shell (root, third, seventh and the top colour) and Upper + bass (root and
+  fifth under the colour notes).
+* **One reverb:** the plate is gone; the reverb is Beads'. As on the module,
+  Beads' **Quality** colours it (and Beads' own reverb): Digital is the
+  cleanest, the other media darker and longer; on Clean tape it runs as the
+  module's 32 kHz does, longer still; its 16-bit memory clips when driven hard.
+* **Body, rebuilt:** eight resonant modes instead of a comb, with a **Body type**
+  per drum: **Shell** (a drum's membrane and wooden shell), **Box** (a cajon-like
+  box: a low air thump under dull panels), **Metal** (a struck plate) and **Tube**
+  (a tuned pipe, close to the old Body). Higher modes fade first; every hit moves
+  the modes a little (Alive); and the bodies ring a little with the rest of the
+  kit, like a snare buzzing to the kick.
+* **Dirt, gentler:** Tape and Drive blend in with the amount instead of being
+  fully on from a third of the knob, Tape keeps the lows clean, and both
+  saturators are anti-aliased (far less harsh fizz on hats and bright synths).
+  Crunch comes in more gradually.
+* **MIDI out vs. sound:** each part's MIDI out row now reads *MIDI ch* and
+  *Shift* (moves only the MIDI you send), and the synth's *Sound ... oct* only
+  moves the built-in sound. The chords' Octave moves both.
+* Scenes and lane / macro routings are now also saved by parameter name, so an
+  update that adds parameters keeps them.
 
 ### Drawing steps by hand
 
@@ -185,8 +222,8 @@ GPL-3.0-or-later.
 
 * **A sound page per drum:** in Edit, pick a drum on the left and open the
   **Sound** tab: Tune, Decay, Tone, Punch, Noise, Drive, Pan, and **Body**, a
-  tuned comb resonator the drum excites (with Body Tune and Body Decay) for an
-  acoustic ring: shells, tubes, tuned strings.
+  resonant body the drum excites (with Body Tune, Body Decay and a Body type)
+  for the ring and air of a real drum.
 * **Body on the synths:** a small resonant wooden body around any sound.
 * **Plays** (trig condition, per drum): every bar, 1st or 2nd of 2 bars, 1st
   or 4th of 4 bars.
@@ -233,8 +270,9 @@ The plugin opens on the **Play** screen:
 and *Played by Keys*: the white keys from C1 play the seven chords around
 home, the next octave one row richer.
 
-**Dirt** is one amount with three kinds of grit: **Tape** (saturation, wow
-and flutter, soft highs, hiss that comes and goes with the music), **Crunch**
+**Dirt** is one amount with three kinds of grit: **Tape** (saturation that
+leaves the lows below ~100 Hz clean, wow and flutter, soft highs, hiss that
+comes and goes with the music), **Crunch**
 (an old sampler's low sample rate and coarse converters) and **Drive**
 (overdriven channels into a compressor that pumps). **Alive** (Master / FX
 page) is how much nothing repeats exactly: oscillators and filters drift,
@@ -268,12 +306,13 @@ plays and holds the modulation lanes.
   own WAV / AIFF / FLAC one-shot instead of the kit's sound; kept in
   `Documents/Gristo/Samples`).
 * **Arps:** *Step on* every hit or every 2nd, 3rd, 4th, 6th, 8th trigger hit.
-* **Chords:** **Voicing** (close, Smooth: every chord in one octave so
-  notes move as little as possible, or Smooth + bass) and **Strum** (ms between
-  notes; up, down or alternating).
+* **Chords:** **Voicing** (close; Smooth: every chord in one octave so
+  notes move as little as possible; Smooth + bass; Drop 2; Open; Rootless;
+  Shell; Upper + bass), **Strum** (ms between notes; up, down or alternating)
+  and **Chance** (per note).
 * **Sound:** each synth has **Duck** (pumps with the kick). **Separate
-  outputs** (Master / FX page) gives Kit, Arp 1-3, Chords and FX their own
-  plugin outputs.
+  outputs** (Master / FX page) gives Kit, Arp 1-3, Chords, FX, Beads and Rings
+  their own plugin outputs.
 * **MIDI to the DAW:** drag the handles in the timeline bar onto a track to
   drop 1-8 bars of the selected part or of everything as a MIDI clip.
 
@@ -412,6 +451,11 @@ Gristo is inspired by Mutable Instruments **Grids** and Making Sound Machines
 **Stolperbeats**, and is not affiliated with either. It contains none of their
 code, map data, patterns or timing tables. The drum map is trained from the
 original corpus in `data/corpus`.
+
+**Rings** is Mutable Instruments' own code (rings/dsp and its tables, MIT,
+Copyright 2015 Emilie Gillet) with the parts of **stmlib** it needs (MIT,
+Copyright 2012 Emilie Gillet), in `third_party/eurorack`, unchanged but for
+two portability lines (see the README there).
 
 JUCE is licensed under AGPLv3 or a commercial licence. Pick the one that fits
 how you distribute Gristo before releasing binaries.

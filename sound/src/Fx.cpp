@@ -2,181 +2,6 @@
 
 namespace gristo::sound {
 
-namespace {
-// Dattorro's lengths, in samples at his 29761 Hz.
-constexpr float kPlateRate = 29761.0f;
-constexpr int kDiffuser[4] = { 142, 107, 379, 277 };
-constexpr float kDiffuserGain[4] = { 0.75f, 0.75f, 0.625f, 0.625f };
-constexpr int kTankAp1[2] = { 672, 908 }, kTankDelay1[2] = { 4453, 4217 };
-constexpr int kTankAp2[2] = { 1800, 2656 }, kTankDelay2[2] = { 3720, 3163 };
-constexpr float kDecayDiffusion1 = 0.7f;
-constexpr float kExcursion = 16.0f;
-// Output taps (his table 2). Left: from the right tank mostly, right: from the left.
-constexpr int kTapL[7] = { 266, 2974, 1913, 1996, 1990, 187, 1066 };
-constexpr int kTapR[7] = { 353, 3627, 1228, 2673, 2111, 335, 121 };
-constexpr float kOutputGain = 0.6f;
-constexpr float kLevel = 1.1f; // matches the level of the previous reverb at middle size
-} // namespace
-
-void Reverb::Line::init(int maxDelay)
-{
-    std::uint32_t n = 1;
-    while (n < static_cast<std::uint32_t>(maxDelay) + 4u)
-        n <<= 1;
-    buffer.assign(n, 0.0f);
-    mask = n - 1;
-    write = 0;
-}
-
-void Reverb::Line::clear()
-{
-    std::fill(buffer.begin(), buffer.end(), 0.0f);
-    write = 0;
-}
-
-float Reverb::Line::atFrac(float delay) const
-{
-    const int i = static_cast<int>(delay);
-    const float f = delay - static_cast<float>(i);
-    const float a = at(i), b = at(i + 1);
-    return a + (b - a) * f;
-}
-
-float Reverb::allpass(Line& line, int delay, float gain, float x)
-{
-    const float z = line.at(delay);
-    const float w = x + gain * z;
-    line.push(w);
-    return z - gain * w;
-}
-
-float Reverb::allpassMod(Line& line, float delay, float gain, float x)
-{
-    const float z = line.atFrac(delay);
-    const float w = x + gain * z;
-    line.push(w);
-    return z - gain * w;
-}
-
-void Reverb::prepare(float sampleRate)
-{
-    sampleRate_ = sampleRate;
-    const float scale = sampleRate / kPlateRate;
-    auto len = [scale](int n) { return std::max(1, static_cast<int>(std::lround(static_cast<float>(n) * scale))); };
-    preDelayLength_ = std::max(1, static_cast<int>(0.018f * sampleRate)); // 18 ms
-    preDelay_.init(preDelayLength_);
-    lowCut_.setLowpass(180.0f, sampleRate);
-    bandwidth_.setLowpass(10000.0f, sampleRate);
-    for (int i = 0; i < 4; ++i)
-    {
-        diffuserLength_[i] = len(kDiffuser[i]);
-        diffusers_[i].init(diffuserLength_[i]);
-    }
-    excursion_ = kExcursion * scale;
-    for (int side = 0; side < 2; ++side)
-    {
-        ap1Length_[side] = len(kTankAp1[side]);
-        delay1Length_[side] = len(kTankDelay1[side]);
-        ap2Length_[side] = len(kTankAp2[side]);
-        delay2Length_[side] = len(kTankDelay2[side]);
-        tankAp1_[side].init(ap1Length_[side] + static_cast<int>(excursion_) + 2);
-        tankDelay1_[side].init(delay1Length_[side]);
-        tankAp2_[side].init(ap2Length_[side]);
-        tankDelay2_[side].init(delay2Length_[side]);
-    }
-    for (int i = 0; i < 7; ++i)
-    {
-        tapsL_[i] = len(kTapL[i]);
-        tapsR_[i] = len(kTapR[i]);
-    }
-    lfoInc_[0] = 0.6f / sampleRate; // slow chorus of the tank, at two unrelated rates
-    lfoInc_[1] = 0.77f / sampleRate;
-    setSize(0.5f);
-    reset();
-}
-
-void Reverb::reset()
-{
-    preDelay_.clear();
-    lowCut_.reset();
-    bandwidth_.reset();
-    for (auto& d : diffusers_)
-        d.clear();
-    for (int side = 0; side < 2; ++side)
-    {
-        tankAp1_[side].clear();
-        tankDelay1_[side].clear();
-        tankAp2_[side].clear();
-        tankDelay2_[side].clear();
-        damping_[side].reset();
-        tankOut_[side] = 0.0f;
-    }
-    lfoPhase_[0] = 0.0f;
-    lfoPhase_[1] = 0.25f;
-}
-
-void Reverb::setSize(float size)
-{
-    size = dsp::clamp01(size);
-    // Fitted to the decay times of the earlier reverb, so saved settings keep their
-    // length: RT60 about 0.5 s at 0, 0.9 s at 0.5, 1.8 s at 0.75, 8.7 s at 1.
-    // Longer tails a little darker.
-    decay_ = 0.885f * std::pow(size, 1.65f);
-    decayDiffusion2_ = std::clamp(decay_ + 0.15f, 0.25f, 0.5f);
-    const float dampHz = 9000.0f - 3500.0f * size;
-    if (std::abs(dampHz - dampHz_) > 1.0f)
-    {
-        dampHz_ = dampHz;
-        for (auto& d : damping_)
-            d.setLowpass(dampHz_, sampleRate_);
-    }
-}
-
-void Reverb::process(float in, float& outL, float& outR)
-{
-    if (preDelay_.buffer.empty())
-    {
-        outL = outR = 0.0f;
-        return;
-    }
-    // Input: low cut, pre-delay, bandwidth, four diffusers.
-    float x = preDelay_.at(preDelayLength_);
-    preDelay_.push(lowCut_.highpass(in));
-    x = bandwidth_.lowpass(x);
-    for (int i = 0; i < 4; ++i)
-        x = allpass(diffusers_[i], diffuserLength_[i], kDiffuserGain[i], x);
-
-    // Tank: each side is fed by the input and the other side's end.
-    const float feed[2] = { x + decay_ * tankOut_[1], x + decay_ * tankOut_[0] };
-    for (int side = 0; side < 2; ++side)
-    {
-        lfoPhase_[side] += lfoInc_[side];
-        if (lfoPhase_[side] >= 1.0f)
-            lfoPhase_[side] -= 1.0f;
-        const float mod = excursion_ * (0.5f + 0.5f * std::sin(dsp::kTwoPi * lfoPhase_[side]));
-        float v = allpassMod(tankAp1_[side], static_cast<float>(ap1Length_[side]) + mod, -kDecayDiffusion1, feed[side]);
-        const float d1 = tankDelay1_[side].at(delay1Length_[side]);
-        tankDelay1_[side].push(v);
-        v = damping_[side].lowpass(d1) * decay_;
-        v = allpass(tankAp2_[side], ap2Length_[side], decayDiffusion2_, v);
-        float end = tankDelay2_[side].at(delay2Length_[side]);
-        tankDelay2_[side].push(v);
-        if (std::abs(end) < 1e-20f)
-            end = 0.0f;
-        tankOut_[side] = end;
-    }
-
-    // Stereo taps around the tank.
-    const float l = tankDelay1_[1].at(tapsL_[0]) + tankDelay1_[1].at(tapsL_[1]) - tankAp2_[1].at(tapsL_[2])
-                  + tankDelay2_[1].at(tapsL_[3]) - tankDelay1_[0].at(tapsL_[4]) - tankAp2_[0].at(tapsL_[5])
-                  - tankDelay2_[0].at(tapsL_[6]);
-    const float r = tankDelay1_[0].at(tapsR_[0]) + tankDelay1_[0].at(tapsR_[1]) - tankAp2_[0].at(tapsR_[2])
-                  + tankDelay2_[0].at(tapsR_[3]) - tankDelay1_[1].at(tapsR_[4]) - tankAp2_[1].at(tapsR_[5])
-                  - tankDelay2_[1].at(tapsR_[6]);
-    outL = l * kOutputGain * kLevel;
-    outR = r * kOutputGain * kLevel;
-}
-
 // ---------------------------------------------------------------------------------
 
 void Delay::prepare(float sampleRate)
@@ -338,7 +163,7 @@ void Crusher::reset()
 void Crusher::set(float amount)
 {
     const float a = dsp::clamp01(amount);
-    wet_ = std::min(1.0f, a * 4.0f);
+    wet_ = std::min(1.0f, a * 2.0f);
     // 28 kHz (an SP-1200 runs at 26) down to 8 kHz; 12 bits down to 7.
     const float rate = 28000.0f * std::pow(8000.0f / 28000.0f, a);
     step_ = std::min(1.0f, rate / sampleRate_);
@@ -374,25 +199,27 @@ void Overdrive::reset()
 {
     for (auto& f : tone_)
         f.reset();
+    for (auto& s : sat_)
+        s.reset();
 }
 
 void Overdrive::set(float amount)
 {
     const float a = dsp::clamp01(amount);
-    mix_ = std::min(1.0f, a * 4.0f);
-    gain_ = 1.0f + 2.0f * a + 9.0f * a * a;
-    bias_ = 0.18f * a;
-    offset_ = dsp::fastTanh(bias_);
-    // Quiet material comes up, loud material is held: about the same loudness all the way.
-    makeup_ = std::pow(gain_, -0.45f);
+    mix_ = std::min(1.0f, a * 1.6f);
+    gain_ = 1.0f + 2.0f * a + 6.0f * a * a;
+    for (auto& s : sat_)
+        s.setBias(0.15f * a);
+    // Peaks are held, quiet material comes up only a little.
+    makeup_ = std::pow(gain_, -0.65f);
     for (auto& f : tone_)
-        f.setLowpass(17000.0f - 9000.0f * a, sampleRate_);
+        f.setLowpass(18000.0f - 7000.0f * a, sampleRate_);
 }
 
 void Overdrive::process(float& l, float& r)
 {
-    const float dl = tone_[0].lowpass((dsp::fastTanh(l * gain_ + bias_) - offset_) * makeup_);
-    const float dr = tone_[1].lowpass((dsp::fastTanh(r * gain_ + bias_) - offset_) * makeup_);
+    const float dl = tone_[0].lowpass(sat_[0].process(l * gain_) * makeup_);
+    const float dr = tone_[1].lowpass(sat_[1].process(r * gain_) * makeup_);
     l += (dl - l) * mix_;
     r += (dr - r) * mix_;
 }
@@ -418,24 +245,31 @@ void Tape::reset()
         std::fill(line.begin(), line.end(), 0.0f);
     write_ = 0;
     hissEnv_ = 0.0f;
-    for (auto* f : { &highs_[0], &highs_[1], &bump_[0], &bump_[1], &hissTone_ })
+    for (auto* f : { &highs_[0], &highs_[1], &bump_[0], &bump_[1], &hissTone_, &lowDry_[0], &lowDry_[1], &lowWet_[0], &lowWet_[1] })
         f->reset();
+    for (auto& s : sat_)
+        s.reset();
 }
 
 void Tape::set(float amount)
 {
     const float a = dsp::clamp01(amount);
     amount_ = a;
-    mix_ = std::min(1.0f, a * 3.0f);
-    gain_ = 1.0f + 3.5f * a;
-    makeup_ = std::pow(gain_, 0.45f) / gain_;
-    wowDepth_ = a * a * 0.0011f * sampleRate_;  // up to about 8 cents at 0.6 Hz
-    flutterDepth_ = a * 0.00004f * sampleRate_; // a faster, smaller shimmer on top
-    hissLevel_ = a * a * 0.006f;
+    // Blended in with the amount (all of it only at full), driven gently: tape rounds
+    // the peaks off rather than lifting the floor.
+    mix_ = std::min(1.0f, a * 1.25f);
+    gain_ = 1.0f + 2.5f * a;
+    makeup_ = std::pow(gain_, -0.8f);
+    wowDepth_ = a * a * 0.0008f * sampleRate_;  // up to about 6 cents at 0.6 Hz
+    flutterDepth_ = a * 0.00003f * sampleRate_; // a faster, smaller shimmer on top
+    hissLevel_ = a * a * 0.004f;
     for (int ch = 0; ch < 2; ++ch)
     {
-        highs_[ch].setLowpass(20000.0f * std::pow(5500.0f / 20000.0f, a), sampleRate_);
+        highs_[ch].setLowpass(20000.0f * std::pow(7000.0f / 20000.0f, a), sampleRate_);
         bump_[ch].setLowpass(110.0f, sampleRate_);
+        lowDry_[ch].setLowpass(100.0f, sampleRate_);
+        lowWet_[ch].setLowpass(100.0f, sampleRate_);
+        sat_[ch].setBias(0.12f * a); // a little asymmetry: even harmonics, warmth
     }
 }
 
@@ -471,7 +305,10 @@ void Tape::process(float& l, float& r)
         r = tr;
         return;
     }
-    const float sl = dsp::fastTanh(tl * gain_) * makeup_, sr = dsp::fastTanh(tr * gain_) * makeup_;
+    // Saturated above ~100 Hz, clean below: the saturated lows are swapped for the clean ones.
+    float sl = sat_[0].process(tl * gain_) * makeup_, sr = sat_[1].process(tr * gain_) * makeup_;
+    sl += lowDry_[0].lowpass(tl) - lowWet_[0].lowpass(sl);
+    sr += lowDry_[1].lowpass(tr) - lowWet_[1].lowpass(sr);
     tl += (sl - tl) * mix_;
     tr += (sr - tr) * mix_;
     tl = highs_[0].lowpass(tl);
@@ -506,6 +343,76 @@ void Resonator::set(float hz, float decaySeconds, float damping)
     // The loop filter delays by about (1 - a) / a samples: take it off the line.
     delay_ = std::clamp(sampleRate_ / hz - (1.0f - damp_) / damp_, 1.0f, std::max(1.0f, static_cast<float>(line_.size()) - 3.0f));
     feedback_ = std::min(0.995f, std::pow(0.001f, 1.0f / (std::max(0.01f, decaySeconds) * hz)));
+}
+
+namespace {
+struct BodyMode
+{
+    float ratio, gain, decay; // pitch against the first mode, level, decay against the first mode's
+};
+// Shell: membrane modes (Bessel ratios) over a wooden shell, quick to lose their highs.
+// Box: a low air (Helmholtz) mode under dull panel modes.
+// Metal: the partials of a struck metal plate, inharmonic and long. Tube: harmonics, like a tuned pipe.
+constexpr BodyMode kBodyModes[DrumBody::Count][8] = {
+    { { 1.00f, 0.60f, 1.00f }, { 1.59f, 0.70f, 0.70f }, { 2.14f, 0.52f, 0.52f }, { 2.30f, 0.45f, 0.46f },
+      { 2.65f, 0.36f, 0.38f }, { 2.92f, 0.30f, 0.33f }, { 3.16f, 0.25f, 0.29f }, { 3.50f, 0.20f, 0.25f } },
+    { { 0.50f, 1.20f, 1.30f }, { 1.00f, 0.80f, 0.75f }, { 1.43f, 0.50f, 0.50f }, { 1.83f, 0.40f, 0.40f },
+      { 2.37f, 0.30f, 0.30f }, { 2.95f, 0.22f, 0.24f }, { 3.60f, 0.15f, 0.19f }, { 4.40f, 0.10f, 0.15f } },
+    { { 1.00f, 0.80f, 1.00f }, { 1.47f, 0.80f, 0.95f }, { 1.81f, 0.70f, 0.90f }, { 2.81f, 0.55f, 0.85f },
+      { 3.31f, 0.45f, 0.80f }, { 4.25f, 0.35f, 0.70f }, { 5.06f, 0.30f, 0.65f }, { 6.65f, 0.25f, 0.60f } },
+    { { 1.0f, 1.00f, 1.00f }, { 2.0f, 0.62f, 0.71f }, { 3.0f, 0.46f, 0.58f }, { 4.0f, 0.38f, 0.50f },
+      { 5.0f, 0.32f, 0.45f }, { 6.0f, 0.28f, 0.41f }, { 7.0f, 0.25f, 0.38f }, { 8.0f, 0.23f, 0.35f } },
+};
+} // namespace
+
+void DrumBody::prepare(float sampleRate)
+{
+    sampleRate_ = sampleRate;
+    reset();
+}
+
+void DrumBody::reset()
+{
+    for (int i = 0; i < kModes; ++i)
+        y1_[i] = y2_[i] = 0.0f;
+}
+
+void DrumBody::strike(float hz, float decaySeconds, int type, float variation, std::uint32_t seed)
+{
+    const auto& modes = kBodyModes[std::clamp(type, 0, static_cast<int>(Count) - 1)];
+    std::uint32_t r = seed * 747796405u + 2891336453u;
+    auto wobble = [&r] { // -1..1
+        r = r * 1664525u + 1013904223u;
+        return static_cast<float>(r >> 8) / 8388608.0f - 1.0f;
+    };
+    const float spread = 0.004f * dsp::clamp01(variation);
+    int n = 0;
+    for (int i = 0; i < kModes; ++i)
+    {
+        const float f = hz * modes[i].ratio * (1.0f + spread * wobble());
+        if (f < 20.0f || f > sampleRate_ * 0.45f)
+            continue;
+        const float w = dsp::kTwoPi * f / sampleRate_;
+        const float tau = std::max(0.01f, decaySeconds * modes[i].decay) / 6.91f; // 60 dB over the decay
+        const float radius = std::exp(-1.0f / (tau * sampleRate_));
+        // Input gain: a ring that grows with Q, but slower (the square root) than a plain
+        // resonator's, so long, tuned bodies don't run away on a drum at their pitch.
+        const float q = 3.14159265f * f * tau;
+        const float gain = modes[i].gain * (1.0f + 0.15f * dsp::clamp01(variation) * wobble()); // strikes differ a little
+        // Keep the state of a mode that is still ringing: a new strike adds to it.
+        if (n != i)
+        {
+            y1_[n] = y1_[i];
+            y2_[n] = y2_[i];
+        }
+        b1_[n] = 2.0f * radius * std::cos(w);
+        b2_[n] = radius * radius;
+        g_[n] = gain * 2.0f * (1.0f - radius) * std::sin(w) * std::sqrt(q) * 2.0f;
+        ++n;
+    }
+    for (int i = n; i < kModes; ++i)
+        y1_[i] = y2_[i] = 0.0f;
+    count_ = n;
 }
 
 void Shimmer::prepare(float sampleRate)
@@ -566,7 +473,7 @@ void Glue::setPump(float amount)
     const float a = dsp::clamp01(amount);
     threshold_ = 0.6f - 0.42f * a;
     ratio_ = 3.0f + 7.0f * a;
-    makeup_ = 1.0f + 0.9f * a;
+    makeup_ = 1.0f + 1.3f * a;
 }
 
 void Glue::reset()

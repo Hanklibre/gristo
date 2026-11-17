@@ -31,6 +31,7 @@ inline const juce::String drumPan = "dPan";
 inline const juce::String drumBody = "dBody";
 inline const juce::String drumBodyTune = "dBodyTune";
 inline const juce::String drumBodyDecay = "dBodyDec";
+inline const juce::String drumBodyType = "dBodyType";
 inline const juce::String drumEngine = "dEngine";
 inline const juce::String drumFilter = "dFilter";
 inline const juce::String drumCutoff = "dCut";
@@ -121,6 +122,7 @@ inline const juce::String alive = "alive";
 inline const juce::String space = "space";
 inline const juce::String chordVoicing = "chVoicing";
 inline const juce::String chordStrum = "chStrum";
+inline const juce::String chordNoteChance = "chChance";
 inline const juce::String chordStrumDir = "chStrumDir";
 inline const int kChordLowestNotes[] = { 36, 48, 60, 72 };
 inline const int kResetBarChoices[] = { 1, 2, 4, 8, 16 };
@@ -148,7 +150,6 @@ inline const juce::String fxSize = "fxSize";
 inline const juce::String fxTime = "fxTime";
 inline const juce::String fxFeedback = "fxFb";
 inline const juce::String fxShimmer = "fxShim";
-inline const juce::String fxReverbType = "fxRevType";
 // Beads (granular, fed by the synths, gated by the drums)
 inline const juce::String beadsLevel = "bdsLevel";
 inline const juce::String beadsReverb = "bdsRev";
@@ -174,6 +175,22 @@ inline const juce::String separateOuts = "sepOuts"; // parts to their own output
 inline const juce::String kitGain = "kitGain";
 inline const juce::String freeRun = "freeRun";
 inline const juce::String freeTempo = "freeTempo";
+// Rings (Mutable Instruments' resonator, strummed by a part's notes)
+inline const juce::String ringsOn = "rngOn";
+inline const juce::String ringsSource = "rngSrc";
+inline const juce::String ringsModel = "rngModel";
+inline const juce::String ringsPolyphony = "rngPoly";
+inline const juce::String ringsOctave = "rngOct";
+inline const juce::String ringsStructure = "rngStruct";
+inline const juce::String ringsBrightness = "rngBright";
+inline const juce::String ringsDamping = "rngDamp";
+inline const juce::String ringsPosition = "rngPos";
+inline const juce::String ringsExciter = "rngExc";
+inline const juce::String ringsLevel = "rngLevel";
+inline const juce::String ringsReverb = "rngRev";
+inline const juce::String ringsDelay = "rngDly";
+inline const juce::String ringsBeads = "rngBeads";
+
 // Beads-style random modulation amounts
 inline const juce::String mapRandom = "mapRnd";
 inline const juce::String shuffleRandom = "shuffleRnd";
@@ -240,6 +257,7 @@ sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& state);
 sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& state, int arp);
 sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& state);
 sound::BeadsParams readBeadsParams(const juce::AudioProcessorValueTreeState& state);
+sound::RingsParams readRingsParams(const juce::AudioProcessorValueTreeState& state);
 sound::CharacterParams readCharacterParams(const juce::AudioProcessorValueTreeState& state);
 
 } // namespace gristo::params

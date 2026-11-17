@@ -104,6 +104,10 @@ public:
     std::atomic<bool> chainScenes { false };
     std::atomic<int> chainBars { 4 };
     void writeScenes(juce::ValueTree& parent) const;
+    // Lane and macro routings to parameters, by parameter name: they still point at the
+    // same parameter after an update adds or removes some.
+    void writeRoutes(juce::ValueTree& parent) const;
+    void readRoutes(const juce::ValueTree& parent);
     void readScenes(const juce::ValueTree& parent); // clears the scenes if there are none
 
     // --- Dice: new values for one section, or for every section that isn't locked.
@@ -165,6 +169,7 @@ private:
         gristo::sound::SynthParams synths[gristo::sound::kNumSynths];
         gristo::sound::FxParams fx;
         gristo::sound::BeadsParams beads;
+        gristo::sound::RingsParams rings;
         gristo::sound::CharacterParams character;
         int notes[gristo::kNumVoices] {}, channels[gristo::kNumParts] {}, shifts[gristo::kNumArps + 1] {};
         int octaves[gristo::sound::kNumSynths] {};

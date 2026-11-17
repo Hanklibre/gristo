@@ -780,11 +780,11 @@ TEST("plugin: Octave moves a synth's sound, not its MIDI; every drum engine and 
     }
 }
 
-TEST("plugin: Beads can have its own output")
+TEST("plugin: Beads and Rings can have their own outputs")
 {
     auto proc = std::make_unique<GristoProcessor>();
     auto layout = proc->getBusesLayout();
-    CHECK(layout.outputBuses.size() == 8);
+    CHECK(layout.outputBuses.size() == 9);
     for (int bus = 1; bus < layout.outputBuses.size(); ++bus)
         layout.outputBuses.getReference(bus) = juce::AudioChannelSet::stereo();
     CHECK(proc->setBusesLayout(layout));
@@ -796,18 +796,22 @@ TEST("plugin: Beads can have its own output")
     setParam(*proc, p::beadsDensity, 0.3f); // its own clock: grains whatever the drums do
     for (int v = 0; v < gristo::kNumVoices; ++v)
         setParam(*proc, p::voiceId(p::beadsTrigger, v), 0.0f);
+    setParam(*proc, p::ringsOn, 1.0f);
+    setParam(*proc, p::ringsSource, 3.0f);
+    setParam(*proc, p::ringsLevel, 1.0f);
     proc->pump(2);
     juce::AudioBuffer<float> buffer(proc->getTotalNumOutputChannels(), 256);
-    float beadsPeak = 0.0f;
+    float beadsPeak = 0.0f, ringsPeak = 0.0f;
     for (int b = 0; b < 1200; ++b)
     {
         buffer.clear();
         juce::MidiBuffer midi;
         proc->processBlock(buffer, midi);
-        auto beads = proc->getBusBuffer(buffer, false, 7);
-        beadsPeak = std::max(beadsPeak, beads.getMagnitude(0, 0, 256));
+        beadsPeak = std::max(beadsPeak, proc->getBusBuffer(buffer, false, 7).getMagnitude(0, 0, 256));
+        ringsPeak = std::max(ringsPeak, proc->getBusBuffer(buffer, false, 8).getMagnitude(0, 0, 256));
     }
     CHECK(beadsPeak > 1e-3f && beadsPeak <= 1.0f);
+    CHECK(ringsPeak > 1e-3f && ringsPeak <= 1.0f);
 }
 
 TEST("plugin: the Beads pitch knob steps through octaves, fifths and fourths; the vast reverb plays")
@@ -822,7 +826,7 @@ TEST("plugin: the Beads pitch knob steps through octaves, fifths and fourths; th
     CHECK(p::readBeadsParams(proc->state).pitch == 24.0f);
     setParam(*proc, p::beadsPitch, 6.0f);
     CHECK(p::readBeadsParams(proc->state).pitch == 0.0f); // the default is unison
-    setParam(*proc, p::fxReverbType, 1.0f);
+    setParam(*proc, p::beadsQuality, 2.0f);
     setParam(*proc, p::fxSize, 1.0f);
     setParam(*proc, p::kitReverb, 1.0f);
     setParam(*proc, p::beadsLevel, 1.0f);
@@ -856,4 +860,54 @@ TEST("plugin: hand step edits play, travel with snapshots and survive a project 
     // It still plays cleanly.
     const Run run = play(*proc, 200);
     CHECK(run.nonFinite == 0 && run.unpaired == 0 && run.peak > 0.0f);
+}
+
+TEST("plugin: Rings, played by the chords, sounds on its own and follows the song's key")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::chordOn, 1.0f);
+    setParam(*proc, p::chordKey, 2.0f); // D
+    for (int part = 0; part < gristo::kNumParts; ++part)
+        if (part != gristo::kChordVoice)
+            setParam(*proc, p::voiceId(p::partMute, part), 1.0f);
+    setParam(*proc, p::laneId(p::synthLevel, gristo::sound::kChordSynth), 0.0f);
+    setParam(*proc, p::kitReverb, 0.0f);
+    setParam(*proc, p::ringsSource, 3.0f);
+    setParam(*proc, p::ringsLevel, 1.0f);
+    setParam(*proc, p::ringsReverb, 0.0f);
+    proc->pump(2);
+    const auto r = p::readRingsParams(proc->state);
+    CHECK(r.source == 3 && r.tonic == 2.0f && r.polyphony == 2 && !r.on);
+    const Run off = play(*proc, 400);
+    setParam(*proc, p::ringsOn, 1.0f);
+    proc->pump(2);
+    const Run on = play(*proc, 400);
+    CHECK(off.nonFinite == 0 && on.nonFinite == 0);
+    CHECK(off.peak < 0.02f);
+    CHECK_MSG(on.peak > 0.05f && on.peak <= 1.0f, "peak " << on.peak);
+}
+
+TEST("plugin: lane routings to parameters are saved by name, so updates can't re-point them")
+{
+    auto proc = makeProcessor();
+    const juce::String slot = p::slotId(p::modTarget, 0, 0);
+    const int target = p::parameterTarget(p::ringsDamping);
+    CHECK(target >= gristo::mod::kNumTargets);
+    setParam(*proc, slot, static_cast<float>(target));
+    juce::MemoryBlock state;
+    proc->getStateInformation(state);
+    // As if the parameter list had changed since: the stored number is wrong now.
+    auto xml = juce::AudioProcessor::getXmlFromBinary(state.getData(), static_cast<int>(state.getSize()));
+    CHECK(xml != nullptr);
+    for (auto* child : xml->getChildIterator())
+        if (child->hasTagName("PARAM") && child->getStringAttribute("id") == slot)
+            child->setAttribute("value", target - 3);
+    juce::MemoryBlock edited;
+    juce::AudioProcessor::copyXmlToBinary(*xml, edited);
+    GristoProcessor other;
+    other.setStateInformation(edited.getData(), static_cast<int>(edited.getSize()));
+    CHECK(juce::roundToInt(getParam(other, slot)) == target);
+    // The removed reverb type keeps its place: the parameters after it keep their numbers.
+    CHECK(p::parameterTarget("fxRevType") == p::parameterTarget(p::fxShimmer) + 1);
+    CHECK(p::parameterTarget(p::beadsLevel) == p::parameterTarget(p::fxShimmer) + 2);
 }

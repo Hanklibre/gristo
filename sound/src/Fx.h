@@ -6,53 +6,6 @@
 
 namespace gristo::sound {
 
-// Plate reverb after Dattorro ("Effect Design, Part 1", 1997): input diffusion into
-// a figure-of-eight tank of two modulated allpass + delay branches, with stereo taps
-// spread around the tank. Smooth and dense, without the metallic ring of comb banks;
-// the slow modulation keeps long tails from sounding static. Size sets decay and
-// damping only (no delay lengths change), so lanes can sweep it without artefacts.
-class Reverb
-{
-public:
-    void prepare(float sampleRate);
-    void reset();
-    void setSize(float size); // 0..1
-    void process(float in, float& outL, float& outR);
-
-private:
-    struct Line // power-of-two circular delay line, read before write
-    {
-        std::vector<float> buffer;
-        std::uint32_t mask = 0, write = 0;
-        void init(int maxDelay);
-        void clear();
-        float at(int delay) const { return buffer[(write - static_cast<std::uint32_t>(delay)) & mask]; }
-        float atFrac(float delay) const;
-        void push(float x)
-        {
-            buffer[write] = x;
-            write = (write + 1) & mask;
-        }
-    };
-    float allpass(Line& line, int delay, float gain, float x);
-    float allpassMod(Line& line, float delay, float gain, float x);
-
-    float sampleRate_ = 48000.0f;
-    // Pre-delay keeps the dry attack clear; the low cut keeps basses from muddying the tail.
-    Line preDelay_;
-    int preDelayLength_ = 1;
-    dsp::OnePole lowCut_, bandwidth_;
-    Line diffusers_[4];
-    int diffuserLength_[4] {};
-    Line tankAp1_[2], tankDelay1_[2], tankAp2_[2], tankDelay2_[2];
-    int ap1Length_[2] {}, delay1Length_[2] {}, ap2Length_[2] {}, delay2Length_[2] {};
-    float excursion_ = 0.0f, lfoPhase_[2] {}, lfoInc_[2] {};
-    dsp::OnePole damping_[2];
-    float tankOut_[2] {};
-    int tapsL_[7] {}, tapsR_[7] {};
-    float decay_ = 0.5f, decayDiffusion2_ = 0.5f, dampHz_ = 7000.0f;
-};
-
 // Juno-style stereo ensemble: two delay lines swept in opposite directions by a slow
 // triangle LFO. Mono in, stereo out.
 class Chorus
@@ -122,12 +75,15 @@ public:
     void process(float& l, float& r);
 
 private:
-    float sampleRate_ = 48000.0f, mix_ = 0.0f, gain_ = 1.0f, bias_ = 0.0f, offset_ = 0.0f, makeup_ = 1.0f;
+    float sampleRate_ = 48000.0f, mix_ = 0.0f, gain_ = 1.0f, makeup_ = 1.0f;
     dsp::OnePole tone_[2];
+    dsp::SoftSaturator sat_[2];
 };
 
 // The whole mix through a worn tape machine: saturation, wow and flutter, duller
-// highs, a little low-end bump, hiss that comes and goes with the music.
+// highs, a little low-end bump, hiss that comes and goes with the music. Blended in
+// with the amount; the lows below ~100 Hz stay clean (a kick or an 808 keeps its
+// weight and punch, only what is above them takes the colour).
 class Tape
 {
 public:
@@ -145,7 +101,8 @@ private:
     float hissLevel_ = 0.0f, hissEnv_ = 0.0f, hissRelease_ = 0.0f;
     Wobble drift_, level_;
     dsp::Noise hiss_ { 0x7a9e11u };
-    dsp::OnePole highs_[2], bump_[2], hissTone_;
+    dsp::OnePole highs_[2], bump_[2], hissTone_, lowDry_[2], lowWet_[2];
+    dsp::SoftSaturator sat_[2];
 };
 
 // Tuned comb resonator: a short delay line with damped feedback. Fed with a drum it
@@ -175,6 +132,39 @@ private:
     std::vector<float> line_ { 0.0f, 0.0f, 0.0f, 0.0f };
     size_t write_ = 0;
     float sampleRate_ = 48000.0f, delay_ = 2.0f, feedback_ = 0.0f, damp_ = 1.0f, lp_ = 0.0f;
+};
+
+// A drum's resonant body: eight decaying modes the drum excites, after the modal
+// models of drums and bodies (struck membranes and shells, cajon-like boxes, metal plates).
+// Each type has its own mode ratios, levels and decays; higher modes die away faster,
+// as in real materials. Every strike moves the modes a little (Alive), so no two hits
+// ring quite alike. Tube is a harmonic series: the tuned-pipe sound of the old body.
+class DrumBody
+{
+public:
+    enum Type : int { Shell = 0, Box, Metal, Tube, Count };
+    void prepare(float sampleRate);
+    void reset();
+    // hz: the body's pitch (its first mode); decaySeconds: of that mode.
+    void strike(float hz, float decaySeconds, int type, float variation, std::uint32_t seed);
+    float process(float in)
+    {
+        float out = 0.0f;
+        for (int i = 0; i < count_; ++i)
+        {
+            const float y = b1_[i] * y1_[i] - b2_[i] * y2_[i] + in * g_[i];
+            y2_[i] = y1_[i];
+            y1_[i] = std::abs(y) < 1e-20f ? 0.0f : y;
+            out += y;
+        }
+        return dsp::fastTanh(out);
+    }
+
+private:
+    static constexpr int kModes = 8;
+    float sampleRate_ = 48000.0f;
+    int count_ = 0;
+    float b1_[kModes] {}, b2_[kModes] {}, g_[kModes] {}, y1_[kModes] {}, y2_[kModes] {};
 };
 
 // Octave-up pitch shifter (two crossfaded taps on a short delay line): fed from the

@@ -315,7 +315,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             for (int v = 0; v < kNumVoices; ++v)
                 layout.add(std::make_unique<juce::AudioParameterBool>(pid(voiceId(chordStab, v)), "Chord Stab " + juce::String(voiceName(v)), v == Snare));
             layout.add(floatParam(chordGate, "Chord Stab Gate", { 0.25f, 8.0f, 0.25f }, 2.0f, "16ths"));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordVoicing), "Chord Voicing", juce::StringArray { "Close", "Smooth", "Smooth + bass" }, 2));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordVoicing), "Chord Voicing", juce::StringArray { "Close", "Smooth", "Smooth + bass", "Drop 2", "Open", "Rootless", "Shell", "Upper + bass" }, 2));
             layout.add(floatParam(chordStrum, "Chord Strum", { 0.0f, 80.0f, 1.0f }, 0.0f, "ms"));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordStrumDir), "Chord Strum Direction", juce::StringArray { "Up", "Down", "Alternate" }, 0));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordVelMin), "Chord Velocity Min", 1, 127, 50));
@@ -331,8 +331,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                 juce::StringArray { "1/16", "1/8", "1/8D", "1/4" }, 2));
         layout.add(percentParam(fxFeedback, "Delay Feedback", 0.35f, 0.9f));
         layout.add(percentParam(fxShimmer, "Shimmer", 0.0f));
-        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { fxReverbType, kVersion }, "Reverb Type",
-                                                                juce::StringArray { "Plate", "Beads (vast)" }, 0));
         // Beads
         layout.add(percentParam(beadsLevel, "Beads Level", 0.0f));
         layout.add(percentParam(beadsReverb, "Beads Reverb", 0.3f));
@@ -403,6 +401,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                    slotName + " Amount", juce::NormalisableRange<float> { -1.0f, 1.0f }, 0.0f));
         }
     }
+    // Added later: at the end, so saved routings to the parameters above keep pointing
+    // at the same ones (routings are stored by position).
+    layout.add(floatParam(chordNoteChance, "Chord Note Chance", { 0.0f, 100.0f, 1.0f }, 100.0f, "%"));
+    for (int v = 0; v < kNumVoices; ++v)
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { voiceId(drumBodyType, v), kVersion },
+                                                                juce::String(voiceName(v)) + " Body Type",
+                                                                juce::StringArray { "Shell", "Box", "Metal", "Tube" }, 0));
+    // Rings
+    layout.add(boolParam(ringsOn, "Rings On", false));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { ringsSource, kVersion }, "Rings Played By",
+                                                            juce::StringArray { "Arp 1", "Arp 2", "Arp 3", "Chords" }, 0));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { ringsModel, kVersion }, "Rings Model",
+        juce::StringArray { "Modal", "Sympathetic strings", "String", "FM voice", "Sympathetic (chords)", "String + reverb" }, 0));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { ringsPolyphony, kVersion }, "Rings Polyphony",
+                                                            juce::StringArray { "1 voice", "2 voices", "4 voices" }, 1));
+    layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { ringsOctave, kVersion }, "Rings Octave", -2, 2, 0));
+    layout.add(percentParam(ringsStructure, "Rings Structure", 0.4f));
+    layout.add(percentParam(ringsBrightness, "Rings Brightness", 0.5f));
+    layout.add(percentParam(ringsDamping, "Rings Damping", 0.6f));
+    layout.add(percentParam(ringsPosition, "Rings Position", 0.3f));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { ringsExciter, kVersion }, "Rings Exciter",
+                                                            juce::StringArray { "Pluck", "Drums", "Pluck + drums" }, 0));
+    layout.add(percentParam(ringsLevel, "Rings Level", 0.6f));
+    layout.add(percentParam(ringsReverb, "Rings Reverb", 0.25f));
+    layout.add(percentParam(ringsDelay, "Rings Delay", 0.0f));
+    layout.add(percentParam(ringsBeads, "Rings Into Beads", 0.0f));
     return layout;
 }
 
@@ -525,7 +549,8 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
     c.phraseBars = kChordPhraseBars[juce::jlimit(0, 2, static_cast<int>(load(s, chordPhrase)))];
     c.frozen = load(s, chordFrozen) > 0.5f;
     c.frozenPhrase = static_cast<int>(load(s, chordLoop));
-    c.voicing = static_cast<ChordVoicing>(juce::jlimit(0, 2, static_cast<int>(load(s, chordVoicing))));
+    c.voicing = static_cast<ChordVoicing>(juce::jlimit(0, kNumChordVoicings - 1, static_cast<int>(load(s, chordVoicing))));
+    c.noteChance = load(s, chordNoteChance) / 100.0f;
     c.strumMs = load(s, chordStrum);
     c.strumDirection = static_cast<StrumDirection>(juce::jlimit(0, 2, static_cast<int>(load(s, chordStrumDir))));
     c.seed = static_cast<std::uint32_t>(load(s, chordSeed));
@@ -584,6 +609,7 @@ sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& s)
         t.body = load(s, voiceId(drumBody, v));
         t.bodyTune = load(s, voiceId(drumBodyTune, v));
         t.bodyDecay = load(s, voiceId(drumBodyDecay, v));
+        t.bodyType = juce::jlimit(0, 3, static_cast<int>(load(s, voiceId(drumBodyType, v))));
         t.engine = static_cast<int>(load(s, voiceId(drumEngine, v))) - 1;
         t.filter = static_cast<int>(load(s, voiceId(drumFilter, v)));
         t.cutoff = load(s, voiceId(drumCutoff, v));
@@ -621,7 +647,6 @@ sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& s)
     f.delayBeats = kDelayBeatChoices[juce::jlimit(0, 3, static_cast<int>(load(s, fxTime)))];
     f.delayFeedback = juce::jlimit(0.0f, 0.9f, load(s, fxFeedback) + 0.3f * more);
     f.shimmer = load(s, fxShimmer);
-    f.reverbType = static_cast<int>(load(s, fxReverbType));
     return f;
 }
 
@@ -648,6 +673,28 @@ sound::BeadsParams readBeadsParams(const juce::AudioProcessorValueTreeState& s)
     for (int i = 0; i < sound::kNumSynths; ++i)
         b.send[static_cast<size_t>(i)] = load(s, laneId(beadsSend, i));
     return b;
+}
+
+sound::RingsParams readRingsParams(const juce::AudioProcessorValueTreeState& s)
+{
+    sound::RingsParams r;
+    r.on = load(s, ringsOn) > 0.5f;
+    r.source = juce::jlimit(0, sound::kNumSynths - 1, static_cast<int>(load(s, ringsSource)));
+    r.model = juce::jlimit(0, 5, static_cast<int>(load(s, ringsModel)));
+    const int poly = juce::jlimit(0, 2, static_cast<int>(load(s, ringsPolyphony)));
+    r.polyphony = poly == 0 ? 1 : poly == 1 ? 2 : 4;
+    r.octave = juce::jlimit(-2, 2, juce::roundToInt(load(s, ringsOctave)));
+    r.structure = load(s, ringsStructure);
+    r.brightness = load(s, ringsBrightness);
+    r.damping = load(s, ringsDamping);
+    r.position = load(s, ringsPosition);
+    r.exciter = juce::jlimit(0, 2, static_cast<int>(load(s, ringsExciter)));
+    r.level = load(s, ringsLevel);
+    r.reverb = load(s, ringsReverb);
+    r.delay = load(s, ringsDelay);
+    r.beads = load(s, ringsBeads);
+    r.tonic = static_cast<float>(juce::jlimit(0, 11, static_cast<int>(load(s, chordKey)))); // the song's key
+    return r;
 }
 
 sound::CharacterParams readCharacterParams(const juce::AudioProcessorValueTreeState& s)
@@ -691,6 +738,13 @@ void registerParameterTargets(const juce::AudioProcessor& processor)
             {
                 table.ids.add(withId->paramID);
                 table.names.add(withId->getName(64));
+            }
+            // The reverb type is gone (one reverb now): its place stays taken, so routings
+            // saved before still point at the parameters that followed it.
+            if (withId->paramID == fxShimmer)
+            {
+                table.ids.add("fxRevType");
+                table.names.add("(unused)");
             }
         }
     });

@@ -760,3 +760,71 @@ TEST("chords: a bass note folded up by Shift never doubles another chord note")
         CHECK_MSG(bad == 0, bad << " unpaired at row " << row);
     }
 }
+
+TEST("chords: every voicing keeps the chord's notes, in range and without doubles")
+{
+    ChordParams p = cMajor();
+    for (int v = 0; v < kNumChordVoicings; ++v)
+    {
+        p.voicing = static_cast<ChordVoicing>(v);
+        for (int column = -5; column <= 5; ++column)
+            for (int row = 0; row < kHarmonyRows; ++row)
+            {
+                const HarmonyCell cell { column, row };
+                const Chord c = Chords::build(p, cell);
+                CHECK_MSG(c.count >= 2 && c.count <= kMaxChordNotes, "voicing " << v << " count " << c.count);
+                const int root = Chords::rootPitchClass(p, column);
+                // Every note is a chord tone, and notes are distinct and rising.
+                Chord close = p.voicing == ChordVoicing::Close ? c : [&] { ChordParams q = p; q.voicing = ChordVoicing::Close; return Chords::build(q, cell); }();
+                std::set<int> tones;
+                for (int i = 0; i < close.count; ++i)
+                    tones.insert(close.notes[static_cast<size_t>(i)] % 12);
+                for (int i = 0; i < c.count; ++i)
+                {
+                    CHECK(tones.count(c.notes[static_cast<size_t>(i)] % 12) == 1);
+                    if (i > 0)
+                        CHECK(c.notes[static_cast<size_t>(i)] > c.notes[static_cast<size_t>(i - 1)]);
+                }
+                // Bass voicings put the root at the bottom; Rootless leaves it out when it can.
+                if (v == static_cast<int>(ChordVoicing::SmoothBass) || v == static_cast<int>(ChordVoicing::Shell) || v == static_cast<int>(ChordVoicing::Upper)
+                    || v == static_cast<int>(ChordVoicing::Open))
+                    CHECK(c.notes[0] % 12 == root);
+                if (v == static_cast<int>(ChordVoicing::Rootless) && row > 0)
+                    for (int i = 0; i < c.count; ++i)
+                        CHECK(c.notes[static_cast<size_t>(i)] % 12 != root);
+            }
+    }
+}
+
+TEST("chords: Note chance thins each note on its own, the same way every render")
+{
+    EngineParams p = fourOnFloor();
+    p.chords = cMajor();
+    p.chords.play = ChordPlay::Stabs;
+    p.chords.stabTriggers = { true, false, false, false, false, false };
+    p.chords.homeY = 1.0f; // rich chords: 5-6 notes
+    p.chords.noteChance = 0.5f;
+    const auto a = render(p, 256, kBar * 16), b = render(p, 61, kBar * 16);
+    std::map<std::int64_t, int> perStab;
+    std::set<int> sizes;
+    for (const auto& e : a)
+        if (e.on && e.voice == kChordVoice)
+            ++perStab[e.sample];
+    for (const auto& [t, n] : perStab)
+        sizes.insert(n);
+    CHECK(perStab.size() >= 60);
+    CHECK(sizes.size() >= 3);      // chords of different sizes...
+    CHECK(*sizes.begin() >= 1);    // ...never empty
+    int on = 0, total = 0;
+    for (const auto& [t, n] : perStab)
+    {
+        on += n;
+        total += 5;
+    }
+    CHECK(on > total / 4 && on < total * 3 / 4);
+    // Block size doesn't change what plays.
+    std::vector<std::pair<std::int64_t, int>> ea, eb;
+    for (const auto& e : a) if (e.voice == kChordVoice && e.on) ea.push_back({ e.sample, e.note });
+    for (const auto& e : b) if (e.voice == kChordVoice && e.on) eb.push_back({ e.sample, e.note });
+    CHECK(ea == eb);
+}

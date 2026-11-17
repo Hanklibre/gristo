@@ -13,13 +13,14 @@ const char* const kPitchNames[12] = { "C", "C#", "D", "Eb", "E", "F", "F#", "G",
 const char* const kRowNames[kHarmonyRows] = { "Triad", "Add9", "7th", "9th", "11th" };
 constexpr int kHalfColumns = (kHarmonyColumns - 1) / 2;
 constexpr std::uint32_t kWalkStream = 0x7A1C0u;
+constexpr std::uint32_t kNoteChanceStream = 0xC4A9Eu;
 
 // Position in the chain of thirds, counted from the key's major tonic (the relative
 // major of a minor key): even = a major chord, odd = the minor chord between two majors.
 int chainIndex(const ChordParams& p, int column) { return column - (p.minor ? 1 : 0); }
 
 // Fifths from the major tonic of the major chord at (or just right of) a chain index.
-int fifthsOf(int chain) { return floorDiv(chain + 1, 2); }
+int fifthsOf(int chain) { return static_cast<int>(floorDiv(chain + 1, 2)); }
 
 enum class Seventh { Major, Dominant, Minor };
 
@@ -153,29 +154,133 @@ Chord Chords::build(const ChordParams& p, HarmonyCell cell)
     int root = rootPitchClass(p, cell.column);
     while (root < p.lowestNote)
         root += 12;
+    const std::vector<int> iv = intervals(p, cell);
     std::vector<int> notes;
-    for (int i : intervals(p, cell))
+    for (int i : iv)
         notes.push_back(root + i);
 
-    if (p.voicing != ChordVoicing::Close)
+    // Folded into the one octave above lowestNote (shared notes stay put).
+    auto fold = [&p](int n) { return p.lowestNote + floorMod(n - p.lowestNote, 12); };
+    auto smooth = [&](const std::vector<int>& from) {
+        std::vector<int> out;
+        for (int n : from)
+            out.push_back(fold(n));
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    };
+    auto withBass = [&](std::vector<int> upper, std::vector<int> bass) {
+        while (static_cast<int>(upper.size() + bass.size()) > kMaxChordNotes && !upper.empty())
+            upper.pop_back();
+        upper.insert(upper.begin(), bass.begin(), bass.end());
+        return upper;
+    };
+    auto pitchesOf = [&](std::initializer_list<int> wanted) { // notes whose interval is in `wanted`
+        std::vector<int> out;
+        for (int i : iv)
+            if (std::find(wanted.begin(), wanted.end(), i) != wanted.end())
+                out.push_back(root + i);
+        return out;
+    };
+    const int third = iv.size() > 1 ? iv[1] : 4;              // 3, 4 or (sus) 5
+    const bool hasSeventh = std::find(iv.begin(), iv.end(), 10) != iv.end() || std::find(iv.begin(), iv.end(), 11) != iv.end();
+    const int seventh = std::find(iv.begin(), iv.end(), 11) != iv.end() ? 11 : 10;
+
+    switch (p.voicing)
     {
-        // One fixed octave for every chord: shared notes stay put, the rest move by steps.
-        for (int& n : notes)
-            n = p.lowestNote + floorMod(n - p.lowestNote, 12);
-        std::sort(notes.begin(), notes.end());
-        notes.erase(std::unique(notes.begin(), notes.end()), notes.end());
-        if (p.voicing == ChordVoicing::SmoothBass)
+        case ChordVoicing::Close:
+            break;
+        case ChordVoicing::Smooth:
+            notes = smooth(notes);
+            break;
+        case ChordVoicing::SmoothBass:
+            notes = withBass(smooth(notes), { root - 12 });
+            break;
+        case ChordVoicing::Drop2:
         {
-            if (static_cast<int>(notes.size()) >= kMaxChordNotes)
-                notes.pop_back();
-            notes.insert(notes.begin(), root - 12);
+            notes = smooth(notes);
+            if (notes.size() >= 3)
+                notes[notes.size() - 2] -= 12;
+            break;
+        }
+        case ChordVoicing::Open:
+        {
+            notes = smooth(notes);
+            if (notes.size() >= 3)
+                notes[notes.size() - 2] -= 12;
+            if (notes.size() >= 5)
+                notes[notes.size() - 4] -= 12;
+            std::sort(notes.begin(), notes.end());
+            if (floorMod(notes.front() - root, 12) != 0)
+            {
+                int bass = root - 12;
+                while (bass >= notes.front())
+                    bass -= 12;
+                notes = withBass(notes, { bass });
+            }
+            break;
+        }
+        case ChordVoicing::Rootless:
+        {
+            std::vector<int> upper;
+            for (int n : smooth(notes))
+                if (floorMod(n - root, 12) != 0)
+                    upper.push_back(n);
+            notes = upper.size() >= 2 ? upper : smooth(notes);
+            break;
+        }
+        case ChordVoicing::Shell:
+        {
+            // Root below, then third and seventh (the fifth for a triad), and the top colour.
+            std::vector<int> shell = pitchesOf({ third, hasSeventh ? seventh : 7 });
+            if (iv.back() > 11)
+                shell.push_back(root + iv.back());
+            notes = withBass(smooth(shell), { root - 12 });
+            break;
+        }
+        case ChordVoicing::Upper:
+        {
+            // Root and fifth underneath, the colour notes above (root on top if nothing else).
+            std::vector<int> colour;
+            for (int i : iv)
+                if (i != 0 && i != 7)
+                    colour.push_back(root + i);
+            if (colour.size() < 2)
+                colour.push_back(root + 12);
+            const std::vector<int> upper = smooth(colour);
+            int bass = root - 12;
+            while (bass + 7 >= upper.front())
+                bass -= 12;
+            notes = withBass(upper, { bass, bass + 7 });
+            break;
         }
     }
     std::sort(notes.begin(), notes.end());
+    notes.erase(std::unique(notes.begin(), notes.end()), notes.end());
     c.count = std::min(static_cast<int>(notes.size()), kMaxChordNotes);
     for (int i = 0; i < c.count; ++i)
         c.notes[static_cast<size_t>(i)] = std::clamp(notes[static_cast<size_t>(i)], 0, 127);
     return c;
+}
+
+Chord Chords::thin(const ChordParams& p, const Chord& chord, std::int64_t serial)
+{
+    const float chance = std::clamp(p.noteChance, 0.0f, 1.0f);
+    if (chance >= 1.0f || chord.count == 0)
+        return chord;
+    Chord out;
+    for (int i = 0; i < chord.count; ++i)
+    {
+        const int note = chord.notes[static_cast<size_t>(i)];
+        if (rnd::unit(rnd::hash(p.seed, kNoteChanceStream, serial, note)) < chance)
+            out.notes[static_cast<size_t>(out.count++)] = note;
+    }
+    if (out.count == 0)
+    {
+        out.count = 1;
+        out.notes[0] = chord.notes[0];
+    }
+    return out;
 }
 
 std::string Chords::name(const ChordParams& p, HarmonyCell cell)

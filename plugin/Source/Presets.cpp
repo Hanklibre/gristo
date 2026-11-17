@@ -106,8 +106,8 @@ void PresetManager::applySnapshot(const Snapshot& s)
                 p::lanePoint(processor_.modPoints, lane, k).store(s.lanePoints[static_cast<size_t>(lane * gristo::kMaxModPoints + k)]);
     if (s.lanePoints.size() == points + processor_.stepEdits.size())
     {
-        for (size_t i = 0; i < processor_.stepEdits.size(); ++i)
-            processor_.stepEdits[i].store(juce::jlimit(0, 2, static_cast<int>(s.lanePoints[points + i])));
+        for (size_t e = 0; e < processor_.stepEdits.size(); ++e)
+            processor_.stepEdits[e].store(juce::jlimit(0, 2, static_cast<int>(s.lanePoints[points + e])));
         processor_.stepEditsChanged();
     }
 }
@@ -133,6 +133,7 @@ juce::ValueTree PresetManager::capture(const juce::String& name) const
     preset.appendChild(lanes, nullptr);
     processor_.writeScenes(preset);
     processor_.writeSamples(preset);
+    processor_.writeRoutes(preset);
     return preset;
 }
 
@@ -166,6 +167,7 @@ void PresetManager::apply(const juce::ValueTree& preset)
         processor_.resetLanes();
     processor_.readScenes(preset);
     processor_.readSamples(preset);
+    processor_.readRoutes(preset);
 }
 
 void PresetManager::loadInit()

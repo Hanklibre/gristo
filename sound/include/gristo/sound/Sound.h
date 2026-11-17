@@ -63,10 +63,12 @@ struct DrumTweak
     float noise = 0.5f;  // 0..1, the engine's second control: snap, wires, dirt, noisiness
     float drive = 0.0f;  // 0..1
     float pan = 0.0f;    // -1..1, added to the kit's position
-    // Body: a tuned comb resonator the drum excites, like a shell, tube or string.
+    // Body: a resonant body the drum excites (see DrumBody in Fx.h): its modes ring
+    // with the drum, and a little with the rest of the kit, as the drums of a real kit do.
     float body = 0.0f;      // 0..1 amount
     float bodyTune = 0.0f;  // semitones from the drum's own pitch, -24..24
     float bodyDecay = 0.5f; // 0..1, short and woody .. long and ringing
+    int bodyType = 0;       // 0 shell, 1 box, 2 metal, 3 tube
 };
 
 struct KitParams
@@ -106,7 +108,7 @@ struct FxParams
     float delayBeats = 0.75f;    // delay time in beats (0.75 = dotted 8th)
     float delayFeedback = 0.35f; // 0..0.9
     float shimmer = 0.0f;        // 0..1: the reverb feeds itself an octave up
-    int reverbType = 0;          // 0 plate, 1 Beads (vast, modulated)
+    // The reverb is Beads' reverb; its character follows BeadsParams::quality.
     double bpm = 120.0;
 };
 
@@ -140,6 +142,22 @@ struct BeadsParams
     bool musicalPitch = true;
 };
 
+// Rings: Mutable Instruments' resonator (the module's code), strummed by the notes of
+// one synth part, so it plays in the song's key. The drums can excite it too.
+struct RingsParams
+{
+    bool on = false;
+    int source = 0;          // the synth whose notes strum it (0..2 arps, 3 chords)
+    int model = 0;           // 0 modal, 1 sympathetic strings, 2 string, 3 FM, 4 sympathetic (quantized), 5 string + reverb
+    int polyphony = 2;       // 1, 2 or 4
+    int octave = 0;          // -2 .. +2, on the notes it is played
+    float structure = 0.4f, brightness = 0.5f, damping = 0.6f, position = 0.3f; // 0..1, the module's knobs
+    float tonic = 0.0f;      // pitch class of the song's key (for the quantized chords)
+    int exciter = 0;         // 0 its own pluck, 1 the drums, 2 both
+    float level = 0.0f;      // in the mix (0 = silent)
+    float reverb = 0.2f, delay = 0.0f, beads = 0.0f; // sends: main reverb, delay, into Beads
+};
+
 // A one-shot sample that replaces a drum voice's synthesized sound.
 struct SampleData
 {
@@ -155,6 +173,7 @@ struct Stems
     float* synth[kNumSynths][2] {};
     float* fx[2] {}; // reverb and delay returns
     float* beads[2] {}; // Beads' grains (else they go with the FX, or the mix)
+    float* rings[2] {}; // Rings (dry; its sends still go to the effects)
 };
 
 class SoundEngine
@@ -174,6 +193,7 @@ public:
     void setCharacter(const CharacterParams& params);
     void setBeads(const BeadsParams& params);
     int beadsGrains() const; // grains sounding (for tests and meters)
+    void setRings(const RingsParams& params);
 
     // A drum voice plays this sample instead of its synthesized sound (nullptr: back to
     // the kit). The caller keeps the data alive while it is set. Tune, Decay (shorter

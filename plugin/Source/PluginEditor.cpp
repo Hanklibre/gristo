@@ -130,9 +130,9 @@ GristoView::GristoView(GristoProcessor& proc)
             "The engine's second control. Analog kick: self-FM growl; Synth kick: dirt; snares: snappy noise and wires; hats: noisiness; bell: detuning.",
             "Saturation of this drum alone.",
             "Where this drum sits between left and right.",
-            "A tuned resonator the drum excites, like a shell, a tube or a string: adds an acoustic ring.",
+            "A resonant body the drum excites (Body type above: shell, box, metal or tube): the ring and air of a real drum. Bodies also ring a little with the rest of the kit.",
             "Pitch of the Body against the drum's own pitch, in semitones. Try 7, 12 or -5.",
-            "How long the Body rings: short and woody, or long like a tuned string." };
+            "How long the Body rings: short and woody, or long and singing. Its higher modes always fade first, as in wood and metal." };
         const juce::String ids[10] = { p::drumTune, p::drumDecay, p::drumTone, p::drumPunch, p::drumNoise, p::drumDrive, p::drumPan,
                                        p::drumBody, p::drumBodyTune, p::drumBodyDecay };
         for (int i = 0; i < 10; ++i)
@@ -145,6 +145,9 @@ GristoView::GristoView(GristoProcessor& proc)
         setHelp(drumEngine_.box, "Engine", "What this drum is built from: analog, synth or acoustic kicks and snares, a string-like Crack snare, clap, "
                                            "808 / 909 hats, a cymbal, tom, cowbell, shaker or bell. Kit's own: whatever the kit uses here.");
         setupChoice(drumFilter_, p::voiceId(p::drumFilter, 0), "Filter");
+        setupChoice(drumBodyType_, p::voiceId(p::drumBodyType, 0), "Body");
+        setHelp(drumBodyType_.box, "Body type", "What the Body is made of. Shell: a drum's membrane and wooden shell. Box: a cajon-like box, a low air thump under dull panels. "
+                                                "Metal: a struck plate, inharmonic and long. Tube: a tuned pipe (harmonic). The bodies of the kit also ring a little with each other.");
         setHelp(drumFilter_.box, "Filter", "This drum's own filter, after its engine: low-, band- or high-pass.");
         setupSmallKnob(drumCutoff_, p::voiceId(p::drumCutoff, 0), "Cutoff");
         drumCutoff_.label.setJustificationType(juce::Justification::centredLeft);
@@ -352,6 +355,7 @@ GristoView::GristoView(GristoProcessor& proc)
     setupPerformance();
     setupPlayPage();
     setupBeads();
+    setupRings();
     partSelect_[0].setToggleState(true, juce::dontSendNotification);
     showPage(kPlayPage);
 
@@ -1249,9 +1253,9 @@ void GristoView::setupSoundPage()
         setHelp(row.level, name + "Level", "Volume of this arp's synth.");
         setHelp(row.reverb, name + "Reverb", "How much of this synth goes to the reverb.");
         setHelp(row.delay, name + "Delay", "How much of this synth goes to the delay.");
-        row.octave = std::make_unique<NumberSelector>(*processor_.state.getParameter(p::laneId(p::synthOctave, a)), "", -3, 3, " oct", 1, true);
+        row.octave = std::make_unique<NumberSelector>(*processor_.state.getParameter(p::laneId(p::synthOctave, a)), "Sound ", -3, 3, " oct", 1, true);
         addAndMakeVisible(*row.octave);
-        setHelp(*row.octave, name + "Octave", "Moves this synth's sound up or down in octaves. Only the built-in sound: the MIDI it sends stays where it is.");
+        setHelp(*row.octave, name + "Sound octave (audio)", "Moves the built-in sound up or down in octaves. Audio only: the MIDI it sends doesn't move (that is the MIDI out Shift, next to the channel).");
         setupSmallKnob(row.body, p::laneId(p::synthBody, a), "Body");
         setHelp(row.body, name + "Body", "A wooden resonant body around the sound: makes plucks, keys and voices feel acoustic.");
         setupSmallKnob(row.duck, p::laneId(p::synthDuck, a), "Duck");
@@ -1265,9 +1269,6 @@ void GristoView::setupSoundPage()
 
     setupSmallKnob(fxSize_, p::fxSize, "Size");
     setupSmallKnob(fxFeedback_, p::fxFeedback, "Feedback");
-    setupChoice(fxReverbType_, p::fxReverbType, "Reverb");
-    fxReverbType_.label.setFont(juce::FontOptions(10.5f));
-    setHelp(fxReverbType_.box, "Reverb type", "Plate: a smooth, dense plate. Beads (vast): the reverb of Mutable Instruments Beads, long, modulated and wide; Size reaches about 12 seconds.");
     setupChoice(fxTime_, p::fxTime, "Delay");
     fxTime_.label.setFont(juce::FontOptions(10.5f));
     setHelp(fxSize_, "Reverb Size", "Small room to big hall.");
@@ -1329,8 +1330,8 @@ void GristoView::setupChordPage()
         setHelp(chordStabs_[v].button, juce::String("Stab on ") + gristo::voiceName(v), "Play mode Stabs: the chord plays on hits of this voice.");
     }
     auto& st = processor_.state;
-    chordChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordChannel), "Ch ", 1, 16);
-    chordShift_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordShift), "", -60, 60, " st", 12, true);
+    chordChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordChannel), "MIDI ch ", 1, 16);
+    chordShift_ = std::make_unique<NumberSelector>(*st.getParameter(p::chordShift), "Shift ", -60, 60, " st", 12, true);
     chordVelocity_ = std::make_unique<VelocityRange>(*st.getParameter(p::chordVelMin), *st.getParameter(p::chordVelMax), colours::random);
     for (juce::Component* c : std::initializer_list<juce::Component*> { chordChannel_.get(), chordShift_.get(), chordVelocity_.get(), &chordOutLabel_,
                                                                         &chordNowLabel_, &harmonyPad_, &catchButton_ })
@@ -1338,6 +1339,13 @@ void GristoView::setupChordPage()
     setupKnob(chordWander_, p::chordWander, "Wander");
     setupSmallKnob(chordGate_, p::chordGate, "Gate");
     setupSmallKnob(chordStrum_, p::chordStrum, "Strum");
+    setupSmallKnob(chordChance_, p::chordNoteChance, "Chance");
+    reverbNote_.setText("Reverb: Beads'.\nIts colour follows\nQuality (below).", juce::dontSendNotification);
+    reverbNote_.setFont(juce::FontOptions(11.0f));
+    reverbNote_.setColour(juce::Label::textColourId, colours::dim);
+    reverbNote_.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(reverbNote_);
+    setHelp(reverbNote_, "Reverb", "The reverb is the one from Mutable Instruments Beads. As on the module, Quality sets its colour: Digital is the cleanest; the other media are darker and longer; Clean tape runs it as the module's 32 kHz does, longer still.");
     chordOutLabel_.setFont(juce::FontOptions(11.0f));
     chordOutLabel_.setColour(juce::Label::textColourId, colours::dim);
     chordNowLabel_.setFont(juce::FontOptions(13.0f, juce::Font::bold));
@@ -1358,13 +1366,14 @@ void GristoView::setupChordPage()
     setHelp(chordRate_.box, "Chord length", "How long each chord lasts.");
     setHelp(chordPhrase_.box, "Phrase", "The walk starts again from home every 2, 4 or 8 bars.");
     setHelp(chordPlay_.box, "Play", "Off: only feeds the arps. Held: chords sustain. Stabs: chords hit with the chosen drum voices.");
-    setHelp(chordOctave_.box, "Octave", "Where the chords sit.");
-    setHelp(chordVoicing_.box, "Voicing", "Close: root position. Smooth: every chord in one octave, so notes move as little as possible. + bass: the root underneath.");
+    setHelp(chordOctave_.box, "Octave", "Where the chords sit: moves the MIDI notes and the sound together. (MIDI shift moves only the MIDI; Sound octave only the sound.)");
+    setHelp(chordVoicing_.box, "Voicing", "Close: root position. Smooth: one octave, notes move as little as possible (+ bass: root below). Drop 2 / Open: wider, piano-like. Rootless: no root (neo-soul keys). Shell: root, 3rd, 7th and the top colour. Upper + bass: root-fifth below, colours above.");
+    setHelp(chordChance_, "Note chance", "Chance of each note of a chord to sound, rolled per note every time a chord starts. Lower: chords that thin out and change shape. If every note misses, the lowest plays.");
     setHelp(chordStrumDir_.box, "Strum direction", "Which way the Strum knob rolls the chord: low to high, high to low, or back and forth.");
     setHelp(chordStrum_, "Strum", "Time between the notes of a chord, in ms. 0 = all together.");
     setHelp(chordGate_, "Stab gate", "Stab length in 16ths.");
     setHelp(*chordChannel_, "Chords MIDI channel", "MIDI channel of the chord part, for DAWs that keep channels.");
-    setHelp(*chordShift_, "Chords Out Shift", "Moves the chord part's MIDI out into its own note range (for Live's key zones).");
+    setHelp(*chordShift_, "Chords MIDI out shift", "MIDI only: moves the notes the chords send into their own range (for Live's key zones). The built-in sound doesn't move: Chord Octave (top) moves both, Sound octave (Sound panel) only the sound.");
     setHelp(*chordVelocity_, "Chords velocity", "Velocity range. Stabs follow the drum hit inside it; held chords sit near the top.");
     setHelp(chordOutLabel_, "MIDI out range", "Where the chord notes land, and the matching Live setup.");
 }
@@ -1375,7 +1384,7 @@ std::vector<juce::Component*> GristoView::chordPageComponents()
                                          &chordPlay_.box, &chordOctave_.box, chordChannel_.get(), chordShift_.get(), chordVelocity_.get(),
                                          &chordOutLabel_, &chordNowLabel_, &harmonyPad_, &catchButton_,
                                          &chordWander_.slider, &chordWander_.label, &chordGate_.slider, &chordGate_.label,
-                                         &chordStrum_.slider, &chordStrum_.label, &chordVoicing_.box, &chordVoicing_.label,
+                                         &chordStrum_.slider, &chordStrum_.label, &chordChance_.slider, &chordChance_.label, &chordVoicing_.box, &chordVoicing_.label,
                                          &chordStrumDir_.box, &chordStrumDir_.label };
     for (auto& t : chordStabs_)
         list.push_back(&t.button);
@@ -1519,7 +1528,72 @@ void GristoView::setupBeads()
     setupToggle(beadsMusical_, p::beadsMusical, "Musical");
     setHelp(beadsMusical_.button, "Musical pitch", "Random pitch snaps to octaves, fifths and fourths instead of anywhere.");
     setupChoice(beadsQuality_, p::beadsQuality, "Quality");
-    setHelp(beadsQuality_.box, "Quality", "The medium the grains are recorded on: clean digital, 12-bit vintage digital, clean tape, or dirty 8-bit tape with wow and flutter.");
+    setHelp(beadsQuality_.box, "Quality", "The medium the grains are recorded on: clean digital, 12-bit vintage digital, clean tape, or dirty 8-bit tape with wow and flutter. It also colours both reverbs (the grains' and the main one), as on the module.");
+}
+
+void GristoView::setupRings()
+{
+    setupToggle(ringsOn_, p::ringsOn, "On");
+    setHelp(ringsOn_.button, "Rings on", "Switches Rings on. Every note of the part it is played by strums it.");
+    setupChoice(ringsSource_, p::ringsSource, "Played by");
+    setHelp(ringsSource_.box, "Played by", "The part whose notes strum Rings and set its pitch: an arp (one note at a time) or the chords (each chord rolls over a few milliseconds). Either way it plays in the song's key.");
+    setupChoice(ringsModel_, p::ringsModel, "Model");
+    setHelp(ringsModel_.box, "Model", "Modal: struck bars, bells, plates, membranes. Sympathetic strings: a string with others ringing along. String: a plucked, bowed-sounding string. FM voice: metallic, bell-like tones. Sympathetic (chords): the ringing strings tuned to chords on the song's key. String + reverb: a string in its own space.");
+    setupChoice(ringsPoly_, p::ringsPolyphony, "Polyphony");
+    setHelp(ringsPoly_.box, "Polyphony", "How many notes ring at once. More voices: notes overlap and decay into each other; fewer: richer modes per note.");
+    setupChoice(ringsExciter_, p::ringsExciter, "Exciter");
+    setHelp(ringsExciter_.box, "Exciter", "What makes it ring. Pluck: its own burst on every note. Drums: the kit's audio hits the resonator, tuned by the notes. Both: plucks and drums.");
+    ringsOctave_ = std::make_unique<NumberSelector>(*processor_.state.getParameter(p::ringsOctave), "Octave ", -2, 2, "", 1, true);
+    addAndMakeVisible(*ringsOctave_);
+    setHelp(*ringsOctave_, "Octave", "Plays Rings this many octaves above or below the notes of its part.");
+    const juce::String ids[4] = { p::ringsStructure, p::ringsBrightness, p::ringsDamping, p::ringsPosition };
+    const char* const names[4] = { "Structure", "Brightness", "Damping", "Position" };
+    const char* const help[4] = {
+        "The resonator's geometry: how the partials spread (bar, plate, bell, inharmonic...). With strings: how much they stretch. Sympathetic (chords): which chord.",
+        "Brightness of the material and of the excitation: wood and felt to glass and steel.",
+        "How long it rings: short and muted to long and sustained.",
+        "Where it is struck or plucked: changes the colour, like picking near the bridge or the middle. Also the stereo spread." };
+    for (int i = 0; i < 4; ++i)
+    {
+        setupKnob(ringsKnobs_[i], ids[i], names[i]);
+        setHelp(ringsKnobs_[i], juce::String("Rings ") + names[i], help[i]);
+    }
+    const juce::String mixIds[4] = { p::ringsLevel, p::ringsReverb, p::ringsDelay, p::ringsBeads };
+    const char* const mixNames[4] = { "Level", "Reverb", "Delay", "Into Beads" };
+    const char* const mixHelp[4] = { "How loud Rings is in the mix (or on its own output).", "How much goes to the reverb.",
+                                     "How much goes to the delay.", "How much Beads records of it: grains of the resonance." };
+    for (int i = 0; i < 4; ++i)
+    {
+        setupKnob(ringsMix_[i], mixIds[i], mixNames[i]);
+        setHelp(ringsMix_[i], juce::String("Rings ") + mixNames[i], mixHelp[i]);
+    }
+    ringsNote_.setText("Rings rings on every note of the part it is played by, at that note's pitch: it follows the song's key "
+                       "through the arp or the chords. Try Drums as the exciter with a modal model for tuned percussion, "
+                       "or a high Damping with the chords for long, singing strings.\n\n"
+                       "Its own output: switch on Separate outputs (FX / Beads page) and enable the Rings output in your DAW. "
+                       "The odd voices (or one pickup) go left, the even ones right, as on the module's two outputs.",
+                       juce::dontSendNotification);
+    ringsNote_.setFont(juce::FontOptions(12.0f));
+    ringsNote_.setColour(juce::Label::textColourId, colours::dim);
+    ringsNote_.setJustificationType(juce::Justification::topLeft);
+    addAndMakeVisible(ringsNote_);
+}
+
+std::vector<juce::Component*> GristoView::ringsPageComponents()
+{
+    std::vector<juce::Component*> list { &ringsOn_.button, ringsOctave_.get(), &ringsNote_ };
+    for (Choice* c : { &ringsSource_, &ringsModel_, &ringsPoly_, &ringsExciter_ })
+    {
+        list.push_back(&c->box);
+        list.push_back(&c->label);
+    }
+    for (auto* knobs : { ringsKnobs_, ringsMix_ })
+        for (int i = 0; i < 4; ++i)
+        {
+            list.push_back(&knobs[i].slider);
+            list.push_back(&knobs[i].label);
+        }
+    return list;
 }
 
 std::vector<juce::Component*> GristoView::playPageComponents()
@@ -1587,11 +1661,11 @@ std::vector<juce::Component*> GristoView::arpPageComponents()
 
 void GristoView::setupPartStrip()
 {
-    for (int part = 0; part <= gristo::kNumParts; ++part)
+    for (int part = 0; part <= kRingsPart; ++part)
     {
         auto& b = partSelect_[part];
-        const bool master = part == gristo::kNumParts;
-        b.setButtonText(master ? "FX / Beads" : gristo::partName(part));
+        const bool master = part >= gristo::kNumParts;
+        b.setButtonText(part == kRingsPart ? "Rings" : master ? "FX / Beads" : gristo::partName(part));
         b.setClickingTogglesState(true);
         b.setRadioGroupId(4713);
         b.setColour(juce::TextButton::buttonOnColourId, master ? colours::accent : partColour(part));
@@ -1602,9 +1676,10 @@ void GristoView::setupPartStrip()
             setEditMode(editMode_ || master);
         };
         addAndMakeVisible(b);
-        setHelp(b, master ? juce::String("FX / Beads") : juce::String(gristo::partName(part)),
-                master ? "Reverb, delay, output settings, and Beads: a granular processor fed by the synths and gated by the drums."
-                       : "Selects this part. Edit (top right) shows its detailed controls.");
+        setHelp(b, part == kRingsPart ? juce::String("Rings") : master ? juce::String("FX / Beads") : juce::String(gristo::partName(part)),
+                part == kRingsPart ? "Mutable Instruments' Rings: a resonator (modal, strings, FM) strummed by the notes of an arp or the chords, so it plays in the song's key."
+                : master ? "Reverb, delay, output settings, and Beads: a granular processor fed by the synths and gated by the drums."
+                         : "Selects this part. Edit (top right) shows its detailed controls.");
         if (master)
             continue;
         setupToggle(partMute_[part], p::voiceId(p::partMute, part), "M");
@@ -1620,7 +1695,7 @@ void GristoView::setupPartStrip()
     }
     setupToggle(separateOuts_, p::separateOuts, "Separate outputs");
     setHelp(separateOuts_.button, "Separate outputs",
-            "Sends Kit, Arp 1-3, Chords, FX and Beads to their own outputs of the plugin (enable them in your DAW) instead of the main mix.");
+            "Sends Kit, Arp 1-3, Chords, FX, Beads and Rings to their own outputs of the plugin (enable them in your DAW) instead of the main mix.");
 
     tempoBar_.setSliderStyle(juce::Slider::LinearBar);
     tempoBar_.setTextValueSuffix(" bpm");
@@ -1929,7 +2004,7 @@ int GristoView::pageOfPart(int part)
         return 0;
     if (part < gristo::kChordVoice)
         return 1 + part - gristo::kNumVoices;
-    return part == gristo::kChordVoice ? kChordsPage : kMasterPage;
+    return part == gristo::kChordVoice ? kChordsPage : part == kRingsPart ? kRingsPage : kMasterPage;
 }
 
 void GristoView::dragMidi(int part)
@@ -1977,7 +2052,7 @@ void GristoView::showVoiceTab(int tab)
         k.slider.setVisible(drums && tab == 2);
         k.label.setVisible(drums && tab == 2);
     }
-    for (Choice* c : { &drumCondition_, &drumEngine_, &drumFilter_ })
+    for (Choice* c : { &drumCondition_, &drumEngine_, &drumFilter_, &drumBodyType_ })
     {
         c->box.setVisible(drums && tab == 2);
         c->label.setVisible(drums && tab == 2);
@@ -2018,6 +2093,8 @@ void GristoView::bindDrumSound(int voice)
     drumEngine_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(st, p::voiceId(p::drumEngine, voice), drumEngine_.box);
     drumFilter_.attachment.reset();
     drumFilter_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(st, p::voiceId(p::drumFilter, voice), drumFilter_.box);
+    drumBodyType_.attachment.reset();
+    drumBodyType_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(st, p::voiceId(p::drumBodyType, voice), drumBodyType_.box);
     drumCutoff_.attachment.reset();
     drumCutoff_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(st, p::voiceId(p::drumCutoff, voice), drumCutoff_.slider);
     learnables_[&drumCutoff_.slider] = ControlTarget::param(p::voiceId(p::drumCutoff, voice));
@@ -2039,9 +2116,8 @@ void GristoView::showKnobMenu(juce::Slider& knob)
 std::vector<juce::Component*> GristoView::masterPageComponents()
 {
     std::vector<juce::Component*> list { &fxSize_.slider, &fxSize_.label, &fxFeedback_.slider, &fxFeedback_.label, &fxTime_.box, &fxTime_.label,
-                                         &fxReverbType_.box, &fxReverbType_.label,
                                          &noteLength_.slider, &noteLength_.label, &separateOuts_.button, &alive_.slider, &alive_.label,
-                                         &fxShimmer_.slider, &fxShimmer_.label };
+                                         &fxShimmer_.slider, &fxShimmer_.label, &reverbNote_ };
     for (auto& k : beadsKnobs_)
     {
         list.push_back(&k.slider);
@@ -2094,6 +2170,8 @@ void GristoView::showPage(int page)
             c->setVisible(page == kChordsPage);
     for (auto* c : masterPageComponents())
         c->setVisible(page == kMasterPage);
+    for (auto* c : ringsPageComponents())
+        c->setVisible(page == kRingsPage);
     for (int s = 0; s < gristo::sound::kNumSynths; ++s)
         for (auto* c : synthComponents(s))
             c->setVisible(isArpPage() ? s == page - 1 : page == kChordsPage && s == gristo::sound::kChordSynth);
@@ -2264,8 +2342,8 @@ void GristoView::bindArp(int arp)
     bindToggle(arpFollow_, p::laneId(p::arpFollow, arp));
 
     // Widgets with a ParameterAttachment are rebuilt for the new arp.
-    arpChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::laneId(p::arpChannel, arp)), "Ch ", 1, 16);
-    arpShift_ = std::make_unique<NumberSelector>(*st.getParameter(p::laneId(p::arpShift, arp)), "", -60, 60, " st", 12, true);
+    arpChannel_ = std::make_unique<NumberSelector>(*st.getParameter(p::laneId(p::arpChannel, arp)), "MIDI ch ", 1, 16);
+    arpShift_ = std::make_unique<NumberSelector>(*st.getParameter(p::laneId(p::arpShift, arp)), "Shift ", -60, 60, " st", 12, true);
     arpRoot_ = std::make_unique<NoteSelector>(*st.getParameter(p::laneId(p::arpRoot, arp)));
     arpVelocity_ = std::make_unique<VelocityRange>(*st.getParameter(p::laneId(p::arpVelMin, arp)),
                                                    *st.getParameter(p::laneId(p::arpVelMax, arp)), arpColours[arp]);
@@ -2274,7 +2352,7 @@ void GristoView::bindArp(int arp)
     addAndMakeVisible(*arpRoot_);
     addAndMakeVisible(*arpVelocity_);
     setHelp(*arpChannel_, "Arp MIDI channel", "MIDI channel this arp is sent on, for DAWs that keep channels. Ableton merges them: use Shift there.");
-    setHelp(*arpShift_, "Out Shift", "Moves this arp's MIDI out up or down (semitones) into its own note range. In Live, undo it with a Pitch device before the synth.");
+    setHelp(*arpShift_, "MIDI out shift", "MIDI only: moves the notes this arp sends up or down (semitones) into their own range, so Live can split the parts by key zone. In Live, undo it with a Pitch device before the synth. The built-in sound doesn't move (that is Sound octave).");
     setHelp(*arpRoot_, "Root", "Generate mode: key root and lowest note when no notes are held. Click for a list, scroll to step.");
     setHelp(*arpVelocity_, "Arp velocity", "Velocity range. Notes follow the triggering drum hit (accents at the top); generator accents play at the top.");
     arpView_.setArp(arp);
@@ -2403,8 +2481,16 @@ void GristoView::paint(juce::Graphics& g)
         g.setColour(colours::dim);
         g.setFont(juce::FontOptions(12.0f));
         g.drawFittedText("MIDI to your DAW: drag the handles in the bar below the pages onto a track. "
-                         "Separate outputs: Kit, Arp 1-3, Chords, FX and Beads each get their own plugin output.",
+                         "Separate outputs: Kit, Arp 1-3, Chords, FX, Beads and Rings each get their own plugin output.",
                          { px + 548, py + 136, 504, 52 }, juce::Justification::topLeft, 3);
+    }
+    else if (page_ == kRingsPage)
+    {
+        drawPanel(g, { px, py, kPageW, kPageH }, "Rings  -  a resonator strummed by a part's notes, in the song's key");
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        g.drawText("RESONATOR", px + 24, py + 104, 200, 16, juce::Justification::centredLeft);
+        g.drawText("OUT", px + 660, py + 104, 200, 16, juce::Justification::centredLeft);
     }
     else
     {
@@ -2539,7 +2625,8 @@ void GristoView::resized()
         partSolo_[part].button.setBounds(126, y + 4, 24, 24);
         partLevel_[part].slider.setBounds(152, y, 36, 32);
     }
-    partSelect_[gristo::kNumParts].setBounds(18, partRowY(gristo::kNumParts), 170, 28);
+    partSelect_[gristo::kNumParts].setBounds(18, partRowY(gristo::kNumParts), 102, 28);
+    partSelect_[kRingsPart].setBounds(124, partRowY(gristo::kNumParts), 64, 28);
     for (int m = 0; m < gristo::kNumMacros; ++m)
         macros_[m].slider.setBounds(18 + (m % 4) * 44, kMacroY + (m / 4) * 38 - 4, 36, 32);
 
@@ -2571,8 +2658,10 @@ void GristoView::resized()
     voiceTabs_[2].setBounds(px + 308 + 210, py + 5, 60, 18);
     for (int i = 0; i < 10; ++i)
         placeKnob(drumSound_[i], { px + 322 + (i % 5) * 96, py + 78 + (i / 5) * 132, 90, 118 });
-    drumEngine_.label.setBounds(px + 560, py + 46, 50, 22);
-    drumEngine_.box.setBounds(px + 612, py + 44, 180, 26);
+    drumBodyType_.label.setBounds(px + 456, py + 46, 36, 22);
+    drumBodyType_.box.setBounds(px + 492, py + 44, 100, 26);
+    drumEngine_.label.setBounds(px + 602, py + 46, 46, 22);
+    drumEngine_.box.setBounds(px + 648, py + 44, 144, 26);
     drumCondition_.label.setBounds(px + 326, py + 348, 44, 26);
     drumCondition_.box.setBounds(px + 372, py + 348, 150, 26);
     drumFilter_.label.setBounds(px + 540, py + 348, 40, 26);
@@ -2625,12 +2714,30 @@ void GristoView::resized()
     placeLabeled(fxFeedback_, { px + 144, py + 40, 110, 130 });
     fxTime_.label.setBounds(px + 280, py + 70, 90, 14);
     fxTime_.box.setBounds(px + 280, py + 86, 100, 28);
-    fxReverbType_.label.setBounds(px + 280, py + 128, 90, 14);
-    fxReverbType_.box.setBounds(px + 280, py + 144, 100, 28);
     placeKnob(noteLength_, { px + 960, py + 30, 96, 110 });
     separateOuts_.button.setBounds(px + 548, py + 40, 190, 28);
     placeLabeled(alive_, { px + 780, py + 26, 100, 104 });
     placeLabeled(fxShimmer_, { px + 390, py + 40, 110, 130 });
+    reverbNote_.setBounds(px + 270, py + 124, 120, 56);
+    // Rings page
+    {
+        const int ry = py + 34;
+        ringsOn_.button.setBounds(px + 24, ry + 18, 56, 28);
+        Choice* choices[] = { &ringsSource_, &ringsModel_, &ringsPoly_, &ringsExciter_ };
+        const int cx[] = { 96, 232, 448, 584 }, cw[] = { 120, 200, 120, 150 };
+        for (int i = 0; i < 4; ++i)
+        {
+            choices[i]->label.setBounds(px + cx[i], ry, cw[i], 16);
+            choices[i]->box.setBounds(px + cx[i], ry + 18, cw[i], 28);
+        }
+        if (ringsOctave_ != nullptr)
+            ringsOctave_->setBounds(px + 750, ry + 20, 110, 24);
+        for (int i = 0; i < 4; ++i)
+            placeLabeled(ringsKnobs_[i], { px + 24 + i * 150, py + 128, 140, 170 });
+        for (int i = 0; i < 4; ++i)
+            placeLabeled(ringsMix_[i], { px + 660 + i * 100, py + 140, 96, 130 });
+        ringsNote_.setBounds(px + 24, py + 320, kPageW - 48, 150);
+    }
     // Beads, under the effects
     {
         const int by = py + 236;
@@ -2655,7 +2762,7 @@ void GristoView::resized()
         auto& row = synthRows_[s];
         row.sound.setBounds(px + 24, py + 352, 190, 30);
         if (row.octave != nullptr)
-            row.octave->setBounds(px + 24, py + 432, 90, 24);
+            row.octave->setBounds(px + 24, py + 432, 110, 24);
         Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.body, &row.reverb, &row.delay, &row.duck };
         for (int i = 0; i < 11; ++i)
             placeLabeled(*knobs[i], { px + 228 + i * 75 + (i >= 8 ? 12 : 0), py + 332, 72, 142 });
@@ -2693,7 +2800,7 @@ void GristoView::resized()
     arpDivide_.box.setBounds(310, kModRowY + 170, 132, 24);
     arpFollow_.button.setBounds(670, kModRowY, 76, 26);
     if (arpChannel_ != nullptr)
-        arpChannel_->setBounds(24, kModBottomY - 2, 58, 22);
+        arpChannel_->setBounds(24, kModBottomY - 2, 92, 22);
     const int y1 = kModRowY + 38;
     arpOrder_.label.setBounds(28, y1, 104, 16);
     arpOrder_.box.setBounds(28, y1 + 18, 104, 26);
@@ -2702,10 +2809,10 @@ void GristoView::resized()
     arpRootLabel_.setBounds(140, y1, 96, 16);
     if (arpRoot_ != nullptr)
         arpRoot_->setBounds(140, y1 + 18, 96, 26);
-    arpShiftLabel_.setBounds(140, y1 + 50, 96, 16);
+    arpShiftLabel_.setBounds(0, 0, 0, 0); // the shift lives on the MIDI out row now
     if (arpShift_ != nullptr)
-        arpShift_->setBounds(140, y1 + 68, 96, 26);
-    arpOutLabel_.setBounds(88, kModBottomY - 2, 726, 22);
+        arpShift_->setBounds(122, kModBottomY - 2, 100, 22);
+    arpOutLabel_.setBounds(228, kModBottomY - 2, 586, 22);
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
         arpLaneHandles_[lane].setBounds(820 + lane * 38, kModBottomY - 1, 36, 20);
     {
@@ -2735,6 +2842,7 @@ void GristoView::resized()
         placeKnob(chordWander_, { 640, y + 38, 84, 104 });
         placeSmallKnob(chordStrum_, 740, y + 48);
         placeSmallKnob(chordGate_, 800, y + 48);
+        placeSmallKnob(chordChance_, 860, y + 48);
         chordVoicing_.label.setBounds(640, y + 150, 52, 24);
         chordVoicing_.box.setBounds(692, y + 150, 136, 24);
         chordStrumDir_.label.setBounds(836, y + 150, 40, 24);
@@ -2744,10 +2852,10 @@ void GristoView::resized()
         if (chordVelocity_ != nullptr)
             chordVelocity_->setBounds(304, kModBottomY, 140, 22);
         if (chordChannel_ != nullptr)
-            chordChannel_->setBounds(452, kModBottomY, 54, 22);
+            chordChannel_->setBounds(452, kModBottomY, 90, 22);
         if (chordShift_ != nullptr)
-            chordShift_->setBounds(512, kModBottomY, 66, 22);
-        chordOutLabel_.setBounds(584, kModBottomY, 392, 22);
+            chordShift_->setBounds(548, kModBottomY, 100, 22);
+        chordOutLabel_.setBounds(654, kModBottomY, 322, 22);
     }
     for (auto* c : arpPageComponents())
         if (c != nullptr)

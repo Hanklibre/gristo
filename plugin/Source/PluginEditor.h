@@ -121,7 +121,7 @@ private:
     juce::TextButton voiceTabs_[3]; // Pattern (what plays) / Play (how it is played and sent) / Sound (the selected drum)
     // Sound tab: one set of knobs, bound to the drum selected in the part strip.
     Knob drumSound_[10];
-    Choice drumCondition_, drumEngine_, drumFilter_;
+    Choice drumCondition_, drumEngine_, drumFilter_, drumBodyType_;
     Knob drumCutoff_;
     int soundVoice_ = -1;
     void bindDrumSound(int voice);
@@ -147,7 +147,8 @@ private:
     static constexpr int kSoundsPage = 2 + gristo::kNumArps;
     static constexpr int kMasterPage = kSoundsPage; // pages: 0 = drums, 1..3 = arps, chords, master
     // Part strip: the ten parts and Master / FX; the selected one fills the page.
-    juce::TextButton partSelect_[gristo::kNumParts + 1];
+    juce::TextButton partSelect_[gristo::kNumParts + 2]; // the parts, FX / Beads, Rings
+    static constexpr int kRingsPart = gristo::kNumParts + 1;
     Toggle partMute_[gristo::kNumParts], partSolo_[gristo::kNumParts], separateOuts_;
     Knob partLevel_[gristo::kNumParts];
     std::array<float, gristo::kNumParts> activity_ {};
@@ -198,7 +199,7 @@ private:
         Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck, body;
         std::unique_ptr<NumberSelector> octave;
     };
-    Choice soundKit_, fxTime_, fxReverbType_;
+    Choice soundKit_, fxTime_;
     Knob kitTune_, kitDecay_, kitTone_, kitDrive_, kitReverb_, kitDelay_, fxSize_, fxFeedback_;
     Knob drumLevels_[gristo::kNumVoices];
     SynthRow synthRows_[gristo::sound::kNumSynths];
@@ -212,13 +213,23 @@ private:
     Choice chordKey_, chordMinor_, chordMode_, chordRate_, chordPhrase_, chordPlay_, chordOctave_, chordVoicing_, chordStrumDir_;
     std::unique_ptr<NumberSelector> chordChannel_, chordShift_;
     std::unique_ptr<VelocityRange> chordVelocity_;
-    Knob chordWander_, chordGate_, chordStrum_;
+    Knob chordWander_, chordGate_, chordStrum_, chordChance_;
     juce::TextButton catchButton_ { "Catch" };
     juce::Label chordOutLabel_, chordNowLabel_;
+    juce::Label reverbNote_;
     HarmonyPad harmonyPad_;
 
     // Play screen: the two pads and the big knobs. Edit shows the selected part's page instead.
     static constexpr int kPlayPage = kMasterPage + 1;
+    static constexpr int kRingsPage = kPlayPage + 1;
+    // Rings page
+    Toggle ringsOn_;
+    Choice ringsSource_, ringsModel_, ringsPoly_, ringsExciter_;
+    std::unique_ptr<NumberSelector> ringsOctave_;
+    Knob ringsKnobs_[4], ringsMix_[4];
+    juce::Label ringsNote_;
+    void setupRings();
+    std::vector<juce::Component*> ringsPageComponents();
     bool editMode_ = false;
     juce::TextButton editButton_ { "Edit" };
     Knob busy_, loose_, wild_, dirt_, space_, alive_;

@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
 
+#include <map>
+
 #include "PluginEditor.h"
 
 #include <tuple>
@@ -22,7 +24,8 @@ GristoProcessor::GristoProcessor()
                          .withOutput("Arp 3", juce::AudioChannelSet::stereo(), false)
                          .withOutput("Chords", juce::AudioChannelSet::stereo(), false)
                          .withOutput("FX", juce::AudioChannelSet::stereo(), false)
-                         .withOutput("Beads", juce::AudioChannelSet::stereo(), false)),
+                         .withOutput("Beads", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("Rings", juce::AudioChannelSet::stereo(), false)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
     for (auto& e : stepEdits)
@@ -124,6 +127,7 @@ void GristoProcessor::readSettings()
         c.synths[sIndex] = p::readSynthParams(state, sIndex);
     c.fx = p::readFxParams(state);
     c.beads = p::readBeadsParams(state);
+    c.rings = p::readRingsParams(state);
     c.character = p::readCharacterParams(state);
 }
 
@@ -191,6 +195,7 @@ void GristoProcessor::applySoundSettings(std::int64_t step, bool playing)
     fx.delayFeedback = juce::jlimit(0.0f, 0.9f, fx.delayFeedback + lane(mod::kFxFeedbackTarget));
     sound_.setFx(fx);
     sound_.setBeads(c.beads);
+    sound_.setRings(c.rings);
     sound_.setCharacter(c.character);
 }
 
@@ -335,7 +340,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     float* right = mainOut.getNumChannels() > 1 ? mainOut.getWritePointer(1) : nullptr;
 
     // Separate Outputs: every part whose output bus the host has switched on goes
-    // there instead of the main mix. Buses in order: Kit, Arp 1-3, Chords, FX, Beads.
+    // there instead of the main mix. Buses in order: Kit, Arp 1-3, Chords, FX, Beads, Rings.
     gristo::sound::Stems stems;
     bool anyStem = false;
     if (settings_.separateOuts && right != nullptr)
@@ -345,7 +350,9 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             if (out.getNumChannels() < 2)
                 continue;
             float* const pair[2] = { out.getWritePointer(0), out.getWritePointer(1) };
-            float** target = bus == 1 ? stems.kit : bus == 6 ? stems.fx : bus == 7 ? stems.beads : stems.synth[bus - 2];
+            if (bus > 8)
+                continue;
+            float** target = bus == 1 ? stems.kit : bus == 6 ? stems.fx : bus == 7 ? stems.beads : bus == 8 ? stems.rings : stems.synth[bus - 2];
             target[0] = pair[0];
             target[1] = pair[1];
             anyStem = true;
@@ -358,7 +365,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (right != nullptr)
         {
             gristo::sound::Stems at = stems;
-            for (float** pair : { at.kit, at.synth[0], at.synth[1], at.synth[2], at.synth[3], at.fx, at.beads })
+            for (float** pair : { at.kit, at.synth[0], at.synth[1], at.synth[2], at.synth[3], at.fx, at.beads, at.rings })
                 for (int ch = 0; ch < 2; ++ch)
                     if (pair[ch] != nullptr)
                         pair[ch] += rendered;
@@ -600,6 +607,8 @@ void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
     tree.removeChild(tree.getChildWithName("SCENES"), nullptr);
     writeScenes(tree);
     writeSamples(tree);
+    tree.removeChild(tree.getChildWithName("ROUTES"), nullptr);
+    writeRoutes(tree);
     tree.removeChild(tree.getChildWithName("MIDIMAP"), nullptr);
     tree.appendChild(controls.toTree(), nullptr);
     tree.setProperty("diceLocks", diceLocks.load(), nullptr);
@@ -630,6 +639,7 @@ void GristoProcessor::setStateInformation(const void* data, int sizeInBytes)
             if (tree.hasProperty("showKeys"))
                 showKeys.store(static_cast<bool>(tree.getProperty("showKeys")));
             state.replaceState(tree);
+            readRoutes(tree);
             paramGeneration_.fetch_add(1);
             presets.readFrom(tree);
             readScenes(tree);
@@ -1243,6 +1253,40 @@ void GristoProcessor::clearScene(int scene)
     currentScene.compare_exchange_strong(expected, -1);
 }
 
+namespace {
+bool isRouteParameter(const juce::String& id) { return id.startsWith(p::modTarget) || id.startsWith(p::macroTarget); }
+} // namespace
+
+void GristoProcessor::writeRoutes(juce::ValueTree& parent) const
+{
+    juce::ValueTree routes("ROUTES");
+    for (auto* param : getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param); ranged != nullptr && isRouteParameter(ranged->getParameterID()))
+        {
+            const int target = juce::roundToInt(ranged->convertFrom0to1(ranged->getValue()));
+            if (target < gristo::mod::kNumTargets || p::parameterTargetId(target).isEmpty())
+                continue; // the built-in targets (and numbers past the list) keep their numbers
+            juce::ValueTree route("ROUTE");
+            route.setProperty("slot", ranged->getParameterID(), nullptr);
+            route.setProperty("param", p::parameterTargetId(target), nullptr);
+            routes.appendChild(route, nullptr);
+        }
+    parent.appendChild(routes, nullptr);
+}
+
+void GristoProcessor::readRoutes(const juce::ValueTree& parent)
+{
+    const auto routes = parent.getChildWithName("ROUTES");
+    if (!routes.isValid())
+        return; // saved before routes were named: the numbers stand
+    for (const auto& route : routes)
+        if (auto* param = state.getParameter(route["slot"].toString()))
+        {
+            const int target = p::parameterTarget(route["param"].toString());
+            param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(std::max(0, target))));
+        }
+}
+
 void GristoProcessor::writeScenes(juce::ValueTree& parent) const
 {
     juce::ValueTree scenes("SCENES");
@@ -1254,6 +1298,19 @@ void GristoProcessor::writeScenes(juce::ValueTree& parent) const
             scene.setProperty("index", i, nullptr);
             scene.setProperty("values", encode(scenes_[static_cast<size_t>(i)].values), nullptr);
             scene.setProperty("lanes", encode(scenes_[static_cast<size_t>(i)].lanePoints), nullptr);
+            // Also by parameter name and plain value, so a scene still loads after an
+            // update adds parameters or choices.
+            const auto& values = scenes_[static_cast<size_t>(i)].values;
+            size_t k = 0;
+            for (auto* param : getParameters())
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                    if (!PresetManager::isRoutingParameter(ranged->getParameterID()) && k < values.size())
+                    {
+                        juce::ValueTree child("PARAM");
+                        child.setProperty("id", ranged->getParameterID(), nullptr);
+                        child.setProperty("value", ranged->convertFrom0to1(values[k++]), nullptr);
+                        scene.appendChild(child, nullptr);
+                    }
             scenes.appendChild(scene, nullptr);
         }
     scenes.setProperty("chain", chainScenes.load(), nullptr);
@@ -1285,6 +1342,24 @@ void GristoProcessor::readScenes(const juce::ValueTree& parent)
     {
         const int i = static_cast<int>(scene.getProperty("index", -1));
         Snapshot snapshot { decode(scene["values"].toString()), decode(scene["lanes"].toString()) };
+        if (scene.getChildWithName("PARAM").isValid())
+        {
+            // Saved by name: parameters it doesn't know get their defaults.
+            std::map<juce::String, float> plain;
+            for (const auto& child : scene)
+                if (child.hasType("PARAM"))
+                    if (const auto v = static_cast<float>(child["value"]); std::isfinite(v))
+                        plain[child["id"].toString()] = v;
+            snapshot.values.clear();
+            for (auto* param : getParameters())
+                if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*>(param))
+                    if (!PresetManager::isRoutingParameter(ranged->getParameterID()))
+                    {
+                        const auto it = plain.find(ranged->getParameterID());
+                        snapshot.values.push_back(it != plain.end() ? juce::jlimit(0.0f, 1.0f, ranged->convertTo0to1(it->second))
+                                                                    : ranged->getDefaultValue());
+                    }
+        }
         // Only scenes saved with this exact set of parameters fit.
         if (i >= 0 && i < kNumScenes && snapshot.values.size() == expected
             && (snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints)

@@ -28,6 +28,16 @@
       <FILE id="f00012" name="Synth.cpp" compile="1" resource="0" file="../sound/src/Synth.cpp"/>
       <FILE id="f00090" name="Beads.cpp" compile="1" resource="0" file="../sound/src/Beads.cpp"/>
       <FILE id="f00091" name="BeadsReverb.cpp" compile="1" resource="0" file="../sound/src/BeadsReverb.cpp"/>
+      <FILE id="f00092" name="Rings.cpp" compile="1" resource="0" file="../sound/src/Rings.cpp"/>
+    </GROUP>
+    <GROUP id="gmi" name="mutable">
+      <FILE id="f00093" name="part.cc" compile="1" resource="0" file="../third_party/eurorack/rings/dsp/part.cc"/>
+      <FILE id="f00094" name="resonator.cc" compile="1" resource="0" file="../third_party/eurorack/rings/dsp/resonator.cc"/>
+      <FILE id="f00095" name="string.cc" compile="1" resource="0" file="../third_party/eurorack/rings/dsp/string.cc"/>
+      <FILE id="f00096" name="fm_voice.cc" compile="1" resource="0" file="../third_party/eurorack/rings/dsp/fm_voice.cc"/>
+      <FILE id="f00097" name="resources.cc" compile="1" resource="0" file="../third_party/eurorack/rings/resources.cc"/>
+      <FILE id="f00098" name="units.cc" compile="1" resource="0" file="../third_party/eurorack/stmlib/dsp/units.cc"/>
+      <FILE id="f00099" name="random.cc" compile="1" resource="0" file="../third_party/eurorack/stmlib/utils/random.cc"/>
     </GROUP>
     <GROUP id="gplugin" name="plugin">
       <FILE id="f00013" name="FactoryPresets.cpp" compile="1" resource="0"
@@ -51,10 +61,10 @@
                    androidReadMediaVideoPermission="0" androidBluetoothScanNeeded="0"
                    androidBluetoothAdvertiseNeeded="0" androidBluetoothConnectNeeded="0">
       <CONFIGURATIONS>
-        <CONFIGURATION name="Debug" isDebug="1" targetName="Gristo" headerPath="../../../core/include;../../../sound/include;../../../sound/src"
+        <CONFIGURATION name="Debug" isDebug="1" targetName="Gristo" headerPath="../../../core/include;../../../sound/include;../../../sound/src;../../../third_party/eurorack"
                        androidArchitectures="arm64-v8a"/>
         <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="Gristo"
-                       headerPath="../../../core/include;../../../sound/include;../../../sound/src"
+                       headerPath="../../../core/include;../../../sound/include;../../../sound/src;../../../third_party/eurorack"
                        androidArchitectures="arm64-v8a"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
@@ -76,7 +86,7 @@
       <!-- Local check only (CI builds Android): compiles the same project for Linux. -->
       <CONFIGURATIONS>
         <CONFIGURATION name="Release" isDebug="0" optimisation="3" targetName="Gristo"
-                       headerPath="../../../core/include;../../../sound/include;../../../sound/src"/>
+                       headerPath="../../../core/include;../../../sound/include;../../../sound/src;../../../third_party/eurorack"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path="JUCE/modules"/>
