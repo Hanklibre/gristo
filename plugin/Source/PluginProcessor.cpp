@@ -21,11 +21,15 @@ GristoProcessor::GristoProcessor()
                          .withOutput("Arp 2", juce::AudioChannelSet::stereo(), false)
                          .withOutput("Arp 3", juce::AudioChannelSet::stereo(), false)
                          .withOutput("Chords", juce::AudioChannelSet::stereo(), false)
-                         .withOutput("FX", juce::AudioChannelSet::stereo(), false)),
+                         .withOutput("FX", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("Beads", juce::AudioChannelSet::stereo(), false)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
     p::registerParameterTargets(*this);
     resetLanes();
+    // A fresh instance starts in a random key; opening a song or a preset sets its own.
+    setValue(p::chordKey, static_cast<float>(juce::Random::getSystemRandom().nextInt(12)));
+    paramGeneration_.fetch_add(1);
     presets.markClean();
     for (auto* param : getParameters())
         if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(param))
@@ -63,6 +67,8 @@ void GristoProcessor::refreshSettings()
         }
         c.channels[gristo::kChordVoice] = static_cast<int>(value(p::chordChannel));
         c.shifts[gristo::kNumArps] = static_cast<int>(value(p::chordShift));
+        for (int synth = 0; synth < gristo::sound::kNumSynths; ++synth)
+            c.octaves[synth] = static_cast<int>(value(p::laneId(p::synthOctave, synth)));
         for (int a = 0; a < gristo::kNumArps; ++a)
         {
             c.channels[gristo::kArpVoiceBase + a] = static_cast<int>(value(p::laneId(p::arpChannel, a)));
@@ -327,7 +333,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     float* right = mainOut.getNumChannels() > 1 ? mainOut.getWritePointer(1) : nullptr;
 
     // Separate Outputs: every part whose output bus the host has switched on goes
-    // there instead of the main mix. Buses in order: Kit, Arp 1-3, Chords, FX.
+    // there instead of the main mix. Buses in order: Kit, Arp 1-3, Chords, FX, Beads.
     gristo::sound::Stems stems;
     bool anyStem = false;
     if (settings_.separateOuts && right != nullptr)
@@ -337,7 +343,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             if (out.getNumChannels() < 2)
                 continue;
             float* const pair[2] = { out.getWritePointer(0), out.getWritePointer(1) };
-            float** target = bus == 1 ? stems.kit : bus == 6 ? stems.fx : stems.synth[bus - 2];
+            float** target = bus == 1 ? stems.kit : bus == 6 ? stems.fx : bus == 7 ? stems.beads : stems.synth[bus - 2];
             target[0] = pair[0];
             target[1] = pair[1];
             anyStem = true;
@@ -350,7 +356,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (right != nullptr)
         {
             gristo::sound::Stems at = stems;
-            for (float** pair : { at.kit, at.synth[0], at.synth[1], at.synth[2], at.synth[3], at.fx })
+            for (float** pair : { at.kit, at.synth[0], at.synth[1], at.synth[2], at.synth[3], at.fx, at.beads })
                 for (int ch = 0; ch < 2; ++ch)
                     if (pair[ch] != nullptr)
                         pair[ch] += rendered;
@@ -407,7 +413,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 {
                     // The kit plays the unshifted pitch, as the synth behind a Pitch device would.
                     const int part = ev.voice - gristo::kArpVoiceBase;
-                    sound_.noteOn(synthOf(part), note, static_cast<float>(note - shifts[part]), ev.velocity);
+                    sound_.noteOn(synthOf(part), note, static_cast<float>(note - shifts[part] + 12 * settings_.octaves[synthOf(part)]), ev.velocity);
                 }
                 else
                     sound_.triggerDrum(ev.voice, ev.velocity);

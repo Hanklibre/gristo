@@ -80,6 +80,36 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### A new drum engine
+
+Every drum is now one of 15 engines, and all kits are rebuilt on them:
+
+* **Kicks:** Analog (a pinged resonator with attack FM and self-FM, after the
+  808), Synth (a dirty sine with a click and FM, after the 909), Acoustic.
+* **Snares:** Analog (five resonant modes plus snappy noise), Synth (two
+  coupled oscillators and filtered noise), Acoustic (heads and wires), Crack
+  (a noise burst into a short string, Karplus-Strong, as in the Perkons), Clap.
+* **Metal:** 808 Hat (six square oscillators), 909 Hat (ring-modulated pairs),
+  Cymbal (four feedback combs).
+* **Percussion:** Tom, Cowbell, Shaker, Bell.
+
+On a drum's **Sound** tab, **Engine** swaps the kit's drum for any of them, and
+each drum has its own **Filter** (low-, band- or high-pass) and **Cutoff**, as on
+the Perkons. Tune, Decay, Tone, Punch and Noise drive the engine's controls;
+soft hits are darker on every engine.
+
+The Analog and Synth kicks and snares and the hats are ported from Mutable
+Instruments Plaits (MIT, Copyright 2016 Emilie Gillet). 7DeadlySnares (closed
+source) and the Perkons inspired the choice of engines, not code.
+
+### Also new
+
+* A new instance starts in a random key on the Chords page; an opened song or a
+  preset keeps its own.
+* **Octave** on each synth's sound panel: moves the built-in sound up or down
+  (-3 .. +3 octaves); the MIDI it sends is unchanged.
+* **Beads** has its own plugin output (with Separate outputs on; the eighth bus).
+
 ### Felucca engines and Beads
 
 * **TRIO** (three oscillators, ring modulation, hard sync, combined waves, a

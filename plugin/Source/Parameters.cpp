@@ -137,6 +137,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(percentParam(voiceId(drumBody, v), name + " Body", 0.0f));
         layout.add(floatParam(voiceId(drumBodyTune, v), name + " Body Tune", { -24.0f, 24.0f, 0.1f }, 0.0f, "st", 1));
         layout.add(percentParam(voiceId(drumBodyDecay, v), name + " Body Decay", 0.5f));
+        {
+            juce::StringArray engines { "Kit's own" };
+            for (int e = 0; e < static_cast<int>(sound::DrumEngine::Count); ++e)
+                engines.add(sound::drumEngineName(static_cast<sound::DrumEngine>(e)));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { voiceId(drumEngine, v), kVersion }, name + " Engine", engines, 0));
+        }
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { voiceId(drumFilter, v), kVersion }, name + " Filter",
+                                                                juce::StringArray { "Off", "Low-pass", "Band-pass", "High-pass" }, 0));
+        layout.add(percentParam(voiceId(drumCutoff, v), name + " Cutoff", 0.5f));
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMin, v), kVersion }, name + " Velocity Min", 1, 127,
                                                              juce::roundToInt(dyn.velMin[static_cast<size_t>(v)] * 127.0f)));
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(velMax, v), kVersion }, name + " Velocity Max", 1, 127,
@@ -280,6 +289,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             layout.add(percentParam(laneId(synthDelay, a), name + "Delay", a == 1 || a == 2 ? 0.2f : 0.0f));
             layout.add(percentParam(laneId(synthDuck, a), name + "Duck", 0.0f));
             layout.add(percentParam(laneId(synthBody, a), name + "Body", 0.0f));
+            layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { laneId(synthOctave, a), kVersion }, name + "Octave", -3, 3, 0,
+                juce::AudioParameterIntAttributes().withStringFromValueFunction([](int v, int) { return (v > 0 ? "+" : "") + juce::String(v) + " oct"; })));
         }
         // Chord sequencer
         {
@@ -565,6 +576,9 @@ sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& s)
         t.body = load(s, voiceId(drumBody, v));
         t.bodyTune = load(s, voiceId(drumBodyTune, v));
         t.bodyDecay = load(s, voiceId(drumBodyDecay, v));
+        t.engine = static_cast<int>(load(s, voiceId(drumEngine, v))) - 1;
+        t.filter = static_cast<int>(load(s, voiceId(drumFilter, v)));
+        t.cutoff = load(s, voiceId(drumCutoff, v));
     }
     k.reverbSend = spaceSend(s, load(s, kitReverb));
     k.delaySend = spaceSend(s, load(s, kitDelay));

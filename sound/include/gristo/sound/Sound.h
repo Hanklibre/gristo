@@ -39,13 +39,28 @@ const char* synthCategoryName(SynthSound sound); // "Bass", "Keys", "Pads", "Lea
 
 // One drum's own sound, on top of the kit. Everything at its default leaves the kit's
 // sound as designed.
+// The drum engines a drum can be built from (Gristo's own, after Mutable Instruments'
+// Plaits drum models and Punk Labs' OneTrick URCHIN). New ones are appended.
+enum class DrumEngine : int
+{
+    AnalogKick = 0, SynthKick, AcousticKick,
+    AnalogSnare, SynthSnare, AcousticSnare, CrackSnare, Clap,
+    Hat808, Hat909, Cymbal,
+    Tom, Cowbell, Shaker, Bell,
+    Count
+};
+const char* drumEngineName(DrumEngine engine);
+
 struct DrumTweak
 {
+    int engine = -1;     // -1 = the kit's own, else a DrumEngine
+    int filter = 0;      // 0 off, 1 low-pass, 2 band-pass, 3 high-pass
+    float cutoff = 0.5f; // 0..1 (40 Hz .. 18 kHz)
     float tune = 0.0f;   // semitones, -24..24
     float decay = 0.5f;  // 0..1, 0.5 = as designed
     float tone = 0.5f;   // 0..1, darker .. brighter
-    float punch = 0.5f;  // 0..1, click and pitch sweep of the attack
-    float noise = 0.5f;  // 0..1, the noise / metal layer against the body
+    float punch = 0.5f;  // 0..1, the attack: click, pitch drop, FM
+    float noise = 0.5f;  // 0..1, the engine's second control: snap, wires, dirt, noisiness
     float drive = 0.0f;  // 0..1
     float pan = 0.0f;    // -1..1, added to the kit's position
     // Body: a tuned comb resonator the drum excites, like a shell, tube or string.
@@ -138,6 +153,7 @@ struct Stems
     float* kit[2] {};
     float* synth[kNumSynths][2] {};
     float* fx[2] {}; // reverb and delay returns
+    float* beads[2] {}; // Beads' grains (else they go with the FX, or the mix)
 };
 
 class SoundEngine

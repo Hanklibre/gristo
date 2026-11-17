@@ -186,6 +186,9 @@ void SoundEngine::setKit(const KitParams& params)
         t.tune = std::clamp(finite(t.tune, 0.0f), -24.0f, 24.0f);
         t.bodyTune = std::clamp(finite(t.bodyTune, 0.0f), -24.0f, 24.0f);
         t.pan = std::clamp(finite(t.pan, 0.0f), -1.0f, 1.0f);
+        t.cutoff = dsp::clamp01(finite(t.cutoff, 0.5f));
+        t.engine = std::clamp(t.engine, -1, static_cast<int>(DrumEngine::Count) - 1);
+        t.filter = std::clamp(t.filter, 0, 3);
         for (auto [value, fallback] : { std::pair<float*, float> { &t.decay, clean.decay }, { &t.tone, clean.tone }, { &t.punch, clean.punch },
                                         { &t.noise, clean.noise }, { &t.drive, 0.0f }, { &t.body, 0.0f }, { &t.bodyDecay, clean.bodyDecay } })
             *value = dsp::clamp01(finite(*value, fallback));
@@ -333,32 +336,31 @@ void SoundEngine::triggerDrum(int voice, float velocity)
     }
     const KitPatch& patch = kitPatch(m.kit.kit);
     const DrumTweak& t = m.kit.voice[static_cast<size_t>(voice)];
-    // The drum's own settings reshape the kit's patch for this hit.
-    DrumPatch d = patch.voices[voice];
-    const float bright = std::exp2((t.tone - 0.5f) * 2.0f);
-    d.noiseHz *= bright;
-    d.metalHz *= bright;
-    d.body2 *= 0.5f + t.tone;
-    d.click *= t.punch * 2.0f;
-    d.f0 = d.f1 + (d.f0 - d.f1) * t.punch * 2.0f;
-    d.noise *= t.noise * 2.0f;
-    d.wires *= t.noise * 2.0f;
-    d.tension *= t.punch * 2.0f;
-    d.shell *= 0.5f + t.tone;
-    d.cymbalSize = dsp::clamp01(d.cymbalSize + (0.5f - t.tone));
-    d.metal *= t.noise * 2.0f;
+    // The kit's drum, or the engine picked for this drum instead.
+    DrumSpec d = patch.voices[voice];
+    if (t.engine >= 0 && t.engine < static_cast<int>(DrumEngine::Count) && static_cast<DrumEngine>(t.engine) != d.engine)
+    {
+        const float pan = d.pan;
+        d = engineDefault(static_cast<DrumEngine>(t.engine), voice);
+        d.pan = pan;
+    }
+    // The kit's and the drum's own settings move the engine's controls.
+    const float tune = std::clamp(m.kit.tune, -12.0f, 12.0f) + t.tune;
+    d.hz *= std::exp2(tune / 12.0f);
+    d.decay = dsp::clamp01(d.decay + (m.kit.decay - 0.5f) * 0.6f + (t.decay - 0.5f));
+    d.tone = dsp::clamp01(d.tone + (m.kit.tone - 0.5f) * 0.6f + (t.tone - 0.5f));
+    d.punch = dsp::clamp01(d.punch + (t.punch - 0.5f));
+    d.snap = dsp::clamp01(d.snap + (t.noise - 0.5f));
     d.drive *= 1.0f + 4.0f * t.drive;
     d.pan = std::clamp(d.pan + t.pan, -1.0f, 1.0f);
-    const float tune = std::clamp(m.kit.tune, -12.0f, 12.0f) + t.tune;
-    const float decayScale = dsp::macroLog(m.kit.decay, 0.3f, 1.0f, 2.5f) * dsp::macroLog(t.decay, 0.25f, 1.0f, 3.0f);
+    m.drums[voice].trigger(d, dsp::clamp01(velocity), m.character.alive, t.filter, t.cutoff);
     if (t.body > 0.0f)
     {
         // Tonal drums ring at their own pitch; noise drums get a mid-range shell.
-        const float base = d.headModes > 0 ? d.headHz : d.body > 0.0f ? d.f1 : 220.0f;
-        m.drumBody[voice].set(base * std::exp2((tune + t.bodyTune) / 12.0f), dsp::macroLog(t.bodyDecay, 0.04f, 0.3f, 2.5f), 0.35f);
+        const float base = m.drums[voice].tonal() && d.hz > 20.0f ? d.hz : 220.0f * std::exp2(tune / 12.0f);
+        m.drumBody[voice].set(base * std::exp2(t.bodyTune / 12.0f), dsp::macroLog(t.bodyDecay, 0.04f, 0.3f, 2.5f), 0.35f);
         m.drumBodyRing[voice] = 4.0f * m.sampleRate; // keep it running while it can still ring
     }
-    m.drums[voice].trigger(d, dsp::clamp01(velocity), tune, decayScale, m.character.alive);
 }
 
 void SoundEngine::noteOn(int synth, int id, float pitch, float velocity)
@@ -402,6 +404,7 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
     };
     const bool kitStem = stems != nullptr && stems->kit[0] != nullptr && stems->kit[1] != nullptr;
     const bool fxStem = stems != nullptr && stems->fx[0] != nullptr && stems->fx[1] != nullptr;
+    const bool beadsStem = stems != nullptr && stems->beads[0] != nullptr && stems->beads[1] != nullptr;
     bool synthStem[kNumSynths] {};
     for (int s = 0; s < kNumSynths; ++s)
         synthStem[s] = stems != nullptr && stems->synth[s][0] != nullptr && stems->synth[s][1] != nullptr;
@@ -559,6 +562,11 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
         m.delay.process(dlyIn, dl, dr);
         m.reverb.process(revIn + (dl + dr) * 0.15f + m.shimmerFeed, rl, rr);
         m.shimmerFeed = m.fx.shimmer > 0.0f ? dsp::fastTanh(m.shimmer.process((rl + rr) * 0.5f) * 2.5f) * 0.8f * m.fx.shimmer : 0.0f;
+        if (beadsStem)
+        {
+            toStem(stems->beads, i, bl, br);
+            bl = br = 0.0f;
+        }
         if (fxStem)
             toStem(stems->fx, i, dl + rl + bl, dr + rr + br);
         else

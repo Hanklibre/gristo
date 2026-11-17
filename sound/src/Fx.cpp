@@ -406,7 +406,7 @@ void Tape::prepare(float sampleRate)
     baseDelay_ = 0.003f * sampleRate;
     drift_.prepare(sampleRate, 0.7f, 0x51a7e5u);
     level_.prepare(sampleRate, 3.0f, 0x1e7e1u);
-    hissRelease_ = std::exp(-1.0f / (1.2f * sampleRate));
+    hissRelease_ = std::exp(-1.0f / (0.4f * sampleRate));
     hissTone_.setLowpass(2500.0f, sampleRate);
     reset();
     set(amount_);

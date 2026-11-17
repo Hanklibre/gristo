@@ -3,6 +3,8 @@
 
 #include "TestFramework.h"
 
+#include <set>
+
 #include "PluginProcessor.h"
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -718,4 +720,92 @@ TEST("plugin: Beads is off until its level is up; then the hats gate grains of t
     const Run on = play(*proc, 1500, 256, &off);
     CHECK(on.nonFinite == 0 && on.peak <= 1.0f && on.unpaired == 0);
     CHECK(p::parameterTarget(p::beadsDensity) >= gristo::mod::kNumTargets); // lanes reach it
+}
+
+TEST("plugin: a new instance picks a random key; an opened song keeps its own")
+{
+    std::set<int> keys;
+    for (int i = 0; i < 12; ++i)
+        keys.insert(static_cast<int>(getParam(*makeProcessor(), p::chordKey)));
+    CHECK(keys.size() >= 3);
+    auto song = makeProcessor();
+    setParam(*song, p::chordKey, 7.0f);
+    juce::MemoryBlock saved;
+    song->getStateInformation(saved);
+    for (int i = 0; i < 6; ++i)
+    {
+        auto opened = makeProcessor();
+        opened->setStateInformation(saved.getData(), static_cast<int>(saved.getSize()));
+        CHECK(static_cast<int>(getParam(*opened, p::chordKey)) == 7);
+    }
+}
+
+TEST("plugin: Octave moves a synth's sound, not its MIDI; every drum engine and filter plays")
+{
+    // Octave: the MIDI notes are the same with and without it.
+    auto notes = [](int octave) {
+        auto proc = makeProcessor();
+        setParam(*proc, p::chordOn, 1.0f);
+        setParam(*proc, p::chordKey, 2.0f); // a new instance picks its own key
+        setParam(*proc, p::laneId(p::synthOctave, gristo::sound::kChordSynth), static_cast<float>(octave));
+        proc->pump(2);
+        juce::AudioBuffer<float> buffer(2, 256);
+        std::vector<int> out;
+        for (int b = 0; b < 300; ++b)
+        {
+            juce::MidiBuffer midi;
+            proc->processBlock(buffer, midi);
+            for (const auto meta : midi)
+                if (meta.getMessage().isNoteOn() && meta.getMessage().getChannel() == static_cast<int>(getParam(*proc, p::chordChannel)))
+                    out.push_back(meta.getMessage().getNoteNumber());
+        }
+        return out;
+    };
+    const auto plain = notes(0), up = notes(2);
+    CHECK(!plain.empty());
+    CHECK(plain == up);
+
+    for (int engine = 1; engine <= static_cast<int>(gristo::sound::DrumEngine::Count); ++engine)
+    {
+        auto proc = makeProcessor();
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+        {
+            setParam(*proc, p::voiceId(p::drumEngine, v), static_cast<float>(engine));
+            setParam(*proc, p::voiceId(p::drumFilter, v), static_cast<float>(engine % 4));
+            setParam(*proc, p::voiceId(p::fill, v), 0.8f);
+        }
+        proc->pump(2);
+        const Run run = play(*proc, 300);
+        CHECK_MSG(run.nonFinite == 0 && run.peak > 0.01f && run.peak <= 1.0f, gristo::sound::drumEngineName(static_cast<gristo::sound::DrumEngine>(engine - 1)) << ": peak " << run.peak);
+    }
+}
+
+TEST("plugin: Beads can have its own output")
+{
+    auto proc = std::make_unique<GristoProcessor>();
+    auto layout = proc->getBusesLayout();
+    CHECK(layout.outputBuses.size() == 8);
+    for (int bus = 1; bus < layout.outputBuses.size(); ++bus)
+        layout.outputBuses.getReference(bus) = juce::AudioChannelSet::stereo();
+    CHECK(proc->setBusesLayout(layout));
+    proc->prepareToPlay(48000.0, 256);
+    setParam(*proc, p::freeRun, 1.0f);
+    setParam(*proc, p::separateOuts, 1.0f);
+    setParam(*proc, p::chordOn, 1.0f);
+    setParam(*proc, p::beadsLevel, 1.0f);
+    setParam(*proc, p::beadsDensity, 0.3f); // its own clock: grains whatever the drums do
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        setParam(*proc, p::voiceId(p::beadsTrigger, v), 0.0f);
+    proc->pump(2);
+    juce::AudioBuffer<float> buffer(proc->getTotalNumOutputChannels(), 256);
+    float beadsPeak = 0.0f;
+    for (int b = 0; b < 1200; ++b)
+    {
+        buffer.clear();
+        juce::MidiBuffer midi;
+        proc->processBlock(buffer, midi);
+        auto beads = proc->getBusBuffer(buffer, false, 7);
+        beadsPeak = std::max(beadsPeak, beads.getMagnitude(0, 0, 256));
+    }
+    CHECK(beadsPeak > 1e-3f && beadsPeak <= 1.0f);
 }

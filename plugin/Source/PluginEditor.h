@@ -121,7 +121,8 @@ private:
     juce::TextButton voiceTabs_[3]; // Pattern (what plays) / Play (how it is played and sent) / Sound (the selected drum)
     // Sound tab: one set of knobs, bound to the drum selected in the part strip.
     Knob drumSound_[10];
-    Choice drumCondition_;
+    Choice drumCondition_, drumEngine_, drumFilter_;
+    Knob drumCutoff_;
     int soundVoice_ = -1;
     void bindDrumSound(int voice);
     void showKnobMenu(juce::Slider& knob);
@@ -195,6 +196,7 @@ private:
         juce::ComboBox sound;
         std::unique_ptr<ComboIdAttachment> soundAttachment; // the menu is grouped by category
         Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck, body;
+        std::unique_ptr<NumberSelector> octave;
     };
     Choice soundKit_, fxTime_;
     Knob kitTune_, kitDecay_, kitTone_, kitDrive_, kitReverb_, kitDelay_, fxSize_, fxFeedback_;

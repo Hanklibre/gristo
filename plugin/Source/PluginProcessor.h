@@ -161,6 +161,7 @@ private:
         gristo::sound::BeadsParams beads;
         gristo::sound::CharacterParams character;
         int notes[gristo::kNumVoices] {}, channels[gristo::kNumParts] {}, shifts[gristo::kNumArps + 1] {};
+        int octaves[gristo::sound::kNumSynths] {};
         bool latch[gristo::kNumArps] {};
         bool kitOn = true, freeRun = false, soundModulated = false, separateOuts = false;
         float kitGain = 0.7f, freeTempo = 95.0f;

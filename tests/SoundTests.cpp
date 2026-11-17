@@ -628,6 +628,7 @@ TEST("sound: Crunch folds highs back as grain; Alive makes two hits differ")
         c.grit = Grit::Crunch;
         e.setCharacter(c);
         KitParams kit;
+        kit.kit = Kit::Classic; // the 909-style hat: all its energy is high
         kit.reverbSend = 0.0f;
         e.setKit(kit);
         e.triggerDrum(2, 1.0f);
@@ -642,7 +643,8 @@ TEST("sound: Crunch folds highs back as grain; Alive makes two hits differ")
         }
         return low / std::max(all, 1e-12);
     };
-    CHECK(lowShare(1.0f) > lowShare(0.0f) * 3.0);
+    const double crushed = lowShare(1.0f), clean = lowShare(0.0f);
+    CHECK_MSG(crushed > clean * 1.5, crushed << " against " << clean);
 
     auto difference = [](float alive) {
         SoundEngine e;

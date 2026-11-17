@@ -126,8 +126,8 @@ GristoView::GristoView(GristoProcessor& proc)
             "Pitch of this drum, in semitones, on top of the kit's Tune.",
             "Length of this drum. The middle is the kit's own.",
             "Darker to the left, brighter to the right.",
-            "The attack: click and pitch drop. Left is soft and round, right is hard.",
-            "The noise and metal layer against the tonal body. Left: all tone. Right: all rattle and sizzle.",
+            "The attack. Kicks and toms: the pitch drop and click; Synth snare: FM; Clap: how many bursts; Crack: the length of the strike.",
+            "The engine's second control. Analog kick: self-FM growl; Synth kick: dirt; snares: snappy noise and wires; hats: noisiness; bell: detuning.",
             "Saturation of this drum alone.",
             "Where this drum sits between left and right.",
             "A tuned resonator the drum excites, like a shell, a tube or a string: adds an acoustic ring.",
@@ -141,6 +141,14 @@ GristoView::GristoView(GristoProcessor& proc)
             setHelp(drumSound_[i], names[i], help[i]);
         }
         setupChoice(drumCondition_, p::voiceId(p::voiceCondition, 0), "Plays");
+        setupChoice(drumEngine_, p::voiceId(p::drumEngine, 0), "Engine");
+        setHelp(drumEngine_.box, "Engine", "What this drum is built from: analog, synth or acoustic kicks and snares, a string-like Crack snare, clap, "
+                                           "808 / 909 hats, a cymbal, tom, cowbell, shaker or bell. Kit's own: whatever the kit uses here.");
+        setupChoice(drumFilter_, p::voiceId(p::drumFilter, 0), "Filter");
+        setHelp(drumFilter_.box, "Filter", "This drum's own filter, after its engine: low-, band- or high-pass.");
+        setupSmallKnob(drumCutoff_, p::voiceId(p::drumCutoff, 0), "Cutoff");
+        drumCutoff_.label.setJustificationType(juce::Justification::centredLeft);
+        setHelp(drumCutoff_, "Cutoff", "Where this drum's filter sits, from 40 Hz to 18 kHz.");
         setHelp(drumCondition_.box, "Plays", "When this drum plays at all: every bar, or only in some bars of two or four (a fill every fourth bar, a hit that answers every other bar).");
     }
     setupChoice(timing_, p::timing, "Timing");
@@ -1241,6 +1249,9 @@ void GristoView::setupSoundPage()
         setHelp(row.level, name + "Level", "Volume of this arp's synth.");
         setHelp(row.reverb, name + "Reverb", "How much of this synth goes to the reverb.");
         setHelp(row.delay, name + "Delay", "How much of this synth goes to the delay.");
+        row.octave = std::make_unique<NumberSelector>(*processor_.state.getParameter(p::laneId(p::synthOctave, a)), "", -3, 3, " oct", 1, true);
+        addAndMakeVisible(*row.octave);
+        setHelp(*row.octave, name + "Octave", "Moves this synth's sound up or down in octaves. Only the built-in sound: the MIDI it sends stays where it is.");
         setupSmallKnob(row.body, p::laneId(p::synthBody, a), "Body");
         setHelp(row.body, name + "Body", "A wooden resonant body around the sound: makes plucks, keys and voices feel acoustic.");
         setupSmallKnob(row.duck, p::laneId(p::synthDuck, a), "Duck");
@@ -1963,8 +1974,13 @@ void GristoView::showVoiceTab(int tab)
         k.slider.setVisible(drums && tab == 2);
         k.label.setVisible(drums && tab == 2);
     }
-    drumCondition_.box.setVisible(drums && tab == 2);
-    drumCondition_.label.setVisible(drums && tab == 2);
+    for (Choice* c : { &drumCondition_, &drumEngine_, &drumFilter_ })
+    {
+        c->box.setVisible(drums && tab == 2);
+        c->label.setVisible(drums && tab == 2);
+    }
+    drumCutoff_.slider.setVisible(drums && tab == 2);
+    drumCutoff_.label.setVisible(drums && tab == 2);
     if (drums && tab == 2)
         bindDrumSound(selectedPart_ < gristo::kNumVoices ? selectedPart_ : 0);
     for (int v = 0; v < gristo::kNumVoices; ++v)
@@ -1995,6 +2011,13 @@ void GristoView::bindDrumSound(int voice)
         drumSound_[i].attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(st, id, drumSound_[i].slider);
         learnables_[&drumSound_[i].slider] = ControlTarget::param(id);
     }
+    drumEngine_.attachment.reset();
+    drumEngine_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(st, p::voiceId(p::drumEngine, voice), drumEngine_.box);
+    drumFilter_.attachment.reset();
+    drumFilter_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(st, p::voiceId(p::drumFilter, voice), drumFilter_.box);
+    drumCutoff_.attachment.reset();
+    drumCutoff_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(st, p::voiceId(p::drumCutoff, voice), drumCutoff_.slider);
+    learnables_[&drumCutoff_.slider] = ControlTarget::param(p::voiceId(p::drumCutoff, voice));
     drumCondition_.attachment.reset();
     drumCondition_.attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(st, p::voiceId(p::voiceCondition, voice), drumCondition_.box);
 }
@@ -2040,7 +2063,7 @@ std::vector<juce::Component*> GristoView::masterPageComponents()
 std::vector<juce::Component*> GristoView::synthComponents(int synth)
 {
     auto& row = synthRows_[synth];
-    std::vector<juce::Component*> list { &row.sound };
+    std::vector<juce::Component*> list { &row.sound, row.octave.get() };
     for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck, &row.body })
     {
         list.push_back(&k->slider);
@@ -2350,7 +2373,7 @@ void GristoView::paint(juce::Graphics& g)
             g.drawText(juce::String(gristo::voiceName(voice)) + " sound", px + 326, py + 48, 300, 20, juce::Justification::centredLeft);
             g.setColour(colours::dim);
             g.setFont(juce::FontOptions(11.5f));
-            g.drawText("Pick another drum on the left. Right-click a knob to modulate it.", px + 536, py + 348, 270, 26, juce::Justification::centredLeft);
+            g.drawText("Pick another drum on the left. Right-click a knob to modulate it.", px + 326, py + 380, 470, 16, juce::Justification::centredLeft);
         }
         for (int r = 0; r < count; ++r)
         {
@@ -2544,8 +2567,14 @@ void GristoView::resized()
     voiceTabs_[2].setBounds(px + 308 + 210, py + 5, 60, 18);
     for (int i = 0; i < 10; ++i)
         placeKnob(drumSound_[i], { px + 322 + (i % 5) * 96, py + 78 + (i / 5) * 132, 90, 118 });
+    drumEngine_.label.setBounds(px + 560, py + 46, 50, 22);
+    drumEngine_.box.setBounds(px + 612, py + 44, 180, 26);
     drumCondition_.label.setBounds(px + 326, py + 348, 44, 26);
     drumCondition_.box.setBounds(px + 372, py + 348, 150, 26);
+    drumFilter_.label.setBounds(px + 540, py + 348, 40, 26);
+    drumFilter_.box.setBounds(px + 582, py + 348, 112, 26);
+    drumCutoff_.slider.setBounds(px + 702, py + 345, 40, 32);
+    drumCutoff_.label.setBounds(px + 744, py + 348, 50, 26);
     // Voices matrix: one column per voice, one row per parameter
     for (int v = 0; v < gristo::kNumVoices; ++v)
     {
@@ -2619,6 +2648,8 @@ void GristoView::resized()
     {
         auto& row = synthRows_[s];
         row.sound.setBounds(px + 24, py + 352, 190, 30);
+        if (row.octave != nullptr)
+            row.octave->setBounds(px + 24, py + 432, 90, 24);
         Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.body, &row.reverb, &row.delay, &row.duck };
         for (int i = 0; i < 11; ++i)
             placeLabeled(*knobs[i], { px + 228 + i * 75 + (i >= 8 ? 12 : 0), py + 332, 72, 142 });
