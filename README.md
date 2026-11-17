@@ -120,6 +120,16 @@ source) and the Perkons inspired the choice of engines, not code.
   (-3 .. +3 octaves); the MIDI it sends is unchanged.
 * **Beads** has its own plugin output (with Separate outputs on; the eighth bus).
 
+### A new look
+
+* A calmer, quieter design: Inter as the typeface, a warm near-black palette with
+  panels and controls a step above it, hairline edges, thin knob arcs with soft caps,
+  and active buttons tinted in their own colour instead of solid blocks.
+* The rhythm map is a topographic map now: a smoothed density field from deep slate
+  (sparse) to warm umber (dense), with contour lines.
+* Small fixes: values show on every big knob of the FX page, the mixer's sends are
+  labelled once per row, routing amounts read clearly.
+
 ### Clock dividers, stab and held rhythm, more Body
 
 * **Clock divider per drum** (Pattern tab, next to each Length: /1 .. /8): the drum
@@ -495,6 +505,10 @@ original corpus in `data/corpus`.
 Copyright 2015 Emilie Gillet) with the parts of **stmlib** it needs (MIT,
 Copyright 2012 Emilie Gillet), in `third_party/eurorack`, unchanged but for
 a few portability lines (see the README there).
+
+The typeface is **Inter** (Copyright the Inter Project Authors, SIL Open Font
+License 1.1; `plugin/Resources/Inter-LICENSE.txt`), a Latin subset embedded in the
+plugin.
 
 JUCE is licensed under AGPLv3 or a commercial licence. Pick the one that fits
 how you distribute Gristo before releasing binaries.

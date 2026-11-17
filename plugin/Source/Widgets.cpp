@@ -1,5 +1,7 @@
 #include "Widgets.h"
 
+#include "BinaryData.h"
+
 namespace p = gristo::params;
 using namespace theme;
 
@@ -8,70 +10,115 @@ using namespace theme;
 
 GristoLookAndFeel::GristoLookAndFeel()
 {
+    regular_ = juce::Typeface::createSystemTypefaceFor(GristoFonts::InterRegular_ttf, GristoFonts::InterRegular_ttfSize);
+    semibold_ = juce::Typeface::createSystemTypefaceFor(GristoFonts::InterSemiBold_ttf, GristoFonts::InterSemiBold_ttfSize);
+    setColour(juce::ResizableWindow::backgroundColourId, colours::background);
     setColour(juce::Slider::textBoxTextColourId, colours::text);
     setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
+    setColour(juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     setColour(juce::Label::textColourId, colours::text);
-    setColour(juce::ComboBox::backgroundColourId, colours::background);
+    setColour(juce::ComboBox::backgroundColourId, colours::surface);
     setColour(juce::ComboBox::outlineColourId, colours::outline);
     setColour(juce::ComboBox::textColourId, colours::text);
-    setColour(juce::ComboBox::arrowColourId, colours::accent);
-    setColour(juce::PopupMenu::backgroundColourId, colours::panel);
+    setColour(juce::ComboBox::arrowColourId, colours::dim);
+    setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xff1b1c21));
     setColour(juce::PopupMenu::textColourId, colours::text);
-    setColour(juce::PopupMenu::highlightedBackgroundColourId, colours::accent.withAlpha(0.3f));
+    setColour(juce::PopupMenu::headerTextColourId, colours::dim);
+    setColour(juce::PopupMenu::highlightedBackgroundColourId, colours::accent.withAlpha(0.16f));
+    setColour(juce::PopupMenu::highlightedTextColourId, colours::accent);
     setColour(juce::ToggleButton::textColourId, colours::text);
-    setColour(juce::TextButton::buttonColourId, colours::background);
+    setColour(juce::TextButton::buttonColourId, colours::surface);
     setColour(juce::TextButton::textColourOffId, colours::text);
+    setColour(juce::TextEditor::backgroundColourId, colours::surface);
+    setColour(juce::TextEditor::outlineColourId, colours::outline);
+    setColour(juce::TextEditor::focusedOutlineColourId, colours::accent.withAlpha(0.6f));
+    setColour(juce::TextEditor::textColourId, colours::text);
+    setColour(juce::TextEditor::highlightColourId, colours::accent.withAlpha(0.3f));
+    setColour(juce::CaretComponent::caretColourId, colours::accent);
+    setColour(juce::TooltipWindow::backgroundColourId, juce::Colour(0xff1b1c21));
+    setColour(juce::TooltipWindow::textColourId, colours::text);
+    setColour(juce::ScrollBar::thumbColourId, colours::outline);
+    setColour(juce::AlertWindow::backgroundColourId, colours::panel);
+    setColour(juce::AlertWindow::textColourId, colours::text);
+    juce::LookAndFeel::setDefaultLookAndFeel(this); // so fonts made anywhere resolve to Inter
+}
+
+GristoLookAndFeel::~GristoLookAndFeel()
+{
+    if (&juce::LookAndFeel::getDefaultLookAndFeel() == this)
+        juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
+}
+
+juce::Typeface::Ptr GristoLookAndFeel::getTypefaceForFont(const juce::Font& font)
+{
+    if (font.getTypefaceName() == juce::Font::getDefaultSansSerifFontName() && regular_ != nullptr)
+        return font.isBold() ? semibold_ : regular_;
+    return LookAndFeel_V4::getTypefaceForFont(font);
 }
 
 void GristoLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float pos,
                                          float startAngle, float endAngle, juce::Slider& slider)
 {
     const bool isRandom = slider.getProperties()["random"];
-    const auto bounds = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(4.0f);
+    const auto bounds = juce::Rectangle<int>(x, y, width, height).toFloat().reduced(3.0f);
     const float radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) * 0.5f;
     const auto centre = bounds.getCentre();
     auto angleOf = [&](float proportion) { return startAngle + juce::jlimit(0.0f, 1.0f, proportion) * (endAngle - startAngle); };
     const float angle = angleOf(pos);
+    const bool small = radius < 18.0f;
+    const float stroke = small ? 2.0f : 2.6f;
+    const juce::Colour valueColour = isRandom ? colours::random : colours::accent;
+    const bool over = slider.isMouseOverOrDragging() && slider.isEnabled();
 
-    g.setColour(colours::background);
-    g.fillEllipse(juce::Rectangle<float>(radius * 2.0f, radius * 2.0f).withCentre(centre));
-
+    // The track and the value: thin arcs.
+    const float arcR = radius - stroke * 0.5f;
     juce::Path track, value;
-    track.addCentredArc(centre.x, centre.y, radius - 2.0f, radius - 2.0f, 0.0f, startAngle, endAngle, true);
-    value.addCentredArc(centre.x, centre.y, radius - 2.0f, radius - 2.0f, 0.0f, startAngle, angle, true);
-    const juce::PathStrokeType stroke(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+    track.addCentredArc(centre.x, centre.y, arcR, arcR, 0.0f, startAngle, endAngle, true);
+    value.addCentredArc(centre.x, centre.y, arcR, arcR, 0.0f, startAngle, angle, true);
+    const juce::PathStrokeType arcStroke(stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
     g.setColour(colours::outline);
-    g.strokePath(track, stroke);
-    g.setColour(isRandom ? colours::random : colours::accent);
-    g.strokePath(value, stroke);
+    g.strokePath(track, arcStroke);
+    g.setColour(slider.isEnabled() ? valueColour : valueColour.withAlpha(0.35f));
+    if (pos > 0.001f)
+        g.strokePath(value, arcStroke);
 
-    // Modulation rings (inside the track), one per routed lane, plus the live value.
+    // The cap: a quiet disc, lit softly from above.
+    const float capR = radius * (small ? 0.58f : 0.66f);
+    const auto cap = juce::Rectangle<float>(capR * 2.0f, capR * 2.0f).withCentre(centre);
+    g.setGradientFill(juce::ColourGradient(colours::surface.brighter(over ? 0.22f : 0.12f), centre.x, cap.getY(),
+                                           colours::surface.darker(0.25f), centre.x, cap.getBottom(), false));
+    g.fillEllipse(cap);
+    g.setColour(juce::Colours::white.withAlpha(0.05f));
+    g.drawEllipse(cap.reduced(0.5f), 1.0f);
+
+    // Modulation rings (between the cap and the track), one per routed lane, plus the live value.
     if (auto* ms = dynamic_cast<ModSlider*>(&slider))
     {
-        float r = radius - 6.5f;
+        float r = arcR - stroke - 1.5f;
         for (const ModRing& ring : ms->rings)
         {
-            if (r < 4.0f)
+            if (r < capR + 1.0f)
                 break;
             juce::Path arc;
             const float a0 = angleOf(std::min(ring.from, ring.to));
             const float a1 = angleOf(std::max(ring.from, ring.to));
             arc.addCentredArc(centre.x, centre.y, r, r, 0.0f, a0, std::max(a1, a0 + 0.02f), true);
             g.setColour(ring.colour);
-            g.strokePath(arc, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-            r -= 2.5f;
+            g.strokePath(arc, juce::PathStrokeType(1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            r -= 2.4f;
         }
         if (ms->live >= 0.0f)
         {
-            const auto dot = centre.getPointOnCircumference(radius - 2.0f, angleOf(ms->live));
+            const auto dot = centre.getPointOnCircumference(arcR, angleOf(ms->live));
             g.setColour(juce::Colours::white);
-            g.fillEllipse(dot.x - 2.5f, dot.y - 2.5f, 5.0f, 5.0f);
+            g.fillEllipse(dot.x - 2.2f, dot.y - 2.2f, 4.4f, 4.4f);
         }
     }
 
-    const auto tip = centre.getPointOnCircumference(radius * 0.62f, angle);
-    g.setColour(colours::text);
-    g.drawLine({ centre.getPointOnCircumference(radius * 0.2f, angle), tip }, 2.0f);
+    // The pointer: a short line on the cap.
+    g.setColour(slider.isEnabled() ? colours::text : colours::dim);
+    g.drawLine({ centre.getPointOnCircumference(capR * 0.35f, angle), centre.getPointOnCircumference(capR * 0.85f, angle) },
+               small ? 1.6f : 2.0f);
 }
 
 void GristoLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
@@ -83,31 +130,136 @@ void GristoLookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int wi
         LookAndFeel_V4::drawLinearSlider(g, x, y, width, height, sliderPos, minSliderPos, maxSliderPos, style, slider);
         return;
     }
-    // Bipolar bar (modulation amounts): fills from the centre.
     const auto area = juce::Rectangle<int>(x, y, width, height).toFloat();
-    g.setColour(colours::background);
-    g.fillRoundedRectangle(area, 4.0f);
+    g.setColour(colours::surface);
+    g.fillRoundedRectangle(area, 7.0f);
     const juce::Colour fill = slider.findColour(juce::Slider::trackColourId);
-    const float centre = area.getCentreX();
-    const float lo = std::min(centre, sliderPos), hi = std::max(centre, sliderPos);
-    g.setColour(fill.withAlpha(0.75f));
-    g.fillRect(juce::Rectangle<float>(lo, area.getY() + 2.0f, std::max(1.0f, hi - lo), area.getHeight() - 4.0f));
+    const bool bipolar = slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0;
+    const float from = bipolar ? area.getCentreX() : area.getX();
+    const float lo = std::min(from, sliderPos), hi = std::max(from, sliderPos);
+    {
+        juce::Graphics::ScopedSaveState clip(g);
+        juce::Path rounded;
+        rounded.addRoundedRectangle(area, 7.0f);
+        g.reduceClipRegion(rounded);
+        g.setColour(fill.withAlpha(0.32f));
+        g.fillRect(juce::Rectangle<float>(lo, area.getY(), std::max(1.0f, hi - lo), area.getHeight()));
+        g.setColour(fill.withAlpha(0.9f));
+        g.fillRect(juce::Rectangle<float>(sliderPos - 1.0f, area.getY(), 2.0f, area.getHeight()));
+    }
     g.setColour(colours::outline);
-    g.drawRoundedRectangle(area.reduced(0.5f), 4.0f, 1.0f);
-    g.drawVerticalLine(juce::roundToInt(centre), area.getY() + 2.0f, area.getBottom() - 2.0f);
+    g.drawRoundedRectangle(area.reduced(0.5f), 7.0f, 1.0f);
+    if (bipolar) // the centre: two small ticks, clear of the value text
+    {
+        g.setColour(colours::dim.withAlpha(0.6f));
+        g.drawVerticalLine(juce::roundToInt(area.getCentreX()), area.getY() + 2.0f, area.getY() + 5.0f);
+        g.drawVerticalLine(juce::roundToInt(area.getCentreX()), area.getBottom() - 5.0f, area.getBottom() - 2.0f);
+    }
 }
 
-void GristoLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& b, bool highlighted, bool)
+void GristoLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& b, bool highlighted, bool down)
 {
-    auto area = b.getLocalBounds().toFloat().reduced(2.0f);
+    // A soft pill: off is a quiet surface; on glows in its colour without shouting.
+    auto area = b.getLocalBounds().toFloat().reduced(1.5f);
     const bool on = b.getToggleState();
-    g.setColour(on ? colours::accent : colours::background);
-    g.fillRoundedRectangle(area, 5.0f);
-    g.setColour(highlighted ? colours::text : colours::outline);
-    g.drawRoundedRectangle(area, 5.0f, 1.0f);
-    g.setColour(on ? colours::background : colours::text);
-    g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
-    g.drawText(b.getButtonText(), area, juce::Justification::centred);
+    const juce::Colour colour = b.isColourSpecified(juce::TextButton::buttonOnColourId) ? b.findColour(juce::TextButton::buttonOnColourId) : colours::accent;
+    const float corner = std::min(7.0f, area.getHeight() * 0.5f);
+    g.setColour(on ? colour.withAlpha(down ? 0.32f : 0.2f) : (highlighted ? colours::surface.brighter(0.08f) : colours::surface));
+    g.fillRoundedRectangle(area, corner);
+    g.setColour(on ? colour.withAlpha(0.65f) : colours::outline);
+    g.drawRoundedRectangle(area.reduced(0.5f), corner, 1.0f);
+    g.setColour(on ? colour.brighter(0.15f) : (highlighted ? colours::text : colours::dim.brighter(0.25f)));
+    g.setFont(juce::FontOptions(area.getHeight() < 22.0f ? 11.0f : 12.0f, juce::Font::bold));
+    g.drawFittedText(b.getButtonText(), area.toNearestInt().reduced(4, 0), juce::Justification::centred, 1, 0.8f);
+}
+
+void GristoLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& b, const juce::Colour& background, bool highlighted, bool down)
+{
+    auto area = b.getLocalBounds().toFloat().reduced(1.0f);
+    const float corner = std::min(8.0f, area.getHeight() * 0.5f);
+    const bool on = b.getToggleState();
+    if (on)
+    {
+        // Active: tinted in its own colour (the part's, or amber), not a solid block.
+        const juce::Colour colour = b.findColour(juce::TextButton::buttonOnColourId);
+        g.setColour(colours::surface.interpolatedWith(colour, down ? 0.36f : (highlighted ? 0.3f : 0.24f)));
+        g.fillRoundedRectangle(area, corner);
+        g.setColour(colour.withAlpha(0.6f));
+        g.drawRoundedRectangle(area.reduced(0.5f), corner, 1.0f);
+        return;
+    }
+    g.setColour(highlighted ? background.brighter(down ? 0.12f : 0.07f) : background);
+    g.fillRoundedRectangle(area, corner);
+    g.setColour(juce::Colours::white.withAlpha(highlighted ? 0.09f : 0.05f));
+    g.drawRoundedRectangle(area.reduced(0.5f), corner, 1.0f);
+}
+
+juce::Font GristoLookAndFeel::getTextButtonFont(juce::TextButton&, int buttonHeight)
+{
+    return juce::Font(juce::FontOptions(std::min(13.5f, static_cast<float>(buttonHeight) * 0.5f), juce::Font::bold));
+}
+
+void GristoLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& b, bool highlighted, bool)
+{
+    const bool on = b.getToggleState();
+    juce::Colour colour = on ? b.findColour(juce::TextButton::buttonOnColourId).brighter(0.35f) : b.findColour(juce::TextButton::textColourOffId);
+    if (!b.isEnabled())
+        colour = colours::faint;
+    else if (!on && !highlighted)
+        colour = colour.withMultipliedAlpha(0.88f);
+    g.setColour(colour);
+    g.setFont(getTextButtonFont(b, b.getHeight()));
+    g.drawFittedText(b.getButtonText(), b.getLocalBounds().reduced(6, 2), juce::Justification::centred, 1, 0.75f);
+}
+
+void GristoLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bool, int, int, int, int, juce::ComboBox& box)
+{
+    const auto area = juce::Rectangle<int>(width, height).toFloat().reduced(0.5f);
+    const bool over = box.isMouseOver(true) && box.isEnabled();
+    g.setColour(box.findColour(juce::ComboBox::backgroundColourId).brighter(over ? 0.07f : 0.0f));
+    g.fillRoundedRectangle(area, 7.0f);
+    g.setColour(juce::Colours::white.withAlpha(over ? 0.09f : 0.05f));
+    g.drawRoundedRectangle(area, 7.0f, 1.0f);
+    // A thin chevron.
+    const float cx = static_cast<float>(width) - 13.0f, cy = static_cast<float>(height) * 0.5f;
+    juce::Path chevron;
+    chevron.startNewSubPath(cx - 4.0f, cy - 1.8f);
+    chevron.lineTo(cx, cy + 2.2f);
+    chevron.lineTo(cx + 4.0f, cy - 1.8f);
+    g.setColour(box.isEnabled() ? box.findColour(juce::ComboBox::arrowColourId) : colours::faint);
+    g.strokePath(chevron, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+juce::Font GristoLookAndFeel::getComboBoxFont(juce::ComboBox& box)
+{
+    return juce::Font(juce::FontOptions(std::min(13.5f, static_cast<float>(box.getHeight()) * 0.55f)));
+}
+
+void GristoLookAndFeel::positionComboBoxText(juce::ComboBox& box, juce::Label& label)
+{
+    label.setBounds(4, 1, box.getWidth() - 24, box.getHeight() - 2);
+    label.setFont(getComboBoxFont(box));
+}
+
+void GristoLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)
+{
+    g.fillAll(findColour(juce::PopupMenu::backgroundColourId));
+    g.setColour(juce::Colours::white.withAlpha(0.06f));
+    g.drawRect(0, 0, width, height);
+}
+
+juce::Font GristoLookAndFeel::getPopupMenuFont() { return juce::Font(juce::FontOptions(14.0f)); }
+
+void GristoLookAndFeel::drawTooltip(juce::Graphics& g, const juce::String& text, int width, int height)
+{
+    const auto area = juce::Rectangle<int>(width, height).toFloat();
+    g.setColour(findColour(juce::TooltipWindow::backgroundColourId));
+    g.fillRoundedRectangle(area, 6.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.08f));
+    g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, 1.0f);
+    g.setColour(findColour(juce::TooltipWindow::textColourId));
+    g.setFont(juce::FontOptions(12.5f));
+    g.drawFittedText(text, area.toNearestInt().reduced(8, 4), juce::Justification::centredLeft, 4);
 }
 
 // ---------------------------------------------------------------------------------
@@ -558,14 +710,71 @@ void MapPad::refreshHeat(const gristo::EngineParams& params)
             maxDensity = std::max(maxDensity, d);
         }
 
-    heat_ = juce::Image(juce::Image::RGB, res, res, false);
-    for (int iy = 0; iy < res; ++iy)
-        for (int ix = 0; ix < res; ++ix)
+    // A topographic map of how busy the pattern gets: a quiet field from deep slate
+    // (sparse) to warm umber (dense), with fine contour lines every tenth of the range
+    // and a stronger one every half. The field is smoothed first, like terrain.
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        std::vector<float> blurred(density.size());
+        for (int y = 0; y < res; ++y)
+            for (int x = 0; x < res; ++x)
+            {
+                float sum = 0.0f, weight = 0.0f;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx)
+                    {
+                        const int xx = std::clamp(x + dx, 0, res - 1), yy = std::clamp(y + dy, 0, res - 1);
+                        const float w = (dx == 0 ? 2.0f : 1.0f) * (dy == 0 ? 2.0f : 1.0f);
+                        sum += density[static_cast<size_t>(yy * res + xx)] * w;
+                        weight += w;
+                    }
+                blurred[static_cast<size_t>(y * res + x)] = sum / weight;
+            }
+        density.swap(blurred);
+    }
+    maxDensity = 1e-3f;
+    for (float d : density)
+        maxDensity = std::max(maxDensity, d);
+    constexpr int scale = 5;
+    const int size = res * scale;
+    auto densityAt = [&](float fx, float fy) {
+        const int x0 = std::clamp(static_cast<int>(fx), 0, res - 1), y0 = std::clamp(static_cast<int>(fy), 0, res - 1);
+        const int x1 = std::min(x0 + 1, res - 1), y1 = std::min(y0 + 1, res - 1);
+        const float ax = fx - static_cast<float>(x0), ay = fy - static_cast<float>(y0);
+        auto d = [&](int x, int y) { return density[static_cast<size_t>(y * res + x)]; };
+        const float top = d(x0, y0) + (d(x1, y0) - d(x0, y0)) * ax, bottom = d(x0, y1) + (d(x1, y1) - d(x0, y1)) * ax;
+        return std::sqrt(std::max(0.0f, top + (bottom - top) * ay) / maxDensity);
+    };
+    const juce::Colour stops[4] = { juce::Colour(0xff101217), juce::Colour(0xff1a2332), juce::Colour(0xff35312a), juce::Colour(0xff6b4c27) };
+    auto ramp = [&](float t) {
+        t = std::clamp(t, 0.0f, 1.0f) * 3.0f;
+        const int i = std::min(2, static_cast<int>(t));
+        return stops[i].interpolatedWith(stops[i + 1], t - static_cast<float>(i));
+    };
+    std::vector<float> field(static_cast<size_t>(size * size));
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x)
+            field[static_cast<size_t>(y * size + x)] = densityAt((static_cast<float>(x) + 0.5f) / scale - 0.5f, (static_cast<float>(y) + 0.5f) / scale - 0.5f);
+    const juce::Colour line(0xffe9dcc3);
+    heat_ = juce::Image(juce::Image::RGB, size, size, false);
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x)
         {
-            const float t = std::sqrt(density[static_cast<size_t>(iy * res + ix)] / maxDensity);
-            const auto c = t < 0.5f ? colours::background.interpolatedWith(colours::cool, t * 2.0f)
-                                    : colours::cool.interpolatedWith(colours::hot.withMultipliedBrightness(0.8f), (t - 0.5f) * 2.0f);
-            heat_.setPixelAt(ix, iy, c);
+            auto f = [&](int xx, int yy) { return field[static_cast<size_t>(std::clamp(yy, 0, size - 1) * size + std::clamp(xx, 0, size - 1))]; };
+            const float t = f(x, y);
+            juce::Colour c = ramp(t);
+            // Antialiased contours: the distance to the nearest level, in pixels, from the slope.
+            const float levels = t * 10.0f;
+            const float slope = 10.0f * std::hypot(f(x + 1, y) - f(x - 1, y), f(x, y + 1) - f(x, y - 1)) * 0.5f;
+            const float frac = levels - std::floor(levels);
+            const float distance = std::min(frac, 1.0f - frac) / std::max(slope, 1e-4f);
+            const float alpha = std::clamp(1.0f - distance, 0.0f, 1.0f);
+            if (alpha > 0.0f)
+            {
+                const bool major = static_cast<int>(std::lround(levels)) % 5 == 0;
+                c = c.interpolatedWith(line, alpha * (major ? 0.34f : 0.15f));
+            }
+            heat_.setPixelAt(x, y, c);
         }
     repaint();
 }
@@ -588,19 +797,19 @@ void MapPad::paint(juce::Graphics& g)
         g.drawImage(heat_, area);
     }
 
-    g.setColour(colours::text.withAlpha(0.25f));
+    g.setColour(colours::text.withAlpha(0.22f));
     for (int ny = 0; ny < map_.height(); ++ny)
         for (int nx = 0; nx < map_.width(); ++nx)
         {
             const float px = area.getX() + area.getWidth() * nx / float(map_.width() - 1);
             const float py = area.getY() + area.getHeight() * ny / float(map_.height() - 1);
-            g.fillEllipse(px - 2.0f, py - 2.0f, 4.0f, 4.0f);
+            g.fillEllipse(px - 1.5f, py - 1.5f, 3.0f, 3.0f);
         }
 
     const float x = state_.getRawParameterValue(p::mapX)->load();
     const float y = state_.getRawParameterValue(p::mapY)->load();
     const juce::Point<float> c { area.getX() + x * area.getWidth(), area.getY() + y * area.getHeight() };
-    g.setColour(colours::accent.withAlpha(0.5f));
+    g.setColour(colours::accent.withAlpha(0.28f));
     g.drawHorizontalLine(juce::roundToInt(c.y), area.getX(), area.getRight());
     g.drawVerticalLine(juce::roundToInt(c.x), area.getY(), area.getBottom());
     if (randomRadius_ > 0.0f)
@@ -620,10 +829,14 @@ void MapPad::paint(juce::Graphics& g)
         g.setColour(juce::Colours::white);
         g.fillEllipse(lp.x - 4.0f, lp.y - 4.0f, 8.0f, 8.0f);
     }
+    // The puck: a soft halo and a ring.
+    g.setColour(colours::accent.withAlpha(0.18f));
+    g.fillEllipse(c.x - 13.0f, c.y - 13.0f, 26.0f, 26.0f);
     g.setColour(colours::accent);
     g.drawEllipse(c.x - 7.0f, c.y - 7.0f, 14.0f, 14.0f, 2.0f);
+    g.fillEllipse(c.x - 2.0f, c.y - 2.0f, 4.0f, 4.0f);
 
-    g.setColour(dropHover_ ? colours::text : colours::outline);
+    g.setColour(dropHover_ ? colours::text : juce::Colours::white.withAlpha(0.06f));
     g.drawRect(area, dropHover_ ? 2.0f : 1.0f);
     g.setColour(colours::dim);
     g.setFont(juce::FontOptions(10.0f));
@@ -993,7 +1206,7 @@ void HarmonyPad::paint(juce::Graphics& g)
             const auto area = cellArea(cell).reduced(1.5f);
             // Dark and cool on the flat side, warm and bright on the sharp side; richer rows glow more.
             const float t = static_cast<float>(column + kHalfColumns) / static_cast<float>(kHarmonyColumns - 1);
-            juce::Colour colour = juce::Colour::fromHSV(0.70f - 0.62f * t, 0.62f, 0.30f + 0.16f * t + 0.045f * static_cast<float>(row), 1.0f);
+            juce::Colour colour = juce::Colour::fromHSV(0.68f - 0.58f * t, 0.36f, 0.24f + 0.12f * t + 0.04f * static_cast<float>(row), 1.0f);
             if (!on)
                 colour = colour.withSaturation(0.2f).withMultipliedBrightness(0.8f);
             const int code = (column + kHalfColumns) * 8 + row;
@@ -1004,16 +1217,16 @@ void HarmonyPad::paint(juce::Graphics& g)
             if (glow > 0.0f)
                 colour = colour.interpolatedWith(colours::accent, glow);
             g.setColour(colour);
-            g.fillRoundedRectangle(area, 5.0f);
+            g.fillRoundedRectangle(area, 6.0f);
             if (column == 0) // the tonic's column
             {
-                g.setColour(colours::text.withAlpha(0.25f));
-                g.drawRoundedRectangle(area, 5.0f, 1.0f);
+                g.setColour(colours::text.withAlpha(0.16f));
+                g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, 1.0f);
             }
             if (cell == home)
             {
                 g.setColour(colours::text);
-                g.drawRoundedRectangle(area.reduced(0.5f), 5.0f, 2.5f);
+                g.drawRoundedRectangle(area.reduced(1.0f), 6.0f, 2.0f);
             }
             if (keys && on) // the two octaves of chord keys
             {
@@ -1024,7 +1237,7 @@ void HarmonyPad::paint(juce::Graphics& g)
                     g.fillEllipse(area.getCentreX() - 2.0f, area.getBottom() - 8.0f, 4.0f, 4.0f);
                 }
             }
-            g.setColour(glow > 0.6f ? colours::background : juce::Colours::white.withAlpha(on ? 0.92f : 0.6f));
+            g.setColour(glow > 0.6f ? colours::background : juce::Colours::white.withAlpha(on ? 0.86f : 0.5f));
             g.setFont(juce::FontOptions(area.getWidth() < 34.0f ? 9.5f : 11.0f, juce::Font::bold));
             g.drawFittedText(Chords::name(params_, cell), area.reduced(1.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.55f);
         }

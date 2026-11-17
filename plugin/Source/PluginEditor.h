@@ -100,7 +100,7 @@ private:
     void showSizeMenu();
 
     GristoProcessor& processor_;
-    GristoLookAndFeel lookAndFeel_;
+    juce::SharedResourcePointer<GristoLookAndFeel> lookAndFeel_;
     gristo::Engine previewEngine_;
 
     MapPad mapPad_;

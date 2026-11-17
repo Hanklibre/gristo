@@ -6,17 +6,25 @@
 
 namespace theme {
 
+// A quiet, warm-neutral dark: the window recedes, panels sit a step above it, controls
+// a step above the panels. One warm accent (amber, like backlit encoder rings) marks
+// what is active; everything else is greys with a touch of warmth.
 namespace colours {
-inline const juce::Colour background { 0xff15161a };
-inline const juce::Colour panel { 0xff1f2127 };
-inline const juce::Colour outline { 0xff33363f };
-inline const juce::Colour text { 0xffd9d4c7 };
-inline const juce::Colour dim { 0xff7d7a72 };
-inline const juce::Colour accent { 0xfff2b544 }; // warm amber, like backlit encoder rings
-inline const juce::Colour hot { 0xffe8553b };
-inline const juce::Colour cool { 0xff2b3a5c };
-inline const juce::Colour random { 0xff5fb8aa }; // Beads-style random amounts
+inline const juce::Colour background { 0xff0e0f12 }; // the window, and recessed wells (pads, timeline)
+inline const juce::Colour panel { 0xff16171b };
+inline const juce::Colour surface { 0xff1f2126 };    // controls: buttons, menus, knob caps
+inline const juce::Colour outline { 0xff2a2c33 };    // hairlines and knob tracks
+inline const juce::Colour text { 0xffedeae3 };
+inline const juce::Colour dim { 0xff8b8880 };
+inline const juce::Colour faint { 0xff57554f };
+inline const juce::Colour accent { 0xfff3b34c };
+inline const juce::Colour hot { 0xffef6a4c };
+inline const juce::Colour cool { 0xff4f6fa6 };
+inline const juce::Colour random { 0xff6cc4b4 }; // Beads-style random amounts
 } // namespace colours
+
+// Section titles: small, spaced capitals.
+inline juce::Font titleFont() { return juce::Font(juce::FontOptions(10.5f, juce::Font::bold)).withExtraKerningFactor(0.09f); }
 
 inline const juce::Colour voiceColours[gristo::kNumVoices] = {
     juce::Colour(0xffe8553b), juce::Colour(0xfff08a3a), juce::Colour(0xffefe6d2),
@@ -33,15 +41,18 @@ inline const juce::Colour arpColours[gristo::kNumArps] = { juce::Colour(0xfff062
 
 inline void drawPanel(juce::Graphics& g, juce::Rectangle<int> area, const juce::String& title)
 {
+    const auto r = area.toFloat();
     g.setColour(colours::panel);
-    g.fillRoundedRectangle(area.toFloat(), 8.0f);
-    g.setColour(colours::outline);
-    g.drawRoundedRectangle(area.toFloat().reduced(0.5f), 8.0f, 1.0f);
+    g.fillRoundedRectangle(r, 10.0f);
+    // A hairline edge, a touch lighter along the top: light from above, barely there.
+    g.setGradientFill(juce::ColourGradient(juce::Colours::white.withAlpha(0.07f), r.getX(), r.getY(),
+                                           juce::Colours::white.withAlpha(0.025f), r.getX(), r.getY() + 60.0f, false));
+    g.drawRoundedRectangle(r.reduced(0.5f), 10.0f, 1.0f);
     if (title.isNotEmpty())
     {
         g.setColour(colours::dim);
-        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
-        g.drawText(title.toUpperCase(), area.reduced(12, 6).removeFromTop(14), juce::Justification::topLeft);
+        g.setFont(titleFont());
+        g.drawText(title.toUpperCase(), area.reduced(14, 7).removeFromTop(14), juce::Justification::topLeft);
     }
 }
 

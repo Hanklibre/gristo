@@ -51,7 +51,7 @@ const float kScales[] = { 0.7f, 0.8f, 0.9f, 1.0f, 1.1f, 1.25f };
 GristoView::GristoView(GristoProcessor& proc)
     : processor_(proc), mapPad_(proc.state, previewEngine_.map()), patternView_(previewEngine_), timelineView_(proc), harmonyPad_(proc.state), arpView_(proc), laneEditor_(proc)
 {
-    setLookAndFeel(&lookAndFeel_);
+    setLookAndFeel(&lookAndFeel_.get());
 
     addAndMakeVisible(mapPad_);
     addChildComponent(patternView_); // replaced by the timeline
@@ -1281,8 +1281,8 @@ void GristoView::setupSoundPage()
         }
     }
 
-    setupSmallKnob(fxSize_, p::fxSize, "Size");
-    setupSmallKnob(fxFeedback_, p::fxFeedback, "Feedback");
+    setupKnob(fxSize_, p::fxSize, "Size");
+    setupKnob(fxFeedback_, p::fxFeedback, "Feedback");
     setupChoice(fxTime_, p::fxTime, "Delay");
     fxTime_.label.setFont(juce::FontOptions(10.5f));
     setHelp(fxSize_, "Reverb Size", "Small room to big hall.");
@@ -1292,7 +1292,7 @@ void GristoView::setupSoundPage()
     setHelp(delayType_.box, "Delay type", "Tape: a worn tape echo, wow and flutter, each repeat darker and softly saturated, a little hiss. "
                                           "BBD: an analog bucket-brigade chip; longer times run its clock slower, so long echoes get darker and grainier. "
                                           "Clean: digital.");
-    setupSmallKnob(delayAge_, p::delayAge, "Age");
+    setupKnob(delayAge_, p::delayAge, "Age");
     setHelp(delayAge_, "Delay age", "How worn the tape or the chip is: more wobble, darker repeats, more hiss and grit.");
     setupToggle(delayPing_, p::delayPing, "Ping-pong");
     setHelp(delayPing_.button, "Ping-pong", "On: the echoes cross between left and right. Off: both sides repeat together.");
@@ -1717,12 +1717,16 @@ std::vector<juce::Component*> GristoView::mixerPageComponents()
     std::vector<juce::Component*> list { &mixerNote_ };
     for (auto& strip : mixStrips_)
     {
+        // The sends' captions are the row labels on the left; only Level keeps its own.
         for (auto [knob, has] : { std::pair<Knob*, bool> { &strip.reverb, strip.hasReverb }, { &strip.delay, strip.hasDelay },
                                   { &strip.beads, strip.hasBeads }, { &strip.level, strip.hasLevel } })
             if (has)
             {
                 list.push_back(&knob->slider);
-                list.push_back(&knob->label);
+                if (knob == &strip.level)
+                    list.push_back(&knob->label);
+                else
+                    knob->label.setVisible(false);
             }
         for (auto [toggle, has] : { std::pair<Toggle*, bool> { &strip.pre, strip.hasPre }, { &strip.mute, strip.hasMute }, { &strip.solo, strip.hasSolo } })
             if (has)
@@ -2508,17 +2512,22 @@ void GristoView::bindArp(int arp)
 void GristoView::paint(juce::Graphics& g)
 {
     g.fillAll(colours::background);
+    // The wordmark: spaced capitals and a small amber mark.
+    g.setColour(colours::accent);
+    g.fillEllipse(17.0f, 18.0f, 7.0f, 7.0f);
     g.setColour(colours::text);
-    g.setFont(juce::FontOptions(22.0f, juce::Font::bold));
-    g.drawText("GRISTO", 16, 0, 100, 44, juce::Justification::centredLeft);
+    g.setFont(juce::Font(juce::FontOptions(16.0f, juce::Font::bold)).withExtraKerningFactor(0.28f));
+    g.drawText("GRISTO", 30, 0, 90, 44, juce::Justification::centredLeft);
     g.setColour(colours::dim);
-    g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+    g.setFont(theme::titleFont());
     g.drawText("SCENES", 16, 44, 60, 28, juce::Justification::centredLeft);
 
     // Help line
     const juce::Rectangle<int> help { 524, 44, 748, 28 };
     g.setColour(colours::panel);
-    g.fillRoundedRectangle(help.toFloat(), 6.0f);
+    g.fillRoundedRectangle(help.toFloat(), 8.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.04f));
+    g.drawRoundedRectangle(help.toFloat().reduced(0.5f), 8.0f, 1.0f);
     auto helpArea = help.reduced(10, 0);
     g.setColour(colours::accent);
     g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
@@ -2648,11 +2657,13 @@ void GristoView::paint(juce::Graphics& g)
         }
         g.setColour(colours::dim);
         g.setFont(juce::FontOptions(11.0f));
-        const char* const rows[4] = { "Reverb", "Delay", "Beads", "Level" };
-        const int rowY[4] = { py + 72, py + 132, py + 192, py + 290 };
-        for (int r = 0; r < 4; ++r)
-            g.drawText(rows[r], px + 12, rowY[r], 60, 20, juce::Justification::centredLeft);
-        g.drawText("sends", px + 12, py + 86, 60, 14, juce::Justification::centredLeft);
+        const char* const rows[3] = { "Reverb", "Delay", "Beads" };
+        const int rowY[3] = { py + 70, py + 130, py + 190 };
+        for (int r = 0; r < 3; ++r)
+            g.drawText(rows[r], px + 14, rowY[r], 60, 20, juce::Justification::centredLeft);
+        g.setFont(theme::titleFont());
+        g.setColour(colours::faint);
+        g.drawText("SENDS", px + 14, py + 54, 60, 14, juce::Justification::centredLeft);
     }
     else if (page_ == kRingsPage)
     {

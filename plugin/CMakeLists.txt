@@ -28,8 +28,15 @@ target_compile_definitions(Gristo PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
 
+# The typeface (Inter, SIL Open Font License; Latin subset).
+juce_add_binary_data(GristoFonts NAMESPACE GristoFonts SOURCES
+    Resources/Inter-Regular.ttf
+    Resources/Inter-SemiBold.ttf)
+set_target_properties(GristoFonts PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 target_link_libraries(Gristo
     PRIVATE
+        GristoFonts
         gristo_core
         gristo_sound
         juce::juce_audio_utils

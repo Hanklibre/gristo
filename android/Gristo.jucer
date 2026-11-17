@@ -7,7 +7,7 @@
               pluginCharacteristicsValue="pluginIsSynth,pluginWantsMidiIn,pluginProducesMidiOut"
               pluginChannelConfigs="" cppLanguageStandard="17" jucerFormatVersion="1"
               defines="JUCE_APP_CONFIG_HEADER=&quot;AppConfig.h&quot;&#10;JUCE_WEB_BROWSER=0&#10;JUCE_USE_CURL=0&#10;JUCE_VST3_CAN_REPLACE_VST2=0&#10;JUCE_DISPLAY_SPLASH_SCREEN=0&#10;JUCE_CONTENT_SHARING=1"
-              displaySplashScreen="0">
+              displaySplashScreen="0" binaryDataNamespace="GristoFonts">
   <MAINGROUP id="gMain" name="Gristo">
     <GROUP id="gcore" name="core">
       <FILE id="f00001" name="Arp.cpp" compile="1" resource="0" file="../core/src/Arp.cpp"/>
@@ -29,6 +29,10 @@
       <FILE id="f00090" name="Beads.cpp" compile="1" resource="0" file="../sound/src/Beads.cpp"/>
       <FILE id="f00091" name="BeadsReverb.cpp" compile="1" resource="0" file="../sound/src/BeadsReverb.cpp"/>
       <FILE id="f00092" name="Rings.cpp" compile="1" resource="0" file="../sound/src/Rings.cpp"/>
+    </GROUP>
+    <GROUP id="gfonts" name="fonts">
+      <FILE id="f00100" name="Inter-Regular.ttf" compile="0" resource="1" file="../plugin/Resources/Inter-Regular.ttf"/>
+      <FILE id="f00101" name="Inter-SemiBold.ttf" compile="0" resource="1" file="../plugin/Resources/Inter-SemiBold.ttf"/>
     </GROUP>
     <GROUP id="gmi" name="mutable">
       <FILE id="f00093" name="part.cc" compile="1" resource="0" file="../third_party/eurorack/rings/dsp/part.cc"/>
