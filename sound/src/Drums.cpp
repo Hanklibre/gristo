@@ -24,6 +24,14 @@ struct P
     P& claps(int count, float spacing) { d.claps = count; d.clapSpacing = spacing; return *this; }
     P& metal(float level, float decay, float hz) { d.metal = level; d.metalDecay = decay; d.metalHz = hz; return *this; }
     P& click(float level) { d.click = level; return *this; }
+    P& head(int modes, float level, float hz, float decay, float tension)
+    {
+        d.headModes = modes; d.head = level; d.headHz = hz; d.headDecay = decay; d.tension = tension;
+        return *this;
+    }
+    P& reso(float level, float interval) { d.reso = level; d.resoInterval = interval; return *this; }
+    P& wires(float level) { d.wires = level; return *this; }
+    P& shell(float level, float hz) { d.shell = level; d.shellHz = hz; return *this; }
     P& drive(float amount) { d.drive = amount; return *this; }
     P& gain(float g) { d.gain = g; return *this; }
 };
@@ -177,6 +185,27 @@ const KitPatch* buildKits()
         P().body(0.6f, 820.0f, 780.0f, 0.003f, 0.04f).click(0.35f),
         P().noise(0.3f, 0.12f, 9000.0f, 0.2f, HP).metal(0.15f, 0.1f, 10000.0f),
     }, 9000.0f, 1, 1.5f);
+    // Acoustic: a modelled kit. Kick and toms are struck heads with a resonant head
+    // and a shell; the snare's wires follow its bottom head; hats and ride are metal.
+    kits[14] = makeKit({
+        P().head(5, 1.6f, 58.0f, 0.55f, 7.0f).reso(0.7f, -2.0f).shell(0.03f, 520.0f).click(0.22f).noise(0.1f, 0.03f, 1800.0f, 0.3f, BP),
+        P().head(5, 1.1f, 185.0f, 0.3f, 3.0f).reso(0.6f, 3.0f).wires(1.3f).shell(0.05f, 690.0f).click(0.3f).noise(0.22f, 0.05f, 3000.0f, 0.3f, BP),
+        P().noise(0.25f, 0.04f, 8000.0f, 0.2f, HP).metal(0.3f, 0.045f, 9500.0f).gain(1.3f),
+        P().noise(0.2f, 0.3f, 7500.0f, 0.2f, HP).metal(0.3f, 0.4f, 9000.0f).gain(1.3f),
+        P().head(5, 1.3f, 135.0f, 0.5f, 5.0f).reso(0.7f, -1.0f).shell(0.04f, 600.0f).click(0.2f),
+        P().head(5, 1.3f, 92.0f, 0.65f, 5.0f).reso(0.7f, -1.0f).shell(0.04f, 540.0f).click(0.2f),
+    }, 20000.0f, 1, 1.15f);
+    // The sampled-break kits get real heads and wires under their synthetic layers.
+    for (int k : { 8, 9, 13 }) // Breakbeat, Jungle, Dusty Soul
+    {
+        DrumPatch& kick = kits[k].voices[0];
+        kick.headModes = 4; kick.head = 0.55f; kick.headHz = kick.f1 * 1.05f; kick.headDecay = kick.bodyDecay * 0.8f; kick.tension = 4.0f;
+        kick.reso = 0.25f; kick.resoInterval = -2.0f;
+        DrumPatch& snare = kits[k].voices[1];
+        snare.headModes = 5; snare.head = 0.5f; snare.headHz = snare.f1; snare.headDecay = 0.22f; snare.tension = 2.5f;
+        snare.reso = 0.3f; snare.resoInterval = 3.0f; snare.wires = 0.8f; snare.shell = 0.04f; snare.shellHz = 680.0f;
+        snare.noise *= 0.6f; // the wires take over part of the noise layer's job
+    }
     return kits;
 }
 
@@ -203,6 +232,7 @@ const char* kitName(Kit kit)
         case Kit::Dancehall: return "Dancehall";
         case Kit::Temple: return "Temple";
         case Kit::DustySoul: return "Dusty Soul";
+        case Kit::Acoustic: return "Acoustic";
         case Kit::Count: break;
     }
     return "";
@@ -227,6 +257,8 @@ void DrumVoice::trigger(const DrumPatch& patch, float velocity, float tuneSemis,
     velocity = std::clamp(velocity * (1.0f + 0.1f * alive * noiseGen_.next()), 0.0f, 1.0f);
     patch_.f0 *= tune;
     patch_.f1 *= tune;
+    patch_.headHz *= tune;
+    patch_.shellHz *= tune;
     patch_.noiseHz = std::min(patch_.noiseHz * std::sqrt(tune), sampleRate_ * 0.45f);
     patch_.metalHz = std::min(patch_.metalHz * tune, sampleRate_ * 0.45f);
 
@@ -269,6 +301,30 @@ void DrumVoice::trigger(const DrumPatch& patch, float velocity, float tuneSemis,
     metalFilter_.set(patch_.metalHz, 0.35f, sr);
     metalHp_.reset();
     metalHp_.setLowpass(patch_.metalHz * 0.6f, sr);
+
+    // Acoustic model: every mode starts at full and decays at its own rate; the heads
+    // keep their phase from the last hit, as a drum that is still moving would.
+    patch_.headModes = std::clamp(patch_.headModes, 0, kMaxModes);
+    for (int i = 0; i < patch_.headModes; ++i)
+    {
+        // Slightly stretched harmonics: (f - 20) * n + 20, the upper ones quieter, shorter, alternating in sign.
+        const float ratio = ((patch_.headHz - 20.0f) * static_cast<float>(i + 1) + 20.0f) / std::max(patch_.headHz, 30.0f);
+        headGain_[i] = ((i % 2) ? 1.0f : -1.0f) * std::pow(1.0f / ratio, 1.6f);
+        // Soft hits barely excite the upper modes.
+        const float excite = i == 0 ? 1.0f : 0.35f + 0.65f * v;
+        headEnv_[0][i] = excite;
+        headEnv_[1][i] = excite * (0.2f + 0.8f * v);
+        headCoef_[0][i] = dsp::decayCoef(patch_.headDecay * decayScale / ratio, sr);
+        headCoef_[1][i] = dsp::decayCoef(patch_.headDecay * decayScale * 1.6f / ratio, sr);
+    }
+    energy_ = patch_.headModes > 0 ? 0.3f + 0.7f * v : 0.0f;
+    energyCoef_ = dsp::decayCoef(patch_.headDecay * decayScale * 0.5f, sr);
+    wireAttack_ = 1.0f - std::exp(-1.0f / (0.002f * sr));
+    wireRelease_ = 1.0f - std::exp(-1.0f / (0.03f * sr));
+    wireFilter_.set(std::min(2400.0f * tune, sr * 0.4f), 0.35f, sr);
+    wireLp_.setLowpass(std::min(7500.0f * tune, sr * 0.45f), sr);
+    shellEnv_ = patch_.shell > 0.0f ? v * v * v : 0.0f;
+    shellCoef_ = dsp::decayCoef(patch_.headDecay * decayScale * 0.5f, sr);
 
     clickEnv_ = patch_.click > 0.0f ? 1.0f : 0.0f;
     clickCoef_ = dsp::decayCoef(0.004f, sr);
@@ -338,6 +394,57 @@ float DrumVoice::tick()
         metalEnv_ *= metalCoef_;
     }
 
+    if (patch_.headModes > 0 && (headEnv_[0][0] > 1e-5f || headEnv_[1][0] > 1e-5f || wireEnv_ > 1e-5f))
+    {
+        // The skin is tighter while it is displaced: the pitch sags as the energy goes.
+        const float sag = std::exp2(std::max(0.0f, (energy_ - 0.15f) / 0.85f) * patch_.tension / 12.0f);
+        energy_ *= energyCoef_;
+        const float interval = std::exp2(patch_.resoInterval / 12.0f);
+        float heads[2] = { 0.0f, 0.0f };
+        for (int h = 0; h < (patch_.reso > 0.0f || patch_.wires > 0.0f ? 2 : 1); ++h)
+        {
+            const float f = patch_.headHz * sag * (h == 1 ? interval : 1.0f);
+            for (int i = 0; i < patch_.headModes; ++i)
+            {
+                float& env = headEnv_[h][i];
+                if (env <= 1e-5f)
+                    continue;
+                const float hz = (f - 20.0f) * static_cast<float>(i + 1) + 20.0f;
+                if (hz < sr * 0.45f)
+                {
+                    headPhase_[h][i] += hz / sr;
+                    headPhase_[h][i] -= std::floor(headPhase_[h][i]);
+                    heads[h] += std::sin(dsp::kTwoPi * headPhase_[h][i]) * env * headGain_[i];
+                }
+                env *= headCoef_[h][i];
+            }
+        }
+        out += heads[0] * patch_.head + heads[1] * patch_.reso;
+        if (patch_.wires > 0.0f)
+        {
+            // Wires rattle against the resonant head for as long as it moves: sparse
+            // one-way ticks, denser and brighter the harder it swings.
+            const float level = std::abs(heads[1]);
+            wireEnv_ += (level - wireEnv_) * (level > wireEnv_ ? wireAttack_ : wireRelease_);
+            if (wireEnv_ < 1e-5f)
+                wireEnv_ = 0.0f;
+            const float density = (5000.0f + 5000.0f * std::min(1.0f, wireEnv_ * 2.0f)) / sr;
+            const float roll = 0.5f + 0.5f * noiseGen_.next();
+            const float tick = roll < density ? wireEnv_ * (0.6f + 0.4f * noiseGen_.next()) / std::sqrt(density) : 0.0f;
+            const auto f = wireFilter_.tick(tick);
+            out += wireLp_.lowpass(tick * 0.5f + f.bp * 1.2f) * patch_.wires;
+        }
+    }
+    if (shellEnv_ > 1e-5f)
+    {
+        shellFm_ += 117.0f / sr;
+        shellFm_ -= std::floor(shellFm_);
+        shellPhase_ += patch_.shellHz * (1.0f + 0.25f * std::sin(dsp::kTwoPi * shellFm_)) / sr;
+        shellPhase_ -= std::floor(shellPhase_);
+        out += std::sin(dsp::kTwoPi * shellPhase_) * shellEnv_ * patch_.shell;
+        shellEnv_ *= shellCoef_;
+    }
+
     if (clickEnv_ > 1e-5f)
     {
         out += clickLp_.lowpass(noiseGen_.next() + 0.8f) * patch_.click * clickEnv_;
@@ -361,7 +468,8 @@ float DrumVoice::tick()
     t_ += 1.0f / sr;
 
     const bool clapsPending = clapIndex_ < patch_.claps;
-    if (!clapsPending && bodyEnv_ <= 1e-5f && noiseEnv_ <= 1e-5f && metalEnv_ <= 1e-5f && clickEnv_ <= 1e-5f)
+    const bool headsDone = patch_.headModes == 0 || (headEnv_[0][0] <= 1e-5f && headEnv_[1][0] <= 1e-5f && wireEnv_ <= 1e-5f);
+    if (!clapsPending && headsDone && shellEnv_ <= 1e-5f && bodyEnv_ <= 1e-5f && noiseEnv_ <= 1e-5f && metalEnv_ <= 1e-5f && clickEnv_ <= 1e-5f)
         active_ = false;
     if (choke_ && chokeGain_ < 1e-4f)
         active_ = false;

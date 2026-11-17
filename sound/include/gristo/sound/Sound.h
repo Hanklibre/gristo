@@ -15,7 +15,7 @@ constexpr int kNumSynths = 4;     // one per arp, then the chords (polyphonic)
 constexpr int kChordSynth = 3;
 
 // New kits and sounds are appended so saved choices keep their meaning.
-enum class Kit : int { Classic = 0, Eight08, Trap, LoFi, Minimal, Reggaeton, House, Techno, Breakbeat, Jungle, Amapiano, Dancehall, Temple, DustySoul, Count };
+enum class Kit : int { Classic = 0, Eight08, Trap, LoFi, Minimal, Reggaeton, House, Techno, Breakbeat, Jungle, Amapiano, Dancehall, Temple, DustySoul, Acoustic, Count };
 const char* kitName(Kit kit);
 
 enum class SynthSound : int

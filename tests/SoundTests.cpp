@@ -823,3 +823,40 @@ TEST("sound: a drum's own settings reshape it; Body rings at its tuned pitch and
     renderInto(e, out, 1.0);
     CHECK(out.finite && out.peak > 0.02f && out.peak <= 1.0f);
 }
+
+TEST("sound: the modelled drums: pitch sags after the hit, wires ring only while the head moves")
+{
+    auto hit = [](int voice, float velocity) {
+        SoundEngine e;
+        dryEngine(e);
+        CharacterParams c;
+        c.dirt = 0.0f;
+        c.alive = 0.0f;
+        e.setCharacter(c);
+        KitParams kit;
+        kit.kit = Kit::Acoustic;
+        kit.reverbSend = 0.0f;
+        e.setKit(kit);
+        e.triggerDrum(voice, velocity);
+        Rendered out;
+        renderInto(e, out, 3.0);
+        return out;
+    };
+    // Floor tom: more cycles per second right after the hit than later on.
+    const Rendered tom = hit(5, 1.0f);
+    CHECK(tom.finite && tom.peak > 0.05f && tom.peak <= 1.0f);
+    const int early = zeroCrossings(tom.left, 480, 5280), late = zeroCrossings(tom.left, 14400, 19200);
+    CHECK_MSG(early > late + 2, "crossings " << early << " then " << late);
+    // Snare: bright wire noise well after the stick, gone when the head has stopped.
+    const Rendered snare = hit(1, 1.0f);
+    double high = 0.0, z = 0.0;
+    for (size_t i = 2400; i < 7200; ++i) // 50-150 ms: one-pole highpass at about 3 kHz
+    {
+        z += 0.33 * (snare.left[i] - z);
+        high += (snare.left[i] - z) * (snare.left[i] - z);
+    }
+    CHECK(high / 4800.0 > 1e-6);
+    CHECK(snare.rms(snare.left.size() - 24000, snare.left.size()) < 1e-4f);
+    // A soft hit is duller, not just quieter: fewer crossings in the first 20 ms.
+    CHECK(zeroCrossings(hit(1, 0.25f).left, 0, 960) < zeroCrossings(snare.left, 0, 960));
+}

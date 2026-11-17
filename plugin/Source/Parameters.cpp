@@ -1,6 +1,7 @@
 #include "Parameters.h"
 
 #include <map>
+#include <mutex>
 
 namespace gristo::params {
 
@@ -603,9 +604,11 @@ TargetTable& targetTable()
 
 void registerParameterTargets(const juce::AudioProcessor& processor)
 {
+    // Every instance has the same parameters: the table is filled once, and a host
+    // that creates two instances at the same moment waits for it to be complete.
+    static std::once_flag once;
+    std::call_once(once, [&processor] {
     auto& table = targetTable();
-    if (!table.ids.isEmpty()) // every instance has the same parameters
-        return;
     static const char* const excluded[] = { "modTgt", "modAmt", "macTgt", "macAmt", "note", "chan", "arpChan", "arpShift", "chChan", "chShift",
                                             "kitOn", "freeRun", "partSolo", "sepOuts", "chLoop", "chFrozen" };
     for (auto* param : processor.getParameters())
@@ -621,6 +624,7 @@ void registerParameterTargets(const juce::AudioProcessor& processor)
                 table.names.add(withId->getName(64));
             }
         }
+    });
 }
 
 int numParameterTargets() { return targetTable().ids.size(); }

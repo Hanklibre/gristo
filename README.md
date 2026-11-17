@@ -80,6 +80,22 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### Modelled acoustic drums
+
+* **Acoustic kit:** kick, snare and toms built as struck drum heads: a handful
+  of modes (the upper ones quieter and shorter), a pitch that sags as the hit
+  dies away, a resonant head tuned against the batter head, a shell ring, and
+  snare wires that buzz for as long as the bottom head moves. Soft hits are
+  duller, not just quieter.
+* The Breakbeat, Jungle and Dusty Soul kits get the same heads and wires under
+  their kicks and snares.
+* On a drum's Sound tab, Punch sets how far the pitch sags, Noise the wires,
+  and Body rings at the head's pitch.
+
+The approach (modal heads, energy-dependent pitch, wires driven by the resonant
+head) follows the design of Punk Labs' open-source drum synth OneTrick URCHIN.
+Gristo's implementation is written from scratch and contains none of its code.
+
 ### Drum sound pages, Body, any-parameter modulation
 
 * **A sound page per drum:** in Edit, pick a drum on the left and open the

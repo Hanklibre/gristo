@@ -301,6 +301,9 @@ void SoundEngine::triggerDrum(int voice, float velocity)
     d.click *= t.punch * 2.0f;
     d.f0 = d.f1 + (d.f0 - d.f1) * t.punch * 2.0f;
     d.noise *= t.noise * 2.0f;
+    d.wires *= t.noise * 2.0f;
+    d.tension *= t.punch * 2.0f;
+    d.shell *= 0.5f + t.tone;
     d.metal *= t.noise * 2.0f;
     d.drive *= 1.0f + 4.0f * t.drive;
     d.pan = std::clamp(d.pan + t.pan, -1.0f, 1.0f);
@@ -309,7 +312,7 @@ void SoundEngine::triggerDrum(int voice, float velocity)
     if (t.body > 0.0f)
     {
         // Tonal drums ring at their own pitch; noise drums get a mid-range shell.
-        const float base = d.body > 0.0f ? d.f1 : 220.0f;
+        const float base = d.headModes > 0 ? d.headHz : d.body > 0.0f ? d.f1 : 220.0f;
         m.drumBody[voice].set(base * std::exp2((tune + t.bodyTune) / 12.0f), dsp::macroLog(t.bodyDecay, 0.04f, 0.3f, 2.5f), 0.35f);
         m.drumBodyRing[voice] = 4.0f * m.sampleRate; // keep it running while it can still ring
     }
