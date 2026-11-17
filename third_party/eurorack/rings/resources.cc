@@ -37,11 +37,13 @@ namespace rings {
 
 
 const int16_t* lookup_table_int16_table[] = {
+  NULL,  // Gristo: MSVC refuses an empty array (unused)
 };
 
 
 
 const uint32_t* lookup_table_uint32_table[] = {
+  NULL,  // Gristo: MSVC refuses an empty array (unused)
 };
 
 const float lut_sine[] = {

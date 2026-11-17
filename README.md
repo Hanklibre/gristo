@@ -455,7 +455,7 @@ original corpus in `data/corpus`.
 **Rings** is Mutable Instruments' own code (rings/dsp and its tables, MIT,
 Copyright 2015 Emilie Gillet) with the parts of **stmlib** it needs (MIT,
 Copyright 2012 Emilie Gillet), in `third_party/eurorack`, unchanged but for
-two portability lines (see the README there).
+a few portability lines (see the README there).
 
 JUCE is licensed under AGPLv3 or a commercial licence. Pick the one that fits
 how you distribute Gristo before releasing binaries.
