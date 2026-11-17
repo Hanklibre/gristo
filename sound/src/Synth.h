@@ -7,7 +7,17 @@
 
 namespace gristo::sound {
 
-enum class Osc { Saw, Square, Supersaw, Reese, Sine, Fm, Organ, Sync, Voice, String, Bowl, Phase };
+enum class Osc { Saw, Square, Supersaw, Reese, Sine, Fm, Organ, Sync, Voice, String, Bowl, Phase, Trio, Lofi, Fm6 };
+
+// One operator of the six-operator FM: a ratio of the note (or a fixed pitch), its output
+// level, its own envelope (seconds; sustain 0..1) and how much velocity reaches it.
+struct FmOperator
+{
+    float ratio = 1.0f, detuneCents = 0.0f, level = 0.0f;
+    float a = 0.001f, d = 1.0f, s = 1.0f, r = 0.3f;
+    float velocity = 0.5f;
+    float fixedHz = 0.0f; // > 0: a fixed frequency instead of a ratio
+};
 
 struct SynthPatch
 {
@@ -43,6 +53,20 @@ struct SynthPatch
     int pdWave = 0, pdWave2 = -1;
     float pdDepth = 0.5f, pdEnv = 0.0f, pdDetune = 0.0f, pdFold = 0.0f;
     bool pdRing = false;
+    // The filter: 0 low-pass, 1 band-pass, 2 high-pass, 3 notch; or none (the engine shapes its own tone).
+    int filterMode = 0;
+    bool noFilter = false;
+    // TRIO: one of 16 oscillator sets, osc 2 / 3 intervals (semitones), detune (cents), pulse width.
+    int trioSet = 0;
+    float trioInt2 = 0.0f, trioInt3 = -12.0f, trioDetune = 6.0f, trioPw = 0.5f;
+    // LOFI: chip 0 4-bit, 1 4-bit / 2, 2 8-bit, 3 1-bit; wave 0 pulse, 1 triangle, 2 saw, 3 noise, 4 wave RAM;
+    // duty / table 0..1, crush, pitch sweep, vibrato, arpeggio (0 off, 1 octave, 2 major, 3 minor), tone.
+    int lofiChip = 0, lofiWave = 0, lofiArp = 0;
+    float lofiDuty = 0.5f, lofiCrush = 0.0f, lofiSweep = 0.0f, lofiVib = 0.0f, lofiTone = 1.0f;
+    // FM6: one of the 32 classic algorithms, feedback 0..1, the six operators (1 first).
+    int fmAlg = 0;
+    float fmFeedback = 0.0f;
+    FmOperator fm[6];
     float stringDamp = 0.3f, stringDecay = 3.0f; // String: 0 = bright .. 0.5 = soft; seconds of ring
 };
 
@@ -103,6 +127,16 @@ private:
     float stringPrev_ = 0.0f, stringFb_ = 0.99f, exciteLp_ = 0.0f;
     int excite_ = 0;
     float pdBend_ = 0.0f, pdDetuneRatio_ = 1.0f, foldLast_ = 0.0f, foldOut_ = 0.0f;
+    // TRIO
+    float trioNoise_ = 0.0f, trioDrift_ = 0.0f, trioRatio_[2] { 1.0f, 1.0f };
+    // LOFI
+    float lofiHeld_ = 0.0f, lofiLp_ = 0.0f, lofiHoldCount_ = 0.0f, lofiSweepSemis_ = 0.0f, lofiArpTime_ = 0.0f, lofiVibPhase_ = 0.0f, lofiLpCoef_ = 1.0f;
+    std::uint32_t lofiLfsr_ = 0x7FFF;
+    // FM6
+    float fmPhase_[6] {}, opEnv_[6] {}, fmFb_[2] {}, fmLevel_[6] {}, fmDecay_[6] {}, fmRelease_[6] {}, fmAttack_[6] {}, fmTarget_[6] {};
+    int fmStage_[6] {};
+    float fmBright_ = 1.0f, fmFbAmount_ = 0.0f;
+    bool gate_ = false;
     bool pdToggle_[2] {};
 };
 

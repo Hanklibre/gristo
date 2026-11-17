@@ -144,6 +144,24 @@ inline const juce::String fxSize = "fxSize";
 inline const juce::String fxTime = "fxTime";
 inline const juce::String fxFeedback = "fxFb";
 inline const juce::String fxShimmer = "fxShim";
+// Beads (granular, fed by the synths, gated by the drums)
+inline const juce::String beadsLevel = "bdsLevel";
+inline const juce::String beadsReverb = "bdsRev";
+inline const juce::String beadsDensity = "bdsDens";
+inline const juce::String beadsTime = "bdsTime";
+inline const juce::String beadsSize = "bdsSize";
+inline const juce::String beadsPitch = "bdsPitch";
+inline const juce::String beadsShape = "bdsShape";
+inline const juce::String beadsTimeRandom = "bdsTimeRnd";
+inline const juce::String beadsSizeRandom = "bdsSizeRnd";
+inline const juce::String beadsPitchRandom = "bdsPitchRnd";
+inline const juce::String beadsShapeRandom = "bdsShapeRnd";
+inline const juce::String beadsFeedback = "bdsFb";
+inline const juce::String beadsQuality = "bdsQual";
+inline const juce::String beadsFreeze = "bdsFreeze";
+inline const juce::String beadsMusical = "bdsMusic";
+inline const juce::String beadsTrigger = "bdsTrig"; // per drum voice
+inline const juce::String beadsSend = "bdsSend";    // per synth
 inline const float kDelayBeatChoices[] = { 0.25f, 0.5f, 0.75f, 1.0f }; // 1/16, 1/8, dotted 1/8, 1/4
 inline const juce::String kitOn = "kitOn";
 inline const juce::String separateOuts = "sepOuts"; // parts to their own output buses
@@ -213,6 +231,7 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state, c
 sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& state);
 sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& state, int arp);
 sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& state);
+sound::BeadsParams readBeadsParams(const juce::AudioProcessorValueTreeState& state);
 sound::CharacterParams readCharacterParams(const juce::AudioProcessorValueTreeState& state);
 
 } // namespace gristo::params

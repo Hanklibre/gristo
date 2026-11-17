@@ -115,6 +115,7 @@ void GristoProcessor::readSettings()
     for (int sIndex = 0; sIndex < gristo::sound::kNumSynths; ++sIndex)
         c.synths[sIndex] = p::readSynthParams(state, sIndex);
     c.fx = p::readFxParams(state);
+    c.beads = p::readBeadsParams(state);
     c.character = p::readCharacterParams(state);
 }
 
@@ -181,6 +182,7 @@ void GristoProcessor::applySoundSettings(std::int64_t step, bool playing)
     fx.reverbSize = unit(fx.reverbSize + lane(mod::kFxSizeTarget));
     fx.delayFeedback = juce::jlimit(0.0f, 0.9f, fx.delayFeedback + lane(mod::kFxFeedbackTarget));
     sound_.setFx(fx);
+    sound_.setBeads(c.beads);
     sound_.setCharacter(c.character);
 }
 

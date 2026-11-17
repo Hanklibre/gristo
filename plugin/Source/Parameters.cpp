@@ -320,6 +320,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                 juce::StringArray { "1/16", "1/8", "1/8D", "1/4" }, 2));
         layout.add(percentParam(fxFeedback, "Delay Feedback", 0.35f, 0.9f));
         layout.add(percentParam(fxShimmer, "Shimmer", 0.0f));
+        // Beads
+        layout.add(percentParam(beadsLevel, "Beads Level", 0.0f));
+        layout.add(percentParam(beadsReverb, "Beads Reverb", 0.3f));
+        layout.add(percentParam(beadsDensity, "Beads Density", 0.1f));
+        layout.add(percentParam(beadsTime, "Beads Time", 0.5f));
+        layout.add(percentParam(beadsSize, "Beads Size", 0.5f));
+        layout.add(floatParam(beadsPitch, "Beads Pitch", { -24.0f, 24.0f, 0.01f }, 0.0f, "st", 1));
+        layout.add(percentParam(beadsShape, "Beads Shape", 0.5f));
+        layout.add(percentParam(beadsTimeRandom, "Beads Time Random", 0.0f));
+        layout.add(percentParam(beadsSizeRandom, "Beads Size Random", 0.0f));
+        layout.add(percentParam(beadsPitchRandom, "Beads Pitch Random", 0.0f));
+        layout.add(percentParam(beadsShapeRandom, "Beads Shape Random", 0.0f));
+        layout.add(percentParam(beadsFeedback, "Beads Feedback", 0.0f));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { beadsQuality, kVersion }, "Beads Quality",
+                                                                juce::StringArray { "Digital", "Vintage digital", "Clean tape", "Dirty tape" }, 0));
+        layout.add(boolParam(beadsFreeze, "Beads Freeze", false));
+        layout.add(boolParam(beadsMusical, "Beads Musical Pitch", true));
+        for (int v = 0; v < kNumVoices; ++v)
+            layout.add(boolParam(voiceId(beadsTrigger, v), "Beads Gate " + juce::String(voiceName(v)), v == HiHat1));
+        for (int s = 0; s < sound::kNumSynths; ++s)
+            layout.add(percentParam(laneId(beadsSend, s), (s < kNumArps ? "Beads In Arp " + juce::String(s + 1) : juce::String("Beads In Chords")), 0.5f));
     }
 
     // Free-running clock for standalone use / auditioning without host transport.
@@ -579,6 +600,31 @@ sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& s)
     f.delayFeedback = juce::jlimit(0.0f, 0.9f, load(s, fxFeedback) + 0.3f * more);
     f.shimmer = load(s, fxShimmer);
     return f;
+}
+
+sound::BeadsParams readBeadsParams(const juce::AudioProcessorValueTreeState& s)
+{
+    sound::BeadsParams b;
+    b.level = load(s, beadsLevel);
+    b.reverb = load(s, beadsReverb);
+    b.density = load(s, beadsDensity);
+    b.time = load(s, beadsTime);
+    b.size = load(s, beadsSize);
+    b.pitch = load(s, beadsPitch);
+    b.shape = load(s, beadsShape);
+    b.timeRandom = load(s, beadsTimeRandom);
+    b.sizeRandom = load(s, beadsSizeRandom);
+    b.pitchRandom = load(s, beadsPitchRandom);
+    b.shapeRandom = load(s, beadsShapeRandom);
+    b.feedback = load(s, beadsFeedback);
+    b.quality = juce::jlimit(0, 3, static_cast<int>(load(s, beadsQuality)));
+    b.freeze = load(s, beadsFreeze) > 0.5f;
+    b.musicalPitch = load(s, beadsMusical) > 0.5f;
+    for (int v = 0; v < kNumVoices; ++v)
+        b.triggers[static_cast<size_t>(v)] = load(s, voiceId(beadsTrigger, v)) > 0.5f;
+    for (int i = 0; i < sound::kNumSynths; ++i)
+        b.send[static_cast<size_t>(i)] = load(s, laneId(beadsSend, i));
+    return b;
 }
 
 sound::CharacterParams readCharacterParams(const juce::AudioProcessorValueTreeState& s)

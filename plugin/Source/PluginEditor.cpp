@@ -343,6 +343,7 @@ GristoView::GristoView(GristoProcessor& proc)
     setupPartStrip();
     setupPerformance();
     setupPlayPage();
+    setupBeads();
     partSelect_[0].setToggleState(true, juce::dontSendNotification);
     showPage(kPlayPage);
 
@@ -1461,6 +1462,52 @@ void GristoView::setupPlayPage()
     setHelp(editButton_, "Edit", "Shows the detailed controls of the part selected on the left (and the lanes and routing below). Off: back to the pads and the big knobs.");
 }
 
+void GristoView::setupBeads()
+{
+    const juce::String ids[8] = { p::beadsDensity, p::beadsTime, p::beadsSize, p::beadsPitch, p::beadsShape, p::beadsFeedback, p::beadsLevel, p::beadsReverb };
+    const char* const names[8] = { "Density", "Time", "Size", "Pitch", "Shape", "Feedback", "Level", "Reverb" };
+    const char* const help[8] = {
+        "With drums as gates: left of noon divides the hits (every hit fully left, every 16th near noon); right of noon lets each hit "
+        "through by chance (always fully right); noon: none. With no drum picked: left of noon a steady clock, right a random one.",
+        "Where in the last four seconds a grain starts: right behind the recording head (left) or as far back as it goes (right).",
+        "Grain length. Below a third the grains play backwards; further left, shorter again.",
+        "Grain pitch, in semitones.",
+        "Grain envelope: square, then a decay, a bell, and a reverse ramp fully right.",
+        "The grains back into the recording: layers build up and smear.",
+        "How loud the grains are in the mix. 0 = Beads off.",
+        "How much of the grains goes into the reverb." };
+    for (int i = 0; i < 8; ++i)
+    {
+        setupKnob(beadsKnobs_[i], ids[i], names[i]);
+        setHelp(beadsKnobs_[i], juce::String("Beads ") + names[i], help[i]);
+    }
+    const juce::String randomIds[4] = { p::beadsTimeRandom, p::beadsSizeRandom, p::beadsPitchRandom, p::beadsShapeRandom };
+    for (int i = 0; i < 4; ++i)
+    {
+        setupRandomKnob(beadsRandom_[i], randomIds[i], "Random");
+        setHelp(beadsRandom_[i], juce::String("Beads ") + names[1 + i] + " random",
+                i == 2 ? "Each grain at another pitch. With Musical on: octaves, fifths and fourths only."
+                       : "Each grain gets its own value, up to this far from the knob. Randomness also spreads the grains in stereo.");
+    }
+    for (int s = 0; s < gristo::sound::kNumSynths; ++s)
+    {
+        setupSmallKnob(beadsSends_[s], p::laneId(p::beadsSend, s), s < gristo::kNumArps ? "Arp " + juce::String(s + 1) : juce::String("Chords"));
+        setHelp(beadsSends_[s], "Beads input", "How much of this synth Beads records and grains.");
+    }
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        setupToggle(beadsGates_[v], p::voiceId(p::beadsTrigger, v), kTriggerNames[v]);
+        setHelp(beadsGates_[v].button, juce::String("Beads gate: ") + gristo::voiceName(v),
+                "This drum's hits start grains (Beads' SEED input). Density divides them or thins them out. None picked: Beads' own clock.");
+    }
+    setupToggle(beadsFreeze_, p::beadsFreeze, "Freeze");
+    setHelp(beadsFreeze_.button, "Freeze", "Stops recording: the grains keep picking from what is in the buffer.");
+    setupToggle(beadsMusical_, p::beadsMusical, "Musical");
+    setHelp(beadsMusical_.button, "Musical pitch", "Random pitch snaps to octaves, fifths and fourths instead of anywhere.");
+    setupChoice(beadsQuality_, p::beadsQuality, "Quality");
+    setHelp(beadsQuality_.box, "Quality", "The medium the grains are recorded on: clean digital, 12-bit vintage digital, clean tape, or dirty 8-bit tape with wow and flutter.");
+}
+
 std::vector<juce::Component*> GristoView::playPageComponents()
 {
     std::vector<juce::Component*> list { &grit_.box, &mutateAmount_ };
@@ -1530,7 +1577,7 @@ void GristoView::setupPartStrip()
     {
         auto& b = partSelect_[part];
         const bool master = part == gristo::kNumParts;
-        b.setButtonText(master ? "Master / FX" : gristo::partName(part));
+        b.setButtonText(master ? "FX / Beads" : gristo::partName(part));
         b.setClickingTogglesState(true);
         b.setRadioGroupId(4713);
         b.setColour(juce::TextButton::buttonOnColourId, master ? colours::accent : partColour(part));
@@ -1541,8 +1588,8 @@ void GristoView::setupPartStrip()
             setEditMode(editMode_ || master);
         };
         addAndMakeVisible(b);
-        setHelp(b, master ? juce::String("Master / FX") : juce::String(gristo::partName(part)),
-                master ? "Reverb, delay and output settings."
+        setHelp(b, master ? juce::String("FX / Beads") : juce::String(gristo::partName(part)),
+                master ? "Reverb, delay, output settings, and Beads: a granular processor fed by the synths and gated by the drums."
                        : "Selects this part. Edit (top right) shows its detailed controls.");
         if (master)
             continue;
@@ -1965,9 +2012,29 @@ void GristoView::showKnobMenu(juce::Slider& knob)
 
 std::vector<juce::Component*> GristoView::masterPageComponents()
 {
-    return { &fxSize_.slider, &fxSize_.label, &fxFeedback_.slider, &fxFeedback_.label, &fxTime_.box, &fxTime_.label,
-             &noteLength_.slider, &noteLength_.label, &separateOuts_.button, &alive_.slider, &alive_.label,
-             &fxShimmer_.slider, &fxShimmer_.label };
+    std::vector<juce::Component*> list { &fxSize_.slider, &fxSize_.label, &fxFeedback_.slider, &fxFeedback_.label, &fxTime_.box, &fxTime_.label,
+                                         &noteLength_.slider, &noteLength_.label, &separateOuts_.button, &alive_.slider, &alive_.label,
+                                         &fxShimmer_.slider, &fxShimmer_.label };
+    for (auto& k : beadsKnobs_)
+    {
+        list.push_back(&k.slider);
+        list.push_back(&k.label);
+    }
+    for (auto& k : beadsRandom_)
+    {
+        list.push_back(&k.slider);
+        list.push_back(&k.label);
+    }
+    for (auto& k : beadsSends_)
+    {
+        list.push_back(&k.slider);
+        list.push_back(&k.label);
+    }
+    for (auto& t : beadsGates_)
+        list.push_back(&t.button);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &beadsFreeze_.button, &beadsMusical_.button, &beadsQuality_.box, &beadsQuality_.label })
+        list.push_back(c);
+    return list;
 }
 
 std::vector<juce::Component*> GristoView::synthComponents(int synth)
@@ -2301,6 +2368,11 @@ void GristoView::paint(juce::Graphics& g)
     {
         drawPanel(g, { px, py, 520, 200 }, "Reverb / Delay");
         drawPanel(g, { px + 528, py, 544, 200 }, "Output");
+        drawPanel(g, { px, py + 208, kPageW, kPageH - 208 }, "Beads  -  grains of the synths, gated by the drums");
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(11.5f));
+        g.drawText("Gates", px + 760, py + 236 + 64, 56, 24, juce::Justification::centredLeft);
+        g.drawText("Input", px + 760, py + 236 + 120, 56, 24, juce::Justification::centredLeft);
         g.setColour(colours::dim);
         g.setFont(juce::FontOptions(12.0f));
         g.drawFittedText("MIDI to your DAW: drag the handles in the bar below the pages onto a track. "
@@ -2522,8 +2594,25 @@ void GristoView::resized()
     fxTime_.box.setBounds(px + 280, py + 86, 100, 28);
     placeKnob(noteLength_, { px + 960, py + 30, 96, 110 });
     separateOuts_.button.setBounds(px + 548, py + 40, 190, 28);
-    placeLabeled(alive_, { px + 760, py + 40, 110, 110 });
+    placeLabeled(alive_, { px + 780, py + 26, 100, 104 });
     placeLabeled(fxShimmer_, { px + 390, py + 40, 110, 130 });
+    // Beads, under the effects
+    {
+        const int by = py + 236;
+        for (int i = 0; i < 8; ++i)
+            placeKnob(beadsKnobs_[i], { px + 16 + i * 88 + (i >= 5 ? 16 : 0), by, 84, 104 });
+        for (int i = 0; i < 4; ++i)
+            placeKnob(beadsRandom_[i], { px + 16 + (i + 1) * 88 + 12, by + 112, 60, 74 });
+        const int rx = px + 760;
+        beadsQuality_.label.setBounds(rx, by - 4, 70, 16);
+        beadsQuality_.box.setBounds(rx, by + 12, 140, 26);
+        beadsFreeze_.button.setBounds(rx + 150, by + 12, 70, 26);
+        beadsMusical_.button.setBounds(rx + 226, by + 12, 74, 26);
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+            beadsGates_[v].button.setBounds(rx + 58 + v * 40, by + 64, 38, 24);
+        for (int s = 0; s < gristo::sound::kNumSynths; ++s)
+            placeSmallKnob(beadsSends_[s], rx + 58 + s * 52, by + 116);
+    }
 
     // Synth of the shown arp / the chords
     for (int s = 0; s < gristo::sound::kNumSynths; ++s)

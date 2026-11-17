@@ -227,6 +227,11 @@ private:
     std::map<juce::Component*, ControlTarget> learnables_;
     juce::TextButton midiButton_ { "MIDI" };
     Knob fxShimmer_;
+    // Beads (on the FX page)
+    Knob beadsKnobs_[8], beadsRandom_[4], beadsSends_[gristo::sound::kNumSynths];
+    Toggle beadsGates_[gristo::kNumVoices], beadsFreeze_, beadsMusical_;
+    Choice beadsQuality_;
+    void setupBeads();
     void showMidiMenu();
     void addMidiItems(juce::PopupMenu& menu, juce::Component& component); // ids 9001 / 9002
     bool handleMidiItem(int result, juce::Component& component);

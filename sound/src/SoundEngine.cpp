@@ -1,3 +1,4 @@
+#include "Beads.h"
 #include "Drums.h"
 #include "Fx.h"
 #include "Synth.h"
@@ -42,6 +43,9 @@ struct SoundEngine::Impl
     Overdrive overdrive[1 + kNumSynths];
     Tape tape;
     Shimmer shimmer;
+    Beads beads;
+    BeadsParams beadsParams;
+    float beadsLevel = 0.0f, beadsReverb = 0.0f;
     Resonator drumBody[kNumDrumVoices], synthBody[kNumSynths][2];
     float drumBodyRing[kNumDrumVoices] {};
     float shimmerFeed = 0.0f;
@@ -100,6 +104,7 @@ void SoundEngine::prepare(double sampleRate)
         o.prepare(m.sampleRate);
     m.tape.prepare(m.sampleRate);
     m.shimmer.prepare(m.sampleRate);
+    m.beads.prepare(m.sampleRate);
     for (auto& r : m.drumBody)
         r.prepare(m.sampleRate);
     for (auto& pair : m.synthBody)
@@ -144,6 +149,7 @@ void SoundEngine::reset()
         o.reset();
     m.tape.reset();
     m.shimmer.reset();
+    m.beads.reset();
     for (auto& r : m.drumBody)
         r.reset();
     for (auto& pair : m.synthBody)
@@ -220,6 +226,39 @@ void SoundEngine::setFx(const FxParams& params)
     m.delay.set(static_cast<float>(fx.delayBeats * 60.0 / bpm), fx.delayFeedback);
 }
 
+void SoundEngine::setBeads(const BeadsParams& params)
+{
+    auto& m = *impl_;
+    BeadsParams b = params;
+    for (float* v : { &b.density, &b.time, &b.size, &b.shape, &b.timeRandom, &b.sizeRandom, &b.pitchRandom, &b.shapeRandom,
+                      &b.feedback, &b.level, &b.reverb })
+        *v = dsp::clamp01(finite(*v, 0.0f));
+    b.pitch = std::clamp(finite(b.pitch, 0.0f), -24.0f, 24.0f);
+    for (auto& v : b.send)
+        v = dsp::clamp01(finite(v, 0.0f));
+    m.beadsParams = b;
+    BeadsSettings s;
+    s.density = b.density;
+    s.time = b.time;
+    s.size = b.size;
+    s.pitch = b.pitch;
+    s.shape = b.shape;
+    s.timeRandom = b.timeRandom;
+    s.sizeRandom = b.sizeRandom;
+    s.pitchRandom = b.pitchRandom;
+    s.shapeRandom = b.shapeRandom;
+    s.feedback = b.feedback;
+    s.quality = b.quality;
+    s.freeze = b.freeze;
+    s.musicalPitch = b.musicalPitch;
+    s.gated = false;
+    for (bool t : b.triggers)
+        s.gated = s.gated || t;
+    m.beads.set(s);
+}
+
+int SoundEngine::beadsGrains() const { return impl_->beads.activeGrains(); }
+
 const char* gritName(Grit grit)
 {
     switch (grit)
@@ -272,6 +311,8 @@ void SoundEngine::triggerDrum(int voice, float velocity)
         m.drums[kOpenHat].choke(); // closed hat chokes the open one
     if (voice == kClosedHat)
         m.players[kOpenHat].choked = true;
+    if (m.beadsParams.triggers[static_cast<size_t>(voice)])
+        m.beads.gate();
     if (voice == 0)
         m.duckEnv = std::max(m.duckEnv, 0.35f + 0.65f * dsp::clamp01(velocity));
     if (const SampleData* sample = m.samples[voice])
@@ -455,6 +496,7 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
         }
 
         m.duckEnv *= m.duckRelease;
+        float beadsInL = 0.0f, beadsInR = 0.0f;
         // Synths, each through its ensemble when the sound has one
         for (int s = 0; s < kNumSynths; ++s)
         {
@@ -497,19 +539,32 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
                 r += yr * (1.0f + pan);
             }
             revIn += y * m.revSend[1 + s];
+            beadsInL += yl * m.beadsParams.send[static_cast<size_t>(s)];
+            beadsInR += yr * m.beadsParams.send[static_cast<size_t>(s)];
             dlyIn += y * m.dlySend[1 + s];
         }
 
+        // Beads: the synths it hears, its grains back into the mix and the reverb.
+        m.beadsLevel += (m.beadsParams.level - m.beadsLevel) * m.sendCoef;
+        m.beadsReverb += (m.beadsParams.reverb - m.beadsReverb) * m.sendCoef;
+        float bl = 0.0f, br = 0.0f;
+        if (m.beadsLevel > 1e-4f || m.beadsParams.level > 0.0f)
+        {
+            m.beads.process(beadsInL, beadsInR, bl, br);
+            bl *= m.beadsLevel * 1.5f;
+            br *= m.beadsLevel * 1.5f;
+            revIn += (bl + br) * 0.5f * m.beadsReverb;
+        }
         float dl = 0.0f, dr = 0.0f, rl = 0.0f, rr = 0.0f;
         m.delay.process(dlyIn, dl, dr);
         m.reverb.process(revIn + (dl + dr) * 0.15f + m.shimmerFeed, rl, rr);
         m.shimmerFeed = m.fx.shimmer > 0.0f ? dsp::fastTanh(m.shimmer.process((rl + rr) * 0.5f) * 2.5f) * 0.8f * m.fx.shimmer : 0.0f;
         if (fxStem)
-            toStem(stems->fx, i, dl + rl, dr + rr);
+            toStem(stems->fx, i, dl + rl + bl, dr + rr + br);
         else
         {
-            l += dl + rl;
-            r += dr + rr;
+            l += dl + rl + bl;
+            r += dr + rr + br;
         }
 
         m.tape.process(l, r);

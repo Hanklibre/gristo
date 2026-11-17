@@ -700,3 +700,22 @@ TEST("plugin: a lane or macro can move any parameter; drum sound settings and tr
     const Run fourth = play(*fresh, static_cast<int>(blocksPerBar * 1.1), 256, &three);
     CHECK(fourth.noteOns[10] > 0);
 }
+
+TEST("plugin: Beads is off until its level is up; then the hats gate grains of the synths")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::chordOn, 1.0f);
+    proc->pump(2);
+    const Run off = play(*proc, 600);
+    CHECK(off.nonFinite == 0);
+    setParam(*proc, p::beadsLevel, 1.0f);
+    setParam(*proc, p::beadsDensity, 0.0f); // every hat hit
+    setParam(*proc, p::beadsSize, 0.6f);
+    setParam(*proc, p::beadsPitchRandom, 1.0f);
+    setParam(*proc, p::beadsFeedback, 0.7f);
+    setParam(*proc, p::beadsQuality, 3.0f);
+    proc->pump(2);
+    const Run on = play(*proc, 1500, 256, &off);
+    CHECK(on.nonFinite == 0 && on.peak <= 1.0f && on.unpaired == 0);
+    CHECK(p::parameterTarget(p::beadsDensity) >= gristo::mod::kNumTargets); // lanes reach it
+}

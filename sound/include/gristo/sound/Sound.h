@@ -29,6 +29,9 @@ enum class SynthSound : int
     SuitcaseKeys, Vibraphone, UprightBass, JazzOrgan, // jazz
     Bass808, MonkChoir, VoxPad, SingingBowl, NylonGuitar, Koto, // trap, chant, ambient, soul
     PhaseBass, ResoLead, PhasePad, PhaseKeys, FoldDrone,        // phase distortion (after Felucca's PHASE engine)
+    TrioBass, TrioSync, RingBell, ChipChoir, TrioArp,           // three oscillators, ring and sync (Felucca TRIO)
+    ChipLead, ChipBass, ChipArp, WaveVox,                       // chip voice (Felucca LOFI)
+    FmRhodes, DxBass, FmBells, FmMarimba, FmBrass, FmGlass,     // six-operator FM (Felucca FM6 / msfa algorithms)
     Count
 };
 const char* synthSoundName(SynthSound sound);
@@ -106,6 +109,21 @@ struct CharacterParams
     float alive = 0.5f; // 0..1
 };
 
+// Beads: a granular processor fed by the synths and gated by the drums (see Beads.h).
+struct BeadsParams
+{
+    float density = 0.1f, time = 0.5f, size = 0.5f, pitch = 0.0f, shape = 0.5f;
+    float timeRandom = 0.0f, sizeRandom = 0.0f, pitchRandom = 0.0f, shapeRandom = 0.0f;
+    float feedback = 0.0f;
+    float level = 0.0f;  // the grains in the mix (0 = Beads off)
+    float reverb = 0.3f; // the grains into the reverb
+    std::array<float, kNumSynths> send {}; // how much of each synth goes in
+    std::array<bool, kNumDrumVoices> triggers {}; // drums that gate the grains (none: Beads' own clock)
+    int quality = 0;     // 0 digital, 1 vintage digital, 2 clean tape, 3 dirty tape
+    bool freeze = false;
+    bool musicalPitch = true;
+};
+
 // A one-shot sample that replaces a drum voice's synthesized sound.
 struct SampleData
 {
@@ -137,6 +155,8 @@ public:
     void setSynth(int synth, const SynthParams& params);
     void setFx(const FxParams& params);
     void setCharacter(const CharacterParams& params);
+    void setBeads(const BeadsParams& params);
+    int beadsGrains() const; // grains sounding (for tests and meters)
 
     // A drum voice plays this sample instead of its synthesized sound (nullptr: back to
     // the kit). The caller keeps the data alive while it is set. Tune, Decay (shorter

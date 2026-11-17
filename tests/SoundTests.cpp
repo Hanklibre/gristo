@@ -1,6 +1,7 @@
 #include "TestFramework.h"
 
 #include "gristo/sound/Sound.h"
+#include "../sound/src/Dsp.h"
 
 #include <algorithm>
 #include <cmath>
@@ -904,14 +905,187 @@ TEST("sound: modelled cymbals ring and choke; the phase sounds get brighter as C
             Rendered out;
             renderInto(e, out, 3.0);
             CHECK(out.finite && out.peak > 0.01f && out.peak <= 1.0f);
-            double rough = 0.0, level = 1e-9; // how much of the signal is sample-to-sample change
+            // Share of the energy above about 500 Hz (two one-pole high-passes; the note is 130 Hz).
+            double high = 0.0, all = 1e-12, z1 = 0.0, z2 = 0.0, h1 = 0.0;
+            const double a = 1.0 - std::exp(-2.0 * kPi * 500.0 / kRate);
             for (size_t i = 96000; i < 144000; ++i)
             {
-                rough += std::abs(out.left[i] - out.left[i - 1]);
-                level += std::abs(out.left[i]);
+                const double x = out.left[i];
+                z1 += a * (x - z1);
+                h1 = x - z1;
+                z2 += a * (h1 - z2);
+                const double h2 = h1 - z2;
+                high += h2 * h2;
+                all += x * x;
             }
-            return rough / level;
+            return high / all;
         };
-        CHECK_MSG(crossings(1.0f) > crossings(0.0f), synthSoundName(sound));
+        const double bright = crossings(1.0f), dark = crossings(0.0f);
+        CHECK_MSG(bright > dark, synthSoundName(sound) << ": " << bright << " against " << dark);
+    }
+}
+
+TEST("sound: every TRIO, LOFI and FM6 sound plays in tune, finite and bounded; FM Cutoff opens the modulators")
+{
+    for (SynthSound sound : { SynthSound::TrioBass, SynthSound::TrioSync, SynthSound::RingBell, SynthSound::ChipChoir, SynthSound::TrioArp,
+                              SynthSound::ChipLead, SynthSound::ChipBass, SynthSound::ChipArp, SynthSound::WaveVox, SynthSound::FmRhodes,
+                              SynthSound::DxBass, SynthSound::FmBells, SynthSound::FmMarimba, SynthSound::FmBrass, SynthSound::FmGlass })
+        for (float note : { 36.0f, 60.0f, 84.0f })
+        {
+            SoundEngine e;
+            dryEngine(e);
+            SynthParams p;
+            p.sound = sound;
+            p.reverbSend = 0.0f;
+            e.setSynth(0, p);
+            e.noteOn(0, 60, note, 1.0f);
+            Rendered out;
+            renderInto(e, out, 1.0);
+            e.noteOff(0, 60);
+            renderInto(e, out, 6.0);
+            CHECK_MSG(out.finite && out.peak > 0.01f && out.peak <= 1.0f, synthSoundName(sound) << " at " << note << ": peak " << out.peak);
+            CHECK_MSG(out.rms(out.left.size() - 24000, out.left.size()) < 1e-3f, synthSoundName(sound) << " does not stop");
+        }
+    auto highs = [](float cutoff) {
+        SoundEngine e;
+        dryEngine(e);
+        SynthParams p;
+        p.sound = SynthSound::FmRhodes;
+        p.cutoff = cutoff;
+        p.reverbSend = 0.0f;
+        e.setSynth(0, p);
+        e.noteOn(0, 60, 48.0f, 0.9f);
+        Rendered out;
+        renderInto(e, out, 0.3);
+        double high = 0.0, all = 1e-12, z = 0.0;
+        for (size_t i = 2400; i < out.left.size(); ++i)
+        {
+            z += 0.06 * (out.left[i] - z);
+            high += (out.left[i] - z) * (out.left[i] - z);
+            all += static_cast<double>(out.left[i]) * out.left[i];
+        }
+        return high / all;
+    };
+    CHECK(highs(1.0f) > highs(0.0f) * 1.5);
+}
+
+TEST("sound: Beads grains the synths, gated by the drums it listens to, divided or by chance")
+{
+    auto run = [](BeadsParams b, int hits, double gap) {
+        SoundEngine e;
+        dryEngine(e);
+        SynthParams p;
+        p.sound = SynthSound::WarmPad;
+        p.reverbSend = 0.0f;
+        e.setSynth(kChordSynth, p);
+        b.level = 1.0f;
+        b.reverb = 0.0f;
+        b.send[kChordSynth] = 1.0f;
+        e.setBeads(b);
+        for (int note : { 48, 55, 60 })
+            e.noteOn(kChordSynth, note, static_cast<float>(note), 0.8f);
+        Rendered out;
+        renderInto(e, out, 1.0); // fill the buffer
+        int grains = 0;
+        for (int h = 0; h < hits; ++h)
+        {
+            const int before = e.beadsGrains();
+            e.triggerDrum(1, 0.8f);
+            renderInto(e, out, 0.003);
+            grains += e.beadsGrains() > before ? 1 : 0;
+            renderInto(e, out, gap - 0.003);
+        }
+        return std::make_pair(grains, out);
+    };
+    BeadsParams b;
+    b.size = 0.55f;
+    b.triggers[1] = true; // the snare gates
+    b.density = 0.0f;     // every hit
+    auto [every, sound] = run(b, 16, 0.12);
+    CHECK(every == 16);
+    CHECK(sound.finite && sound.peak > 0.01f && sound.peak <= 1.0f);
+    b.density = 0.23f; // 0.23 * 2.15 * 8 = 3.9: every 4th
+    CHECK(run(b, 16, 0.12).first == 4);
+    b.density = 0.5f; // noon: none
+    CHECK(run(b, 16, 0.12).first == 0);
+    b.density = 0.75f; // by chance, about a quarter
+    const int some = run(b, 64, 0.03).first;
+    CHECK(some > 4 && some < 32);
+    // Not listening to the snare: its hits do nothing; the free clock left of noon makes grains anyway.
+    b.triggers[1] = false;
+    b.triggers[0] = true;
+    b.density = 0.0f;
+    CHECK(run(b, 8, 0.12).first == 0);
+    BeadsParams free;
+    free.density = 0.3f; // a steady clock, ~3.4 Hz
+    for (int q = 0; q < 4; ++q)
+    {
+        free.quality = q;
+        free.feedback = 0.8f;
+        free.pitchRandom = 1.0f;
+        free.timeRandom = 0.5f;
+        free.size = q == 1 ? 0.2f : 0.6f; // backwards grains too
+        const auto r = run(free, 1, 3.0).second;
+        CHECK(r.finite && r.peak <= 1.0f);
+        CHECK(r.rms(48000, r.left.size()) > 1e-3f);
+    }
+}
+
+TEST("sound: fuzz: random sounds, settings and Beads, changed while playing, stay finite and in bounds")
+{
+    dsp::Noise rng(0xf022u);
+    auto u = [&rng] { return 0.5f + 0.5f * rng.next(); };
+    for (int round = 0; round < 6; ++round)
+    {
+        SoundEngine e;
+        e.prepare(round % 2 ? 44100.0 : 96000.0);
+        std::vector<float> l(256), r(256);
+        for (int block = 0; block < 400; ++block)
+        {
+            if (block % 7 == 0)
+            {
+                for (int s = 0; s < kNumSynths; ++s)
+                {
+                    SynthParams p;
+                    p.sound = static_cast<SynthSound>(static_cast<int>(u() * static_cast<float>(SynthSound::Count)) % static_cast<int>(SynthSound::Count));
+                    p.cutoff = u(); p.resonance = u(); p.envAmount = u(); p.attack = u(); p.release = u(); p.glide = u();
+                    p.level = u(); p.reverbSend = u(); p.delaySend = u(); p.duck = u(); p.body = u(); p.cutoffMod = 2.0f * u() - 1.0f;
+                    e.setSynth(s, p);
+                }
+                KitParams k;
+                k.kit = static_cast<Kit>(static_cast<int>(u() * static_cast<float>(Kit::Count)) % static_cast<int>(Kit::Count));
+                for (auto& t : k.voice)
+                {
+                    t.tune = 48.0f * u() - 24.0f; t.decay = u(); t.tone = u(); t.punch = u(); t.noise = u(); t.drive = u();
+                    t.pan = 2.0f * u() - 1.0f; t.body = u(); t.bodyTune = 48.0f * u() - 24.0f; t.bodyDecay = u();
+                }
+                e.setKit(k);
+                BeadsParams b;
+                b.density = u(); b.time = u(); b.size = u(); b.pitch = 48.0f * u() - 24.0f; b.shape = u();
+                b.timeRandom = u(); b.sizeRandom = u(); b.pitchRandom = u(); b.shapeRandom = u(); b.feedback = u();
+                b.level = u(); b.reverb = u(); b.quality = static_cast<int>(u() * 4.0f) % 4; b.freeze = u() > 0.7f; b.musicalPitch = u() > 0.5f;
+                for (auto& s : b.send) s = u();
+                for (auto& t : b.triggers) t = u() > 0.5f;
+                e.setBeads(b);
+                FxParams fx;
+                fx.reverbSize = u(); fx.delayFeedback = 0.9f * u(); fx.shimmer = u(); fx.bpm = 40.0 + 200.0 * u();
+                e.setFx(fx);
+                CharacterParams c;
+                c.dirt = u(); c.alive = u(); c.grit = static_cast<Grit>(static_cast<int>(u() * 3.0f) % 3);
+                e.setCharacter(c);
+            }
+            for (int n = 0; n < 3; ++n)
+            {
+                const int synth = static_cast<int>(u() * 4.0f) % 4, note = 24 + static_cast<int>(u() * 80.0f);
+                if (u() > 0.5f) e.noteOn(synth, note, static_cast<float>(note), u()); else e.noteOff(synth, note);
+            }
+            if (u() > 0.5f)
+                e.triggerDrum(static_cast<int>(u() * 6.0f) % 6, u());
+            std::fill(l.begin(), l.end(), 0.0f);
+            std::fill(r.begin(), r.end(), 0.0f);
+            e.render(l.data(), r.data(), 256, 1.0f);
+            for (int i = 0; i < 256; ++i)
+                CHECK(std::isfinite(l[static_cast<size_t>(i)]) && std::abs(l[static_cast<size_t>(i)]) <= 1.0f);
+        }
     }
 }

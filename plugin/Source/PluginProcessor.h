@@ -158,6 +158,7 @@ private:
         gristo::sound::KitParams kit;
         gristo::sound::SynthParams synths[gristo::sound::kNumSynths];
         gristo::sound::FxParams fx;
+        gristo::sound::BeadsParams beads;
         gristo::sound::CharacterParams character;
         int notes[gristo::kNumVoices] {}, channels[gristo::kNumParts] {}, shifts[gristo::kNumArps + 1] {};
         bool latch[gristo::kNumArps] {};

@@ -221,6 +221,93 @@ const SynthPatch* buildPatches()
         x.sub = 0.3f; x.cutoffHz = 6000.0f; x.keyTrack = 0.0f; x.fa = 2.0f; x.fd = 4.0f; x.fs = 0.6f; x.fr = 2.0f;
         x.a = 1.2f; x.d = 1.0f; x.s = 1.0f; x.r = 3.0f; x.chorus = 0.4f; x.driftCents = 3.0f; x.freePhase = true; x.level = 0.55f;
     }
+    // ---- TRIO
+    auto trio = [&](SynthSound sound, int setIndex, float int2, float int3, float detune, int mode, float cutoffHz, float reso, float pw) -> SynthPatch& {
+        auto& x = set(sound);
+        x.osc = Osc::Trio; x.trioSet = setIndex; x.trioInt2 = int2; x.trioInt3 = int3; x.trioDetune = detune;
+        x.filterMode = mode; x.cutoffHz = cutoffHz; x.resonance = reso; x.trioPw = pw; x.keyTrack = 0.4f;
+        return x;
+    };
+    { auto& x = trio(SynthSound::TrioBass, 0, 0.0f, -12.0f, 9.0f, 0, 700.0f, 0.35f, 0.5f);
+      x.envOctaves = 2.5f; x.fa = 0.001f; x.fd = 0.3f; x.fs = 0.2f; x.fr = 0.1f; x.a = 0.002f; x.d = 0.6f; x.s = 0.6f; x.r = 0.1f; x.mono = true; x.level = 0.8f; }
+    { auto& x = trio(SynthSound::TrioSync, 9, 9.0f, 0.0f, 0.0f, 0, 2500.0f, 0.25f, 0.5f);
+      x.syncAmount = 0.0f; x.envOctaves = 1.5f; x.fa = 0.005f; x.fd = 0.5f; x.fs = 0.4f; x.fr = 0.2f; x.a = 0.004f; x.d = 0.5f; x.s = 0.9f; x.r = 0.2f; x.mono = true; x.level = 0.7f; }
+    { auto& x = trio(SynthSound::RingBell, 13, 0.0f, 18.0f, 6.0f, 1, 4000.0f, 0.25f, 0.5f);
+      x.a = 0.001f; x.d = 2.5f; x.s = 0.0f; x.r = 1.2f; x.chorus = 0.2f; x.level = 0.8f; }
+    { auto& x = trio(SynthSound::ChipChoir, 1, 0.0f, 12.0f, 7.0f, 1, 900.0f, 0.75f, 0.35f);
+      x.envOctaves = 0.8f; x.fa = 0.6f; x.fd = 1.5f; x.fs = 0.7f; x.fr = 1.0f; x.a = 0.4f; x.d = 1.0f; x.s = 0.9f; x.r = 1.2f; x.chorus = 0.5f; x.freePhase = true; x.level = 0.6f; }
+    { auto& x = trio(SynthSound::TrioArp, 2, 12.0f, 0.0f, 4.0f, 0, 3000.0f, 0.2f, 0.25f);
+      x.envOctaves = 1.0f; x.fa = 0.001f; x.fd = 0.25f; x.fs = 0.3f; x.fr = 0.15f; x.a = 0.001f; x.d = 0.5f; x.s = 0.7f; x.r = 0.15f; x.level = 0.7f; }
+    // ---- LOFI
+    auto lofi = [&](SynthSound sound, int chip, int wave, float duty) -> SynthPatch& {
+        auto& x = set(sound);
+        x.osc = Osc::Lofi; x.lofiChip = chip; x.lofiWave = wave; x.lofiDuty = duty; x.noFilter = true;
+        return x;
+    };
+    { auto& x = lofi(SynthSound::ChipLead, 0, 0, 0.3f); x.lofiVib = 0.15f; x.lofiTone = 1.0f;
+      x.a = 0.001f; x.d = 0.6f; x.s = 0.7f; x.r = 0.12f; x.mono = true; x.level = 0.55f; }
+    { auto& x = lofi(SynthSound::ChipBass, 1, 1, 0.0f); x.lofiTone = 0.7f;
+      x.a = 0.001f; x.d = 0.5f; x.s = 0.6f; x.r = 0.08f; x.mono = true; x.level = 0.75f; }
+    { auto& x = lofi(SynthSound::ChipArp, 2, 0, 0.75f); x.lofiArp = 2; x.lofiTone = 0.85f;
+      x.a = 0.001f; x.d = 0.6f; x.s = 0.6f; x.r = 0.15f; x.level = 0.5f; }
+    { auto& x = lofi(SynthSound::WaveVox, 0, 4, 11.5f / 16.0f); x.lofiVib = 0.12f; x.lofiTone = 0.9f;
+      x.a = 0.02f; x.d = 0.8f; x.s = 0.8f; x.r = 0.25f; x.chorus = 0.3f; x.level = 0.6f; }
+    // ---- FM6 (ops listed 1..6; level 0..1, ratio, a d s r, velocity)
+    auto fm = [&](SynthSound sound, int alg, float feedback) -> SynthPatch& {
+        auto& x = set(sound);
+        x.osc = Osc::Fm6; x.fmAlg = alg; x.fmFeedback = feedback; x.noFilter = true; x.keyTrack = 0.0f;
+        return x;
+    };
+    auto op = [](float ratio, float level, float a, float d, float s, float r, float velocity, float detune = 0.0f) {
+        FmOperator o;
+        o.ratio = ratio; o.level = level; o.a = a; o.d = d; o.s = s; o.r = r; o.velocity = velocity; o.detuneCents = detune;
+        return o;
+    };
+    { // E-piano: algorithm 5, three pairs; the tine pair has a fast, bright attack.
+        auto& x = fm(SynthSound::FmRhodes, 4, 0.3f);
+        x.fm[0] = op(1.0f, 0.9f, 0.002f, 3.0f, 0.0f, 0.5f, 0.3f, 2.0f);  x.fm[1] = op(1.0f, 0.35f, 0.002f, 1.2f, 0.1f, 0.4f, 0.8f);
+        x.fm[2] = op(1.0f, 0.9f, 0.002f, 3.5f, 0.0f, 0.5f, 0.3f, -2.0f); x.fm[3] = op(14.0f, 0.18f, 0.001f, 0.3f, 0.0f, 0.2f, 0.9f);
+        x.fm[4] = op(1.0f, 0.6f, 0.002f, 2.5f, 0.0f, 0.5f, 0.4f);        x.fm[5] = op(1.0f, 0.2f, 0.002f, 1.5f, 0.0f, 0.3f, 0.8f);
+        x.a = 0.001f; x.d = 1.0f; x.s = 1.0f; x.r = 0.5f; x.chorus = 0.35f; x.level = 0.8f;
+    }
+    { // Bass: algorithm 5, a punchy 1:1 pair and a 0.5 sub.
+        auto& x = fm(SynthSound::DxBass, 4, 0.5f);
+        x.fm[0] = op(0.5f, 0.95f, 0.001f, 1.5f, 0.6f, 0.1f, 0.2f);       x.fm[1] = op(0.5f, 0.55f, 0.001f, 0.25f, 0.15f, 0.1f, 0.7f);
+        x.fm[2] = op(1.0f, 0.6f, 0.001f, 0.8f, 0.3f, 0.1f, 0.3f);        x.fm[3] = op(3.0f, 0.3f, 0.001f, 0.12f, 0.0f, 0.1f, 0.9f);
+        x.fm[4] = op(0.5f, 0.0f, 0.001f, 1.0f, 1.0f, 0.1f, 0.0f);        x.fm[5] = op(1.0f, 0.0f, 0.001f, 1.0f, 1.0f, 0.1f, 0.0f);
+        x.a = 0.001f; x.d = 1.0f; x.s = 1.0f; x.r = 0.1f; x.mono = true; x.level = 0.85f;
+    }
+    { // Tubular bells: algorithm 5, inharmonic ratios, long ring.
+        auto& x = fm(SynthSound::FmBells, 4, 0.0f);
+        x.fm[0] = op(1.0f, 0.9f, 0.001f, 6.0f, 0.0f, 3.0f, 0.3f);        x.fm[1] = op(3.5f, 0.45f, 0.001f, 4.0f, 0.0f, 2.0f, 0.6f);
+        x.fm[2] = op(1.0f, 0.6f, 0.001f, 5.0f, 0.0f, 3.0f, 0.3f, 4.0f);  x.fm[3] = op(3.5f, 0.35f, 0.001f, 3.0f, 0.0f, 2.0f, 0.6f, 3.0f);
+        x.fm[4] = op(2.0f, 0.4f, 0.001f, 2.0f, 0.0f, 1.5f, 0.4f);        x.fm[5] = op(7.07f, 0.3f, 0.001f, 1.0f, 0.0f, 1.0f, 0.7f);
+        x.a = 0.001f; x.d = 8.0f; x.s = 1.0f; x.r = 3.0f; x.chorus = 0.2f; x.level = 0.6f;
+    }
+    { // Marimba: algorithm 7, short woody modulators.
+        auto& x = fm(SynthSound::FmMarimba, 6, 0.0f);
+        x.fm[0] = op(1.0f, 0.95f, 0.001f, 0.8f, 0.0f, 0.3f, 0.3f);       x.fm[1] = op(4.0f, 0.4f, 0.001f, 0.05f, 0.0f, 0.05f, 0.8f);
+        x.fm[2] = op(3.0f, 0.4f, 0.001f, 0.6f, 0.0f, 0.2f, 0.4f);        x.fm[3] = op(1.0f, 0.2f, 0.001f, 0.1f, 0.0f, 0.1f, 0.7f);
+        x.fm[4] = op(10.0f, 0.15f, 0.001f, 0.03f, 0.0f, 0.03f, 0.9f);    x.fm[5] = op(1.0f, 0.0f, 0.001f, 1.0f, 0.0f, 0.1f, 0.0f);
+        x.a = 0.001f; x.d = 1.0f; x.s = 1.0f; x.r = 0.3f; x.level = 0.8f;
+    }
+    { // Brass: algorithm 22, the modulators swell in after the carriers.
+        auto& x = fm(SynthSound::FmBrass, 21, 0.6f);
+        x.fm[0] = op(1.0f, 0.8f, 0.06f, 2.0f, 0.85f, 0.2f, 0.3f);        x.fm[1] = op(1.0f, 0.45f, 0.12f, 1.0f, 0.6f, 0.2f, 0.6f);
+        x.fm[2] = op(1.0f, 0.6f, 0.06f, 2.0f, 0.85f, 0.2f, 0.3f, 5.0f);  x.fm[3] = op(1.0f, 0.6f, 0.06f, 2.0f, 0.85f, 0.2f, 0.3f, -5.0f);
+        x.fm[4] = op(1.0f, 0.6f, 0.06f, 2.0f, 0.85f, 0.2f, 0.3f, 9.0f);  x.fm[5] = op(1.0f, 0.5f, 0.15f, 1.0f, 0.55f, 0.2f, 0.6f);
+        x.a = 0.001f; x.d = 1.0f; x.s = 1.0f; x.r = 0.25f; x.chorus = 0.3f; x.level = 0.55f;
+    }
+    { // Glass pad: algorithm 32 (all carriers) at harmonic and odd ratios, slow, with feedback shimmer.
+        auto& x = fm(SynthSound::FmGlass, 4, 0.2f);
+        x.fm[0] = op(1.0f, 0.8f, 1.2f, 3.0f, 0.8f, 2.5f, 0.2f, 3.0f);    x.fm[1] = op(2.0f, 0.25f, 1.5f, 3.0f, 0.6f, 2.5f, 0.3f);
+        x.fm[2] = op(1.0f, 0.8f, 1.0f, 3.0f, 0.8f, 2.5f, 0.2f, -3.0f);   x.fm[3] = op(5.0f, 0.12f, 2.0f, 3.0f, 0.5f, 2.5f, 0.3f);
+        x.fm[4] = op(2.0f, 0.4f, 1.4f, 3.0f, 0.8f, 2.5f, 0.2f, 7.0f);    x.fm[5] = op(3.0f, 0.15f, 1.6f, 3.0f, 0.5f, 2.5f, 0.3f);
+        x.a = 0.3f; x.d = 1.0f; x.s = 1.0f; x.r = 2.5f; x.chorus = 0.6f; x.freePhase = true; x.level = 0.6f;
+    }
+    // Phase distortion shapes its own tone: no filter after it.
+    for (auto s : { SynthSound::PhaseBass, SynthSound::ResoLead, SynthSound::PhasePad, SynthSound::PhaseKeys, SynthSound::FoldDrone })
+        set(s).noFilter = true;
     // Stereo ensemble and analog drift, by sound (basses stay mono and in tune).
     struct Colour
     {
@@ -349,6 +436,21 @@ const char* synthSoundName(SynthSound sound)
         case SynthSound::PhasePad: return "Phase Pad";
         case SynthSound::PhaseKeys: return "Phase Keys";
         case SynthSound::FoldDrone: return "Fold Drone";
+        case SynthSound::TrioBass: return "Trio Bass";
+        case SynthSound::TrioSync: return "Trio Sync";
+        case SynthSound::RingBell: return "Ring Bell";
+        case SynthSound::ChipChoir: return "Chip Choir";
+        case SynthSound::TrioArp: return "Trio Arp";
+        case SynthSound::ChipLead: return "Chip Lead";
+        case SynthSound::ChipBass: return "Chip Bass";
+        case SynthSound::ChipArp: return "Chip Arp";
+        case SynthSound::WaveVox: return "Wave Vox";
+        case SynthSound::FmRhodes: return "FM Rhodes";
+        case SynthSound::DxBass: return "DX Bass";
+        case SynthSound::FmBells: return "FM Bells";
+        case SynthSound::FmMarimba: return "FM Marimba";
+        case SynthSound::FmBrass: return "FM Brass";
+        case SynthSound::FmGlass: return "FM Glass";
         case SynthSound::Count: break;
     }
     return "";
@@ -364,6 +466,9 @@ const char* synthCategoryName(SynthSound sound)
         case SynthSound::FmBass:
         case SynthSound::Bass808:
         case SynthSound::PhaseBass:
+        case SynthSound::TrioBass:
+        case SynthSound::ChipBass:
+        case SynthSound::DxBass:
         case SynthSound::UprightBass: return "Bass";
         case SynthSound::WarmPad:
         case SynthSound::GlassPad:
@@ -372,13 +477,18 @@ const char* synthCategoryName(SynthSound sound)
         case SynthSound::SlowStrings:
         case SynthSound::MonkChoir:
         case SynthSound::PhasePad:
+        case SynthSound::ChipChoir:
+        case SynthSound::FmGlass:
         case SynthSound::FoldDrone:
         case SynthSound::VoxPad:
         case SynthSound::PolyStrings: return "Pads";
         case SynthSound::SquareLead:
         case SynthSound::SyncLead:
         case SynthSound::ResoLead:
+        case SynthSound::TrioSync:
+        case SynthSound::ChipLead:
         case SynthSound::SoftLead: return "Leads";
+        case SynthSound::FmBrass:
         case SynthSound::SynthBrass: return "Brass";
         default: return "Keys";
     }
@@ -439,6 +549,96 @@ float pdWave(int wave, float ph, float dcw)
 }
 } // namespace
 
+// ---------------------------------------------------------------------------------
+// TRIO, LOFI and FM6, after the engines of Felucca (Copyright (C) 2026 Leo Kuroshita,
+// Hügelton Instruments): TRIO and LOFI from Felucca-Engines (MIT), FM6's algorithm table
+// from msfa (Copyright 2012 Google Inc., 2016-2025 Pascal Gauthier; Apache-2.0) as
+// Felucca carries it. Ported to floating point; envelopes and patches are Gristo's.
+
+namespace {
+enum TrioWave { TwOff, TwTri, TwSaw, TwPls, TwNoi, TwSt, TwPs };
+struct TrioSet
+{
+    TrioWave w[3];
+    bool ring, sync;
+    float g[3];
+};
+constexpr float G3 = 11000.0f / 32768.0f, G2 = 15000.0f / 32768.0f, G1 = 24000.0f / 32768.0f, Gx = 1000.0f / 32768.0f;
+const TrioSet kTrioSets[16] = {
+    { { TwSaw, TwSaw, TwSaw }, false, false, { G3, G3, G3 } },                   // SAW3
+    { { TwPls, TwPls, TwPls }, false, false, { G3, G3, G3 } },                   // PLS3
+    { { TwPls, TwPls, TwTri }, false, false, { G3, G3, G3 + 3 * Gx } },          // PPT
+    { { TwSaw, TwSaw, TwTri }, false, false, { G3, G3, G3 + 3 * Gx } },          // SST
+    { { TwTri, TwTri, TwTri }, false, false, { G3 + 2 * Gx, G3 + 2 * Gx, G3 + 2 * Gx } }, // TRI3
+    { { TwSt, TwSt, TwTri }, false, false, { G3 + 3 * Gx, G3 + 3 * Gx, G3 } },   // S&T
+    { { TwPs, TwPs, TwTri }, false, false, { G3 + 3 * Gx, G3 + 3 * Gx, G3 } },   // P&S
+    { { TwPls, TwOff, TwNoi }, false, false, { G2, 0.0f, G2 - 4 * Gx } },        // P+N
+    { { TwNoi, TwOff, TwOff }, false, false, { G1, 0.0f, 0.0f } },               // NOIS
+    { { TwSaw, TwSaw, TwOff }, false, true, { G2 - 5 * Gx, G2 + 5 * Gx, 0.0f } }, // SYNC
+    { { TwPls, TwPls, TwOff }, false, true, { G2 - 5 * Gx, G2 + 5 * Gx, 0.0f } }, // SYNCP
+    { { TwSaw, TwSaw, TwTri }, false, true, { G3 - 3 * Gx, G3 + 4 * Gx, G3 } },  // SYNC3
+    { { TwTri, TwOff, TwOff }, true, false, { G1, 0.0f, 0.0f } },                // RING
+    { { TwTri, TwOff, TwTri }, true, false, { G2 + 2 * Gx, 0.0f, G2 - 3 * Gx } }, // RING3
+    { { TwTri, TwSaw, TwOff }, true, true, { G2 + 2 * Gx, G2, 0.0f } },          // R+S
+    { { TwTri, TwPls, TwOff }, true, true, { G2 + 2 * Gx, G2, 0.0f } },          // R+SP
+};
+
+float triWave(float ph) { return ph < 0.5f ? 4.0f * ph - 1.0f : 3.0f - 4.0f * ph; }
+// The combined waves: the bitwise AND of two 16-bit waves, as the chips mix them.
+int tri16(float ph) { return static_cast<int>((ph < 0.5f ? ph * 2.0f : 2.0f - ph * 2.0f) * 65535.0f) & 0xFFFF; }
+float sawAndTri(float ph) { return static_cast<float>((static_cast<int>(ph * 65535.0f) & tri16(ph)) - 16384) / 32768.0f; }
+float pulseAndSaw(float ph, float pw) { return (ph >= pw ? ph : 0.0f) - (1.0f - pw * pw) * 0.5f; }
+
+// LOFI wave RAM: 16 tables x 32 four-bit samples (Felucca-Engines eng_lofi.c, MIT).
+const std::uint8_t kWram[16][16] = {
+    { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+    { 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+    { 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },
+    { 0x89, 0xAC, 0xDE, 0xEF, 0xFF, 0xEE, 0xDC, 0xA9, 0x86, 0x53, 0x21, 0x10, 0x00, 0x11, 0x23, 0x56 },
+    { 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10 },
+    { 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF },
+    { 0x01, 0x12, 0x33, 0x45, 0x56, 0x77, 0x89, 0x9A, 0x56, 0x67, 0x88, 0x9A, 0xAB, 0xCC, 0xDE, 0xEF },
+    { 0xEE, 0xEF, 0xFF, 0xFF, 0xFF, 0xEE, 0xED, 0xDC, 0x11, 0x10, 0x00, 0x00, 0x00, 0x11, 0x12, 0x23 },
+    { 0xCE, 0xFF, 0xED, 0xBA, 0x9A, 0xBD, 0xEF, 0xFE, 0xC9, 0x64, 0x21, 0x00, 0x00, 0x01, 0x24, 0x69 },
+    { 0x8B, 0xEF, 0xED, 0xBA, 0x9A, 0xAA, 0x98, 0x77, 0x88, 0x87, 0x65, 0x55, 0x65, 0x42, 0x10, 0x14 },
+    { 0x8D, 0xFE, 0xDD, 0xDD, 0xCD, 0xDD, 0xDE, 0xFD, 0x82, 0x01, 0x22, 0x22, 0x32, 0x22, 0x21, 0x02 },
+    { 0x8F, 0xFC, 0xA7, 0x67, 0x89, 0x88, 0x88, 0x87, 0x88, 0x77, 0x77, 0x76, 0x78, 0x98, 0x53, 0x00 },
+    { 0x8F, 0xEE, 0xFD, 0xDB, 0x98, 0x66, 0x66, 0x77, 0x88, 0x89, 0x99, 0x97, 0x64, 0x22, 0x01, 0x10 },
+    { 0x7F, 0x96, 0xCF, 0xBB, 0xCC, 0xBB, 0xAA, 0x98, 0x77, 0x65, 0x54, 0x43, 0x34, 0x40, 0x39, 0x60 },
+    { 0xF3, 0x00, 0x12, 0x22, 0x11, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22 },
+    { 0xFF, 0xFF, 0xFF, 0xFF, 0xAA, 0xAA, 0xAA, 0xAA, 0x55, 0x55, 0x55, 0x55, 0x00, 0x00, 0x00, 0x00 },
+};
+float wramMean(int table)
+{
+    float sum = 0.0f;
+    for (int i = 0; i < 16; ++i)
+        sum += static_cast<float>((kWram[table][i] >> 4) + (kWram[table][i] & 15)) - 15.0f;
+    return sum / 32.0f / 7.5f;
+}
+
+// The 32 algorithms: per operator, the sixth first: in bus, out bus, add, feedback (msfa).
+enum { FmOb1 = 1, FmOb2 = 2, FmOadd = 4, FmIb1 = 16, FmIb2 = 32 };
+const std::uint8_t kFmAlg[32][6] = {
+    { 0xc1, 0x11, 0x11, 0x14, 0x01, 0x14 }, { 0x01, 0x11, 0x11, 0x14, 0xc1, 0x14 }, { 0xc1, 0x11, 0x14, 0x01, 0x11, 0x14 },
+    { 0xc1, 0x11, 0x94, 0x01, 0x11, 0x14 }, { 0xc1, 0x14, 0x01, 0x14, 0x01, 0x14 }, { 0xc1, 0x94, 0x01, 0x14, 0x01, 0x14 },
+    { 0xc1, 0x11, 0x05, 0x14, 0x01, 0x14 }, { 0x01, 0x11, 0xc5, 0x14, 0x01, 0x14 }, { 0x01, 0x11, 0x05, 0x14, 0xc1, 0x14 },
+    { 0x01, 0x05, 0x14, 0xc1, 0x11, 0x14 }, { 0xc1, 0x05, 0x14, 0x01, 0x11, 0x14 }, { 0x01, 0x05, 0x05, 0x14, 0xc1, 0x14 },
+    { 0xc1, 0x05, 0x05, 0x14, 0x01, 0x14 }, { 0xc1, 0x05, 0x11, 0x14, 0x01, 0x14 }, { 0x01, 0x05, 0x11, 0x14, 0xc1, 0x14 },
+    { 0xc1, 0x11, 0x02, 0x25, 0x05, 0x14 }, { 0x01, 0x11, 0x02, 0x25, 0xc5, 0x14 }, { 0x01, 0x11, 0x11, 0xc5, 0x05, 0x14 },
+    { 0xc1, 0x14, 0x14, 0x01, 0x11, 0x14 }, { 0x01, 0x05, 0x14, 0xc1, 0x14, 0x14 }, { 0x01, 0x14, 0x14, 0xc1, 0x14, 0x14 },
+    { 0xc1, 0x14, 0x14, 0x14, 0x01, 0x14 }, { 0xc1, 0x14, 0x14, 0x01, 0x14, 0x04 }, { 0xc1, 0x14, 0x14, 0x14, 0x04, 0x04 },
+    { 0xc1, 0x14, 0x14, 0x04, 0x04, 0x04 }, { 0xc1, 0x05, 0x14, 0x01, 0x14, 0x04 }, { 0x01, 0x05, 0x14, 0xc1, 0x14, 0x04 },
+    { 0x04, 0xc1, 0x11, 0x14, 0x01, 0x14 }, { 0xc1, 0x14, 0x01, 0x14, 0x04, 0x04 }, { 0x04, 0xc1, 0x11, 0x14, 0x04, 0x04 },
+    { 0xc1, 0x14, 0x04, 0x04, 0x04, 0x04 }, { 0xc4, 0x04, 0x04, 0x04, 0x04, 0x04 } };
+int fmCarrierCount(int alg)
+{
+    int n = 0;
+    for (int k = 0; k < 6; ++k)
+        n += (kFmAlg[alg & 31][k] & 3) == 0 ? 1 : 0;
+    return std::max(n, 1);
+}
+} // namespace
+
 void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int id, float pitch, float velocity)
 {
     const bool wasActive = active();
@@ -466,6 +666,45 @@ void SynthVoice::start(const SynthPatch& patch, const SynthParams& macros, int i
     pitchEnv_ = patch_.pitchDrop > 0.0f ? 1.0f : 0.0f;
     pitchEnvCoef_ = dsp::decayCoef(0.05f, sampleRate_);
     pdDetuneRatio_ = std::exp2(patch_.pdDetune / 1200.0f);
+    gate_ = true;
+    if (patch_.osc == Osc::Trio)
+    {
+        trioRatio_[0] = std::exp2((patch_.trioInt2 + patch_.trioDetune / 100.0f) / 12.0f);
+        trioRatio_[1] = std::exp2((patch_.trioInt3 - patch_.trioDetune / 100.0f) / 12.0f);
+        if (!wasActive)
+        {
+            phase_[0] = 0.0f;
+            phase_[1] = 0.109375f; // a little apart: equal saws would cancel each other's harmonics
+            phase_[2] = 0.21875f;
+        }
+    }
+    if (patch_.osc == Osc::Lofi)
+    {
+        lofiSweepSemis_ = lofiArpTime_ = 0.0f;
+        lofiHoldCount_ = 0.0f;
+        // TONE: a one-pole low-pass from about 640 Hz (0) to open (1), set at 44.1 kHz in the original.
+        const float a = std::min(0.9999f, (3000.0f + patch_.lofiTone * 127.0f * 256.0f) / 32768.0f);
+        const float hz = -std::log(1.0f - a) * 44100.0f / dsp::kTwoPi;
+        lofiLpCoef_ = 1.0f - std::exp(-dsp::kTwoPi * std::min(hz, sampleRate_ * 0.45f) / sampleRate_);
+    }
+    if (patch_.osc == Osc::Fm6)
+    {
+        // Harder notes open the modulators (their velocity amount), as on the original.
+        for (int i = 0; i < 6; ++i)
+        {
+            const FmOperator& op = patch_.fm[i];
+            fmTarget_[i] = op.level * (1.0f - op.velocity * (1.0f - velocity_));
+            fmAttack_[i] = 1.0f / std::max(1.0f, op.a * sampleRate_);
+            fmStage_[i] = 0;
+            if (!wasActive)
+            {
+                fmPhase_[i] = 0.0f;
+                opEnv_[i] = 0.0f;
+            }
+        }
+        if (!wasActive)
+            fmFb_[0] = fmFb_[1] = 0.0f;
+    }
     if (!wasActive)
     {
         pdToggle_[0] = pdToggle_[1] = false;
@@ -501,6 +740,7 @@ void SynthVoice::release(const SynthParams& macros)
     amp_.setRelease(releaseTime(patch_, macros), sampleRate_);
     amp_.gateOff();
     filterEnv_.gateOff();
+    gate_ = false;
 }
 
 float SynthVoice::oscillator(float hz)
@@ -673,6 +913,160 @@ float SynthVoice::oscillator(float hz)
             out = foldOut_;
         }
     }
+    if (patch_.osc == Osc::Trio)
+    {
+        const TrioSet& set = kTrioSets[patch_.trioSet & 15];
+        const float pw = std::clamp(patch_.trioPw, 0.03f, 0.97f);
+        const float incs[3] = { dt, std::min(dt * trioRatio_[0], 0.45f), std::min(dt * trioRatio_[1], 0.45f) };
+        auto wave = [&](TrioWave w, int i, float inc) -> float {
+            const float ph = phase_[i];
+            switch (w)
+            {
+                case TwTri: return triWave(ph);
+                case TwSaw: return dsp::sawBlep(ph, inc);
+                case TwPls: return dsp::squareBlep(ph, inc, pw) - (2.0f * pw - 1.0f);
+                case TwNoi: return trioNoise_;
+                case TwSt: return sawAndTri(ph);
+                case TwPs: return pulseAndSaw(ph, pw);
+                default: return 0.0f;
+            }
+        };
+        // Osc 3 first: RING reads its top phase bit.
+        const bool flip = phase_[2] >= 0.5f;
+        float mix = wave(set.w[2], 2, incs[2]) * set.g[2];
+        const float o1 = wave(set.w[0], 0, incs[0]);
+        mix += (set.ring ? (flip ? -1.0f : 1.0f) * triWave(phase_[0]) : o1) * set.g[0];
+        mix += wave(set.w[1], 1, incs[1]) * set.g[1];
+        bool wrapped = false;
+        for (int i = 0; i < 3; ++i)
+        {
+            const float before = phase_[i];
+            phase_[i] += incs[i];
+            if (phase_[i] >= 1.0f)
+            {
+                phase_[i] -= 1.0f;
+                if (i == 0)
+                    wrapped = true;
+            }
+            // The pitched noise: a new random value 16 times a cycle.
+            if ((set.w[i] == TwNoi) && static_cast<int>(before * 16.0f) != static_cast<int>(phase_[i] * 16.0f))
+                trioNoise_ = drift_.next();
+        }
+        if (set.sync && wrapped)
+            phase_[1] = phase_[0] * incs[1] / std::max(incs[0], 1e-6f); // osc 2 restarts with osc 1
+        out = mix * 1.6f;
+    }
+    if (patch_.osc == Osc::Lofi)
+    {
+        // The pitch: the sweep falls after the note-on, the arpeggio steps at ~50 Hz, a ~5.4 Hz vibrato.
+        static const int arps[4][3] = { { 0, 0, 0 }, { 0, 12, 0 }, { 0, 4, 7 }, { 0, 3, 7 } };
+        lofiSweepSemis_ = std::min(96.0f, lofiSweepSemis_ + patch_.lofiSweep * 81.0f / sr);
+        lofiArpTime_ += 1.0f / sr;
+        const int step = static_cast<int>(lofiArpTime_ * 50.0f) % 3;
+        lofiVibPhase_ += 5.4f / sr;
+        lofiVibPhase_ -= std::floor(lofiVibPhase_);
+        const float semis = static_cast<float>(arps[patch_.lofiArp & 3][step]) - lofiSweepSemis_
+                            + patch_.lofiVib * 0.26f * std::sin(dsp::kTwoPi * lofiVibPhase_);
+        const float inc = std::min(dt * std::exp2(semis / 12.0f), 0.45f);
+        const int bits = patch_.lofiChip == 2 ? 8 : patch_.lofiChip == 3 ? 1 : 4;
+        // The held output: the sample rate drops with CRUSH (and halves again for 4-bit / 2).
+        const float hold = (1.0f + std::floor(patch_.lofiCrush * 127.0f / 8.0f) + (patch_.lofiChip == 1 ? 1.0f : 0.0f)) * sr / 44100.0f;
+        lofiHoldCount_ -= 1.0f;
+        if (lofiHoldCount_ <= 0.0f)
+        {
+            lofiHoldCount_ += hold;
+            const float ph = phase_[0];
+            float v = 0.0f;
+            bool quantise = true;
+            switch (patch_.lofiWave)
+            {
+                case 1: v = triWave(ph); break;
+                case 2: v = 2.0f * ph - 1.0f; break;
+                case 3:
+                    lofiLfsr_ = (lofiLfsr_ >> 1) | (((lofiLfsr_ ^ (lofiLfsr_ >> 1)) & 1u) << 14);
+                    v = (lofiLfsr_ & 1u) ? 1.0f : -1.0f;
+                    break;
+                case 4:
+                {
+                    const int table = std::clamp(static_cast<int>(patch_.lofiDuty * 15.99f), 0, 15);
+                    const int k = static_cast<int>(ph * 32.0f) & 31;
+                    const int nibble = (k & 1) ? kWram[table][k >> 1] & 15 : kWram[table][k >> 1] >> 4;
+                    v = bits == 1 ? (nibble >= 8 ? 1.0f : -1.0f) : (static_cast<float>(nibble) * 2.0f - 15.0f) / 15.0f - wramMean(table);
+                    quantise = false;
+                    break;
+                }
+                default:
+                {
+                    const float duty = 0.125f * (1.0f + std::floor(patch_.lofiDuty * 3.99f)); // 12.5 .. 50 %
+                    v = (ph < duty ? 1.0f : -1.0f) - (2.0f * duty - 1.0f);
+                    break;
+                }
+            }
+            if (quantise)
+            {
+                const float steps = std::exp2(static_cast<float>(bits - 1));
+                v = std::round(v * steps) / steps;
+            }
+            if (patch_.lofiCrush > 0.5f)
+                v = std::round(v * 8.0f) / 8.0f;
+            lofiHeld_ = v;
+        }
+        phase_[0] += inc;
+        phase_[0] -= std::floor(phase_[0]);
+        lofiLp_ += (lofiHeld_ - lofiLp_) * lofiLpCoef_;
+        out = lofiLp_ * 0.8f;
+    }
+    if (patch_.osc == Osc::Fm6)
+    {
+        // The operators in the algorithm's order (the sixth first), each modulating through two buses.
+        const std::uint8_t* alg = kFmAlg[patch_.fmAlg & 31];
+        float bus[3] = { 0.0f, 0.0f, 0.0f };
+        bool has[3] = { false, false, false };
+        for (int k = 0; k < 6; ++k)
+        {
+            const int i = 5 - k; // operator i + 1
+            const FmOperator& op = patch_.fm[i];
+            // The operator's envelope.
+            float& env = opEnv_[i];
+            if (!gate_)
+                env *= fmRelease_[i];
+            else if (fmStage_[i] == 0)
+            {
+                env += fmAttack_[i];
+                if (env >= 1.0f)
+                {
+                    env = 1.0f;
+                    fmStage_[i] = 1;
+                }
+            }
+            else
+                env = op.s + (env - op.s) * fmDecay_[i];
+            const float gain = env * fmLevel_[i];
+            const int flags = alg[k], inBus = (flags >> 4) & 3, outBus = flags & 3;
+            const bool add = (flags & FmOadd) != 0 && has[outBus];
+            float phase = fmPhase_[i];
+            float y;
+            if ((flags & 0xc0) == 0xc0 && fmFbAmount_ > 0.0f)
+            {
+                phase += (fmFb_[0] + fmFb_[1]) * 0.25f * fmFbAmount_;
+                y = std::sin(dsp::kTwoPi * phase) * gain;
+                fmFb_[0] = fmFb_[1];
+                fmFb_[1] = y;
+            }
+            else
+            {
+                if (inBus != 0 && has[inBus])
+                    phase += bus[inBus] * 2.0f; // a full-level modulator: about two cycles of phase
+                y = std::sin(dsp::kTwoPi * phase) * gain;
+            }
+            bus[outBus] = add ? bus[outBus] + y : y;
+            has[outBus] = true;
+            const float freq = op.fixedHz > 0.0f ? op.fixedHz : hz * op.ratio * std::exp2(op.detuneCents / 1200.0f);
+            fmPhase_[i] += std::min(freq / sr, 0.49f);
+            fmPhase_[i] -= std::floor(fmPhase_[i]);
+        }
+        out = bus[0] / std::sqrt(static_cast<float>(fmCarrierCount(patch_.fmAlg)));
+    }
     if (patch_.osc == Osc::Bowl)
     {
         constexpr float ratios[4] = { 1.0f, 2.76f, 5.2f, 8.4f }, levels[4] = { 1.0f, 0.55f, 0.3f, 0.15f };
@@ -787,6 +1181,24 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
             const float bend = patch_.pdDepth + knob + patch_.pdEnv * macros.envAmount * 2.0f * filterEnv_.value() * (0.5f + 0.5f * velocity_);
             pdBend_ = dsp::clamp01(bend) * 0.8545f * std::min(1.0f, 1800.0f / std::max(hz_, 1.0f));
         }
+        if (patch_.osc == Osc::Fm6)
+        {
+            // Felucca's FM6 macros: Cutoff is the modulators' level (the brightness), Resonance adds
+            // feedback, Env scales how long the modulators take to decay.
+            fmBright_ = std::exp2((macros.cutoff + macros.cutoffMod - 0.5f) * 3.0f);
+            fmFbAmount_ = dsp::clamp01(patch_.fmFeedback + (macros.resonance - 0.5f));
+            const float time = dsp::macroLog(macros.envAmount, 0.3f, 1.0f, 3.0f);
+            for (int i = 0; i < 6; ++i)
+            {
+                const FmOperator& op = patch_.fm[i];
+                const float scale = (kFmAlg[patch_.fmAlg & 31][5 - i] & 3) == 0 ? 1.0f : time;
+                fmDecay_[i] = dsp::decayCoef(op.d * scale, sampleRate_);
+                fmRelease_[i] = dsp::decayCoef(op.r, sampleRate_);
+                fmLevel_[i] = fmTarget_[i] * ((kFmAlg[patch_.fmAlg & 31][5 - i] & 3) == 0 ? 1.0f : fmBright_);
+            }
+        }
+        if (patch_.osc == Osc::Trio) // the slightly unstable filter of the chips
+            trioDrift_ += (0.5f * drift_.next() - trioDrift_) * 0.12f;
         if (patch_.osc == Osc::String)
             stringFb_ = std::pow(0.001f, 1.0f / (std::max(0.05f, patch_.stringDecay) * std::max(20.0f, hz_)));
     }
@@ -800,7 +1212,17 @@ float SynthVoice::tick(const SynthParams& macros, float glideCoef)
     fmEnv_ *= fmCoef_;
 
     const float x = oscillator(hz);
-    float y = patch_.fourPole ? ladder_.tick(x, g_, k_) : filter1_.tick(x, g_, k_).lp;
+    float y = x;
+    if (!patch_.noFilter)
+    {
+        if (patch_.fourPole)
+            y = ladder_.tick(x, g_, k_);
+        else
+        {
+            const auto f = filter1_.tick(patch_.osc == Osc::Trio ? dsp::fastTanh(x * 1.3f) / 1.3f : x, g_ * (1.0f + 0.05f * trioDrift_), k_);
+            y = patch_.filterMode == 1 ? f.bp * 1.4f : patch_.filterMode == 2 ? f.hp : patch_.filterMode == 3 ? f.lp + f.hp : f.lp;
+        }
+    }
     y = dsp::drive(y, patch_.drive);
     return y * amp_.tick() * (0.35f + 0.65f * velocity_) * patch_.level;
 }

@@ -80,6 +80,31 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### Felucca engines and Beads
+
+* **TRIO** (three oscillators, ring modulation, hard sync, combined waves, a
+  multimode filter): Trio Bass, Trio Sync, Ring Bell, Chip Choir, Trio Arp.
+* **LOFI** (a chip voice: pulse, triangle, saw, noise and a 16-table wave RAM,
+  bit depth, sample hold, pitch sweep, arpeggio): Chip Lead, Chip Bass, Chip
+  Arp, Wave Vox.
+* **Six-operator FM** with the 32 classic algorithms: FM Rhodes, DX Bass, FM
+  Bells, FM Marimba, FM Brass, FM Glass. Cutoff is the modulators' level (the
+  brightness), Resonance the feedback, Env how long the modulators ring.
+* **Beads** (FX / Beads page): a granular processor that records the synths
+  (an Input amount per synth) and plays grains of the last four seconds.
+  The drums are its gates: pick which drums start grains, and Density divides
+  their hits (left of noon) or lets each through by chance (right of noon).
+  With no drum picked it runs on Beads' own clock. Time, Size (backwards below
+  a third), Pitch and Shape each have a Random amount; Musical snaps random
+  pitch to octaves, fifths and fourths. Feedback, Freeze, four media (digital,
+  vintage digital, clean tape, dirty tape), Level and Reverb.
+* Presets: Bead Rhodes, Chip Ritual.
+
+Credits: TRIO and LOFI are ported from Felucca-Engines (MIT, Copyright (C) 2026
+Leo Kuroshita, Hügelton Instruments); the FM algorithm table is msfa's (Apache-2.0,
+Copyright 2012 Google Inc., 2016-2025 Pascal Gauthier) as Felucca carries it; Beads is
+ported from Mutable Instruments' eurorack code (MIT, Copyright 2017 Emilie Gillet).
+
 ### Modelled acoustic drums
 
 * **Acoustic kit:** kick, snare and toms built as struck drum heads: a handful
