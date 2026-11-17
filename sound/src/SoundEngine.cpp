@@ -1,4 +1,5 @@
 #include "Beads.h"
+#include "BeadsReverb.h"
 #include "Drums.h"
 #include "Fx.h"
 #include "Synth.h"
@@ -44,6 +45,7 @@ struct SoundEngine::Impl
     Tape tape;
     Shimmer shimmer;
     Beads beads;
+    BeadsReverb beadsVerb, vastVerb; // Beads' reverb on the grains; the same as the main reverb
     BeadsParams beadsParams;
     float beadsLevel = 0.0f, beadsReverb = 0.0f;
     Resonator drumBody[kNumDrumVoices], synthBody[kNumSynths][2];
@@ -105,6 +107,8 @@ void SoundEngine::prepare(double sampleRate)
     m.tape.prepare(m.sampleRate);
     m.shimmer.prepare(m.sampleRate);
     m.beads.prepare(m.sampleRate);
+    m.beadsVerb.prepare(m.sampleRate);
+    m.vastVerb.prepare(m.sampleRate);
     for (auto& r : m.drumBody)
         r.prepare(m.sampleRate);
     for (auto& pair : m.synthBody)
@@ -150,6 +154,8 @@ void SoundEngine::reset()
     m.tape.reset();
     m.shimmer.reset();
     m.beads.reset();
+    m.beadsVerb.reset();
+    m.vastVerb.reset();
     for (auto& r : m.drumBody)
         r.reset();
     for (auto& pair : m.synthBody)
@@ -221,6 +227,11 @@ void SoundEngine::setFx(const FxParams& params)
     fx.delayBeats = finite(fx.delayBeats, d.delayBeats);
     fx.delayFeedback = finite(fx.delayFeedback, d.delayFeedback);
     fx.shimmer = dsp::clamp01(finite(fx.shimmer, 0.0f));
+    fx.reverbType = std::clamp(fx.reverbType, 0, 1);
+    // The Beads reverb as the main one: all wet, Size sets the loop (up to a vast 0.95).
+    m.vastVerb.setMix(1.0f);
+    m.vastVerb.setTime(0.35f + 0.55f * fx.reverbSize);
+    m.vastVerb.setLowpass(0.72f - 0.22f * fx.reverbSize);
     if (!std::isfinite(fx.bpm))
         fx.bpm = d.bpm;
     m.fx = fx;
@@ -554,13 +565,25 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
         if (m.beadsLevel > 1e-4f || m.beadsParams.level > 0.0f)
         {
             m.beads.process(beadsInL, beadsInR, bl, br);
+            // Beads' own reverb, with the module's curves: more Reverb is both more of it and longer.
+            const float amount = m.beadsReverb;
+            const bool caveman = m.beadsParams.quality != 0;
+            m.beadsVerb.setMix(amount * amount * 0.9f);
+            m.beadsVerb.setTime(caveman ? 0.45f + 0.5f * amount * amount * amount : 0.3f + 0.6f * amount * amount * amount);
+            m.beadsVerb.setLowpass(caveman ? (m.beadsParams.quality == 1 ? 0.75f : 0.4f) : 0.6f);
+            m.beadsVerb.process(bl, br);
             bl *= m.beadsLevel * 1.5f;
             br *= m.beadsLevel * 1.5f;
-            revIn += (bl + br) * 0.5f * m.beadsReverb;
         }
         float dl = 0.0f, dr = 0.0f, rl = 0.0f, rr = 0.0f;
         m.delay.process(dlyIn, dl, dr);
-        m.reverb.process(revIn + (dl + dr) * 0.15f + m.shimmerFeed, rl, rr);
+        if (m.fx.reverbType == 1)
+        {
+            rl = rr = (revIn + (dl + dr) * 0.15f + m.shimmerFeed) * 0.5f;
+            m.vastVerb.process(rl, rr);
+        }
+        else
+            m.reverb.process(revIn + (dl + dr) * 0.15f + m.shimmerFeed, rl, rr);
         m.shimmerFeed = m.fx.shimmer > 0.0f ? dsp::fastTanh(m.shimmer.process((rl + rr) * 0.5f) * 2.5f) * 0.8f * m.fx.shimmer : 0.0f;
         if (beadsStem)
         {

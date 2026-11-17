@@ -106,6 +106,7 @@ struct FxParams
     float delayBeats = 0.75f;    // delay time in beats (0.75 = dotted 8th)
     float delayFeedback = 0.35f; // 0..0.9
     float shimmer = 0.0f;        // 0..1: the reverb feeds itself an octave up
+    int reverbType = 0;          // 0 plate, 1 Beads (vast, modulated)
     double bpm = 120.0;
 };
 
@@ -131,7 +132,7 @@ struct BeadsParams
     float timeRandom = 0.0f, sizeRandom = 0.0f, pitchRandom = 0.0f, shapeRandom = 0.0f;
     float feedback = 0.0f;
     float level = 0.0f;  // the grains in the mix (0 = Beads off)
-    float reverb = 0.3f; // the grains into the reverb
+    float reverb = 0.3f; // Beads' own reverb on the grains (as on the module)
     std::array<float, kNumSynths> send {}; // how much of each synth goes in
     std::array<bool, kNumDrumVoices> triggers {}; // drums that gate the grains (none: Beads' own clock)
     int quality = 0;     // 0 digital, 1 vintage digital, 2 clean tape, 3 dirty tape

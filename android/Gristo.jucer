@@ -27,6 +27,7 @@
       <FILE id="f00011" name="SoundEngine.cpp" compile="1" resource="0" file="../sound/src/SoundEngine.cpp"/>
       <FILE id="f00012" name="Synth.cpp" compile="1" resource="0" file="../sound/src/Synth.cpp"/>
       <FILE id="f00090" name="Beads.cpp" compile="1" resource="0" file="../sound/src/Beads.cpp"/>
+      <FILE id="f00091" name="BeadsReverb.cpp" compile="1" resource="0" file="../sound/src/BeadsReverb.cpp"/>
     </GROUP>
     <GROUP id="gplugin" name="plugin">
       <FILE id="f00013" name="FactoryPresets.cpp" compile="1" resource="0"

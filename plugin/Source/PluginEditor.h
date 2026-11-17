@@ -198,7 +198,7 @@ private:
         Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck, body;
         std::unique_ptr<NumberSelector> octave;
     };
-    Choice soundKit_, fxTime_;
+    Choice soundKit_, fxTime_, fxReverbType_;
     Knob kitTune_, kitDecay_, kitTone_, kitDrive_, kitReverb_, kitDelay_, fxSize_, fxFeedback_;
     Knob drumLevels_[gristo::kNumVoices];
     SynthRow synthRows_[gristo::sound::kNumSynths];

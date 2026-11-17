@@ -5,6 +5,7 @@ add_library(gristo_sound STATIC
     src/SoundEngine.cpp
     src/Synth.cpp
     src/Beads.cpp
+    src/BeadsReverb.cpp
 )
 
 target_include_directories(gristo_sound PUBLIC include PRIVATE src)

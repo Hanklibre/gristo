@@ -1265,6 +1265,9 @@ void GristoView::setupSoundPage()
 
     setupSmallKnob(fxSize_, p::fxSize, "Size");
     setupSmallKnob(fxFeedback_, p::fxFeedback, "Feedback");
+    setupChoice(fxReverbType_, p::fxReverbType, "Reverb");
+    fxReverbType_.label.setFont(juce::FontOptions(10.5f));
+    setHelp(fxReverbType_.box, "Reverb type", "Plate: a smooth, dense plate. Beads (vast): the reverb of Mutable Instruments Beads, long, modulated and wide; Size reaches about 12 seconds.");
     setupChoice(fxTime_, p::fxTime, "Delay");
     fxTime_.label.setFont(juce::FontOptions(10.5f));
     setHelp(fxSize_, "Reverb Size", "Small room to big hall.");
@@ -1482,11 +1485,11 @@ void GristoView::setupBeads()
         "through by chance (always fully right); noon: none. With no drum picked: left of noon a steady clock, right a random one.",
         "Where in the last four seconds a grain starts: right behind the recording head (left) or as far back as it goes (right).",
         "Grain length. Below a third the grains play backwards; further left, shorter again.",
-        "Grain pitch, in semitones.",
+        "Grain pitch, in musical steps: fourths, fifths and octaves, up to two octaves either way.",
         "Grain envelope: square, then a decay, a bell, and a reverse ramp fully right.",
         "The grains back into the recording: layers build up and smear.",
         "How loud the grains are in the mix. 0 = Beads off.",
-        "How much of the grains goes into the reverb." };
+        "Beads' own reverb on the grains, as on the module: more is both wetter and longer, up to vast." };
     for (int i = 0; i < 8; ++i)
     {
         setupKnob(beadsKnobs_[i], ids[i], names[i]);
@@ -1617,7 +1620,7 @@ void GristoView::setupPartStrip()
     }
     setupToggle(separateOuts_, p::separateOuts, "Separate outputs");
     setHelp(separateOuts_.button, "Separate outputs",
-            "Sends Kit, Arp 1-3, Chords and FX to their own outputs of the plugin (enable them in your DAW) instead of the main mix.");
+            "Sends Kit, Arp 1-3, Chords, FX and Beads to their own outputs of the plugin (enable them in your DAW) instead of the main mix.");
 
     tempoBar_.setSliderStyle(juce::Slider::LinearBar);
     tempoBar_.setTextValueSuffix(" bpm");
@@ -2036,6 +2039,7 @@ void GristoView::showKnobMenu(juce::Slider& knob)
 std::vector<juce::Component*> GristoView::masterPageComponents()
 {
     std::vector<juce::Component*> list { &fxSize_.slider, &fxSize_.label, &fxFeedback_.slider, &fxFeedback_.label, &fxTime_.box, &fxTime_.label,
+                                         &fxReverbType_.box, &fxReverbType_.label,
                                          &noteLength_.slider, &noteLength_.label, &separateOuts_.button, &alive_.slider, &alive_.label,
                                          &fxShimmer_.slider, &fxShimmer_.label };
     for (auto& k : beadsKnobs_)
@@ -2399,7 +2403,7 @@ void GristoView::paint(juce::Graphics& g)
         g.setColour(colours::dim);
         g.setFont(juce::FontOptions(12.0f));
         g.drawFittedText("MIDI to your DAW: drag the handles in the bar below the pages onto a track. "
-                         "Separate outputs: Kit, Arp 1-3, Chords and FX each get their own plugin output.",
+                         "Separate outputs: Kit, Arp 1-3, Chords, FX and Beads each get their own plugin output.",
                          { px + 548, py + 136, 504, 52 }, juce::Justification::topLeft, 3);
     }
     else
@@ -2621,6 +2625,8 @@ void GristoView::resized()
     placeLabeled(fxFeedback_, { px + 144, py + 40, 110, 130 });
     fxTime_.label.setBounds(px + 280, py + 70, 90, 14);
     fxTime_.box.setBounds(px + 280, py + 86, 100, 28);
+    fxReverbType_.label.setBounds(px + 280, py + 128, 90, 14);
+    fxReverbType_.box.setBounds(px + 280, py + 144, 100, 28);
     placeKnob(noteLength_, { px + 960, py + 30, 96, 110 });
     separateOuts_.button.setBounds(px + 548, py + 40, 190, 28);
     placeLabeled(alive_, { px + 780, py + 26, 100, 104 });

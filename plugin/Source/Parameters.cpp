@@ -331,13 +331,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                                 juce::StringArray { "1/16", "1/8", "1/8D", "1/4" }, 2));
         layout.add(percentParam(fxFeedback, "Delay Feedback", 0.35f, 0.9f));
         layout.add(percentParam(fxShimmer, "Shimmer", 0.0f));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { fxReverbType, kVersion }, "Reverb Type",
+                                                                juce::StringArray { "Plate", "Beads (vast)" }, 0));
         // Beads
         layout.add(percentParam(beadsLevel, "Beads Level", 0.0f));
         layout.add(percentParam(beadsReverb, "Beads Reverb", 0.3f));
         layout.add(percentParam(beadsDensity, "Beads Density", 0.1f));
         layout.add(percentParam(beadsTime, "Beads Time", 0.5f));
         layout.add(percentParam(beadsSize, "Beads Size", 0.5f));
-        layout.add(floatParam(beadsPitch, "Beads Pitch", { -24.0f, 24.0f, 0.01f }, 0.0f, "st", 1));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { beadsPitch, kVersion }, "Beads Pitch",
+            juce::StringArray { "-2 oct", "-oct -5th", "-oct -4th", "-1 oct", "-5th", "-4th", "Unison", "+4th", "+5th", "+1 oct", "+oct +4th", "+oct +5th", "+2 oct" }, 6));
         layout.add(percentParam(beadsShape, "Beads Shape", 0.5f));
         layout.add(percentParam(beadsTimeRandom, "Beads Time Random", 0.0f));
         layout.add(percentParam(beadsSizeRandom, "Beads Size Random", 0.0f));
@@ -613,6 +616,7 @@ sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& s)
     f.delayBeats = kDelayBeatChoices[juce::jlimit(0, 3, static_cast<int>(load(s, fxTime)))];
     f.delayFeedback = juce::jlimit(0.0f, 0.9f, load(s, fxFeedback) + 0.3f * more);
     f.shimmer = load(s, fxShimmer);
+    f.reverbType = static_cast<int>(load(s, fxReverbType));
     return f;
 }
 
@@ -624,7 +628,7 @@ sound::BeadsParams readBeadsParams(const juce::AudioProcessorValueTreeState& s)
     b.density = load(s, beadsDensity);
     b.time = load(s, beadsTime);
     b.size = load(s, beadsSize);
-    b.pitch = load(s, beadsPitch);
+    b.pitch = kBeadsIntervals[juce::jlimit(0, 12, static_cast<int>(load(s, beadsPitch)))];
     b.shape = load(s, beadsShape);
     b.timeRandom = load(s, beadsTimeRandom);
     b.sizeRandom = load(s, beadsSizeRandom);

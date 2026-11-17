@@ -148,13 +148,15 @@ inline const juce::String fxSize = "fxSize";
 inline const juce::String fxTime = "fxTime";
 inline const juce::String fxFeedback = "fxFb";
 inline const juce::String fxShimmer = "fxShim";
+inline const juce::String fxReverbType = "fxRevType";
 // Beads (granular, fed by the synths, gated by the drums)
 inline const juce::String beadsLevel = "bdsLevel";
 inline const juce::String beadsReverb = "bdsRev";
 inline const juce::String beadsDensity = "bdsDens";
 inline const juce::String beadsTime = "bdsTime";
 inline const juce::String beadsSize = "bdsSize";
-inline const juce::String beadsPitch = "bdsPitch";
+inline const juce::String beadsPitch = "bdsInterval"; // a musical interval (see kBeadsIntervals)
+inline const float kBeadsIntervals[] = { -24.0f, -19.0f, -17.0f, -12.0f, -7.0f, -5.0f, 0.0f, 5.0f, 7.0f, 12.0f, 17.0f, 19.0f, 24.0f };
 inline const juce::String beadsShape = "bdsShape";
 inline const juce::String beadsTimeRandom = "bdsTimeRnd";
 inline const juce::String beadsSizeRandom = "bdsSizeRnd";

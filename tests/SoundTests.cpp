@@ -1091,3 +1091,60 @@ TEST("sound: fuzz: random sounds, settings and Beads, changed while playing, sta
         }
     }
 }
+
+TEST("sound: the Beads reverb gives a long, vast tail that still ends, as the main reverb and on Beads")
+{
+    auto tail = [](int type) {
+        SoundEngine e;
+        e.prepare(kRate);
+        FxParams fx;
+        fx.reverbSize = 1.0f;
+        fx.reverbType = type;
+        e.setFx(fx);
+        CharacterParams c;
+        c.dirt = 0.0f;
+        e.setCharacter(c);
+        KitParams kit;
+        kit.reverbSend = 1.0f;
+        e.setKit(kit);
+        e.triggerDrum(1, 1.0f);
+        Rendered out;
+        renderInto(e, out, 40.0);
+        return out;
+    };
+    const Rendered vast = tail(1), plate = tail(0);
+    CHECK(vast.finite && vast.peak <= 1.0f);
+    const size_t at3 = static_cast<size_t>(3.0 * kRate), at4 = static_cast<size_t>(4.0 * kRate);
+    CHECK(vast.rms(at3, at4) > 1e-4f);
+    CHECK(vast.rms(vast.left.size() - 48000, vast.left.size()) < 1e-4f);
+    // It is a stereo reverb: the two sides differ.
+    double diff = 0.0;
+    for (size_t i = at3; i < at4; ++i)
+        diff += std::abs(vast.left[i] - vast.right[i]);
+    CHECK(diff > 1.0);
+    CHECK(plate.finite);
+
+    // On Beads: full Reverb keeps the grains ringing after they stop.
+    SoundEngine e;
+    dryEngine(e);
+    SynthParams p;
+    p.sound = SynthSound::WarmPad;
+    p.reverbSend = 0.0f;
+    e.setSynth(kChordSynth, p);
+    BeadsParams b;
+    b.level = 1.0f;
+    b.reverb = 1.0f;
+    b.density = 0.3f;
+    b.time = 0.05f; // grains of what just played
+    b.send[kChordSynth] = 1.0f;
+    e.setBeads(b);
+    e.noteOn(kChordSynth, 60, 60.0f, 0.8f);
+    Rendered out;
+    renderInto(e, out, 2.0);
+    e.noteOff(kChordSynth, 60);
+    b.density = 0.5f; // no new grains
+    e.setBeads(b);
+    renderInto(e, out, 8.0);
+    CHECK(out.finite && out.peak <= 1.0f);
+    CHECK(out.rms(static_cast<size_t>(5.0 * kRate), static_cast<size_t>(6.0 * kRate)) > 1e-4f);
+}

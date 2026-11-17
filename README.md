@@ -80,6 +80,16 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### The Beads reverb
+
+* Beads' **Reverb** knob is now the module's own reverb on the grains (ported
+  from Mutable Instruments' code): more is both wetter and longer, up to about
+  12 seconds, modulated and wide. Darker on the tape media.
+* The same reverb can be the main reverb: **Reverb: Beads (vast)** on the
+  FX / Beads page. Size sets the length.
+* Beads' **Pitch** knob steps through musical intervals: unison, fourths,
+  fifths, octaves, and octave + fourth / fifth, up to two octaves either way.
+
 ### A new drum engine
 
 Every drum is now one of 15 engines, and all kits are rebuilt on them:

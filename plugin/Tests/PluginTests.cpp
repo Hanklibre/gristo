@@ -809,3 +809,26 @@ TEST("plugin: Beads can have its own output")
     }
     CHECK(beadsPeak > 1e-3f && beadsPeak <= 1.0f);
 }
+
+TEST("plugin: the Beads pitch knob steps through octaves, fifths and fourths; the vast reverb plays")
+{
+    auto proc = makeProcessor();
+    const float expected[] = { -24.0f, -19.0f, -17.0f, -12.0f, -7.0f, -5.0f, 0.0f, 5.0f, 7.0f, 12.0f, 17.0f, 19.0f, 24.0f };
+    for (int i = 0; i < 13; ++i)
+    {
+        setParam(*proc, p::beadsPitch, static_cast<float>(i));
+        CHECK(p::readBeadsParams(proc->state).pitch == expected[i]);
+    }
+    CHECK(p::readBeadsParams(proc->state).pitch == 24.0f);
+    setParam(*proc, p::beadsPitch, 6.0f);
+    CHECK(p::readBeadsParams(proc->state).pitch == 0.0f); // the default is unison
+    setParam(*proc, p::fxReverbType, 1.0f);
+    setParam(*proc, p::fxSize, 1.0f);
+    setParam(*proc, p::kitReverb, 1.0f);
+    setParam(*proc, p::beadsLevel, 1.0f);
+    setParam(*proc, p::beadsReverb, 1.0f);
+    setParam(*proc, p::chordOn, 1.0f);
+    proc->pump(2);
+    const Run run = play(*proc, 2000);
+    CHECK(run.nonFinite == 0 && run.peak <= 1.0f && run.peak > 0.05f);
+}
