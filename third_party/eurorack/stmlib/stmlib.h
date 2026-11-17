@@ -30,7 +30,13 @@
 #define TEST
 #endif
 
+#include <cmath>
 #include <inttypes.h>
+
+// Gristo: MSVC defines M_PI only on request.
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <stddef.h>
 
 #ifndef NULL
