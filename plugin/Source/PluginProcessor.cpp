@@ -583,7 +583,7 @@ void GristoProcessor::readLanes(const juce::ValueTree& lanes)
     }
     const auto steps = lanes.getProperty("steps").toString();
     for (int i = 0; i < static_cast<int>(stepEdits.size()); ++i)
-        stepEdits[static_cast<size_t>(i)].store(i < steps.length() ? juce::jlimit(0, 2, steps[i] - '0') : 0);
+        stepEdits[static_cast<size_t>(i)].store(i < steps.length() ? juce::jlimit(0, 2, static_cast<int>(steps[i]) - '0') : 0);
     paramGeneration_.fetch_add(1);
 }
 

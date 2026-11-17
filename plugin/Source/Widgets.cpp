@@ -1251,12 +1251,12 @@ void TimelineView::paint(juce::Graphics& g)
     // Hand-edited drum steps: a ring on a forced hit, a cross on a forced rest.
     for (int v = 0; v < kNumVoices; ++v)
     {
-        const int length = juce::jlimit(1, kPatternSteps,
+        const int loopLength = juce::jlimit(1, kPatternSteps,
                                         static_cast<int>(processor_.state.getRawParameterValue(gristo::params::voiceId(gristo::params::voiceLength, v))->load()));
         const auto first = static_cast<std::int64_t>(std::llround(windowStart_ * kStepsPerBeat));
         for (int s = 0; s < steps; ++s)
         {
-            const int edit = processor_.stepEdit(v, floorMod(first + s, length));
+            const int edit = processor_.stepEdit(v, floorMod(first + s, loopLength));
             if (edit == 0)
                 continue;
             const float x = grid.getX() + grid.getWidth() * static_cast<float>(s) / static_cast<float>(steps);
