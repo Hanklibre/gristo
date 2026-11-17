@@ -79,6 +79,8 @@ Snapshot PresetManager::captureSnapshot() const
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
         for (int k = 0; k < gristo::kMaxModPoints; ++k)
             s.lanePoints.push_back(p::lanePoint(processor_.modPoints, lane, k).load());
+    for (const auto& e : processor_.stepEdits) // the hand-edited drum steps ride along
+        s.lanePoints.push_back(static_cast<float>(e.load()));
     return s;
 }
 
@@ -97,10 +99,17 @@ void PresetManager::applySnapshot(const Snapshot& s)
                     ranged->endChangeGesture();
                 }
             }
-    if (s.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints))
+    const size_t points = static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints);
+    if (s.lanePoints.size() >= points)
         for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
             for (int k = 0; k < gristo::kMaxModPoints; ++k)
                 p::lanePoint(processor_.modPoints, lane, k).store(s.lanePoints[static_cast<size_t>(lane * gristo::kMaxModPoints + k)]);
+    if (s.lanePoints.size() == points + processor_.stepEdits.size())
+    {
+        for (size_t i = 0; i < processor_.stepEdits.size(); ++i)
+            processor_.stepEdits[i].store(juce::jlimit(0, 2, static_cast<int>(s.lanePoints[points + i])));
+        processor_.stepEditsChanged();
+    }
 }
 
 juce::ValueTree PresetManager::capture(const juce::String& name) const

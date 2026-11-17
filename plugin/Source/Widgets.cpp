@@ -1124,11 +1124,74 @@ void TimelineView::update(double ppq, bool playing, int bars, int selectedPart)
         repaint();
 }
 
+bool TimelineView::cellAt(juce::Point<float> pos, int& voice, std::int64_t& step) const
+{
+    const auto grid = getLocalBounds().toFloat().withTrimmedLeft(static_cast<float>(kLabelWidth));
+    if (!grid.contains(pos))
+        return false;
+    voice = static_cast<int>((pos.y - grid.getY()) / (grid.getHeight() / gristo::kNumParts));
+    if (voice < 0 || voice >= gristo::kNumVoices)
+        return false;
+    const int steps = bars_ * gristo::kStepsPerBar;
+    const int cell = juce::jlimit(0, steps - 1, static_cast<int>((pos.x - grid.getX()) / grid.getWidth() * static_cast<float>(steps)));
+    step = static_cast<std::int64_t>(std::llround(windowStart_ * gristo::kStepsPerBeat)) + cell;
+    return true;
+}
+
+bool TimelineView::hitAt(int voice, std::int64_t step) const
+{
+    const double start = static_cast<double>(step) / gristo::kStepsPerBeat;
+    for (const auto& span : spans_) // a hit near its step (the groove moves it a little)
+        if (span.part == voice && span.start > start - 0.12 && span.start < start + 0.2)
+            return true;
+    return false;
+}
+
+// Drum rows: click a step to force a hit there (or a rest, where one plays); drag to
+// paint the same; right-click clears the step back to what the map generates.
 void TimelineView::mouseDown(const juce::MouseEvent& e)
 {
     const int part = juce::jlimit(0, gristo::kNumParts - 1, e.y * gristo::kNumParts / std::max(1, getHeight()));
     if (onSelect)
         onSelect(part);
+    int voice = -1;
+    std::int64_t step = 0;
+    dragEdit_ = -1;
+    if (!cellAt(e.position, voice, step))
+        return;
+    // The step in the drum's own loop (its Length, for polymeter).
+    const int length = juce::jlimit(1, gristo::kPatternSteps,
+                                    static_cast<int>(processor_.state.getRawParameterValue(gristo::params::voiceId(gristo::params::voiceLength, voice))->load()));
+    const int loopStep = gristo::floorMod(step, length);
+    const int current = processor_.stepEdit(voice, loopStep);
+    if (e.mods.isPopupMenu())
+        dragEdit_ = 0;
+    else if (current != 0)
+        dragEdit_ = current == 1 ? 2 : 1; // flip a hand edit
+    else
+        dragEdit_ = hitAt(voice, step) ? 2 : 1;
+    dragVoice_ = voice;
+    dragStep_ = loopStep;
+    processor_.setStepEdit(voice, loopStep, dragEdit_);
+    stale_ = true;
+    renderedAt_ = 0;
+}
+
+void TimelineView::mouseDrag(const juce::MouseEvent& e)
+{
+    int voice = -1;
+    std::int64_t step = 0;
+    if (dragEdit_ < 0 || !cellAt(e.position, voice, step) || voice != dragVoice_)
+        return;
+    const int length = juce::jlimit(1, gristo::kPatternSteps,
+                                    static_cast<int>(processor_.state.getRawParameterValue(gristo::params::voiceId(gristo::params::voiceLength, voice))->load()));
+    const int loopStep = gristo::floorMod(step, length);
+    if (loopStep == dragStep_)
+        return;
+    dragStep_ = loopStep;
+    processor_.setStepEdit(voice, loopStep, dragEdit_);
+    stale_ = true;
+    renderedAt_ = 0;
 }
 
 void TimelineView::paint(juce::Graphics& g)
@@ -1183,6 +1246,31 @@ void TimelineView::paint(juce::Graphics& g)
         const float w = drum ? minW : std::max(minW, xOf(span.end) - x - 1.0f);
         g.setColour(colourOf(span.part).withAlpha(0.4f + 0.6f * juce::jlimit(0.0f, 1.0f, span.velocity)));
         g.fillRoundedRectangle(juce::Rectangle<float>(x, y + 1.0f, w, std::max(2.0f, rowH - 2.0f)).getIntersection(grid), 1.5f);
+    }
+
+    // Hand-edited drum steps: a ring on a forced hit, a cross on a forced rest.
+    for (int v = 0; v < kNumVoices; ++v)
+    {
+        const int length = juce::jlimit(1, kPatternSteps,
+                                        static_cast<int>(processor_.state.getRawParameterValue(gristo::params::voiceId(gristo::params::voiceLength, v))->load()));
+        const auto first = static_cast<std::int64_t>(std::llround(windowStart_ * kStepsPerBeat));
+        for (int s = 0; s < steps; ++s)
+        {
+            const int edit = processor_.stepEdit(v, floorMod(first + s, length));
+            if (edit == 0)
+                continue;
+            const float x = grid.getX() + grid.getWidth() * static_cast<float>(s) / static_cast<float>(steps);
+            const float w = grid.getWidth() / static_cast<float>(steps);
+            const auto cell = juce::Rectangle<float>(x, grid.getY() + v * rowH, w, rowH).reduced(1.0f, 0.5f);
+            g.setColour(edit == 1 ? colours::text : colours::hot);
+            if (edit == 1)
+                g.drawRoundedRectangle(cell, 1.5f, 1.2f);
+            else
+            {
+                g.drawLine(cell.getX(), cell.getY(), cell.getRight(), cell.getBottom(), 1.2f);
+                g.drawLine(cell.getX(), cell.getBottom(), cell.getRight(), cell.getY(), 1.2f);
+            }
+        }
     }
 
     if (playing_)

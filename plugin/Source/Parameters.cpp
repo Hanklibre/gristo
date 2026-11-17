@@ -406,7 +406,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     return layout;
 }
 
-EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const ModPointStore& lanes)
+EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const ModPointStore& lanes, const StepEditStore* edits)
 {
     EngineParams p;
     p.pattern.mapX = load(s, mapX);
@@ -540,6 +540,11 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         c.velMax = std::max(lo, hi);
     }
     c.shift = static_cast<int>(load(s, chordShift));
+    if (edits != nullptr)
+        for (int v = 0; v < kNumVoices; ++v)
+            for (int k = 0; k < kPatternSteps; ++k)
+                p.pattern.edits[static_cast<size_t>(v)][static_cast<size_t>(k)]
+                    = static_cast<std::int8_t>(juce::jlimit(0, 2, (*edits)[static_cast<size_t>(v * kPatternSteps + k)].load(std::memory_order_relaxed)));
     MacroParams macros;
     macros.busy = load(s, busy);
     macros.loose = load(s, loose);

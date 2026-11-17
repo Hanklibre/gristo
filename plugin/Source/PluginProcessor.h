@@ -47,6 +47,12 @@ public:
 
     // Drawn modulation lane curves (see Parameters.h) and the editor's zoom.
     gristo::params::ModPointStore modPoints;
+    gristo::params::StepEditStore stepEdits;
+    // Hand edits of the drum steps (message thread): 0 as generated, 1 hit, 2 rest.
+    int stepEdit(int voice, int step) const;
+    void setStepEdit(int voice, int step, int edit);
+    void clearStepEdits(int voice); // -1: every drum
+    void stepEditsChanged() { paramGeneration_.fetch_add(1); } // after writing stepEdits directly
     void writeLanes(juce::ValueTree& lanes) const;
     void readLanes(const juce::ValueTree& lanes);
     void resetLanes(); // the starting curves

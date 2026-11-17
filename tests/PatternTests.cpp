@@ -300,3 +300,43 @@ TEST("random: probability random is held per bar per voice")
     }
     CHECK(differ > 40);
 }
+
+TEST("pattern: hand edits add hits and rests in each drum's own loop; Probability still thins added hits")
+{
+    DrumMap map(defaultMapData());
+    PatternGenerator gen(map);
+    PatternParams p;
+    p.fill = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f }; // nothing generated
+    p.edits[Snare][4] = 1;
+    p.edits[Snare][12] = 1;
+    for (std::int64_t s = 0; s < 128; ++s)
+    {
+        const bool expected = floorMod(s, kPatternSteps) == 4 || floorMod(s, kPatternSteps) == 12;
+        CHECK(gen.evaluate(p, s)[Snare].on == expected);
+        CHECK(!gen.evaluate(p, s)[Kick].on);
+    }
+    // Polymeter: a 6-step hat with a hit on its step 0 plays every 6 steps.
+    p.length[HiHat1] = 6;
+    p.edits[HiHat1][0] = 1;
+    for (std::int64_t s = 0; s < 60; ++s)
+        CHECK(gen.evaluate(p, s)[HiHat1].on == (s % 6 == 0));
+    // Rests win over a full Fill.
+    PatternParams full;
+    full.fill = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+    full.edits[Kick][0] = 2;
+    CHECK(!gen.evaluate(full, 0)[Kick].on && !gen.evaluate(full, 32)[Kick].on);
+    // Probability 50 %: about half of the added hits play, and the same ones every render.
+    p.probability[Snare] = 0.5f;
+    int played = 0;
+    for (std::int64_t s = 0; s < 3200; s += kPatternSteps)
+    {
+        const bool a = gen.evaluate(p, s + 4)[Snare].on, b = gen.evaluate(p, s + 4)[Snare].on;
+        CHECK(a == b);
+        played += a ? 1 : 0;
+    }
+    CHECK(played > 30 && played < 70); // 100 added hits at 50 %
+    // Mute silences them too.
+    p.probability[Snare] = 1.0f;
+    p.mute[Snare] = true;
+    CHECK(!gen.evaluate(p, 4)[Snare].on);
+}

@@ -993,7 +993,7 @@ void GristoView::showSizeMenu()
 
 void GristoView::timerCallback()
 {
-    const gristo::EngineParams params = p::readEngineParams(processor_.state, processor_.modPoints);
+    const gristo::EngineParams params = p::readEngineParams(processor_.state, processor_.modPoints, &processor_.stepEdits);
     previewEngine_.setParams(params);
     mapPad_.refreshHeat(params);
     updateModulationDisplay(params);

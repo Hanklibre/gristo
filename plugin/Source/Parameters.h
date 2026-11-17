@@ -194,6 +194,8 @@ juce::String slotId(const juce::String& base, int lane, int slot);
 // Drawn lane curves live outside the parameter tree (they are not automatable):
 // written by the editor, read lock-free by the audio thread.
 using ModPointStore = std::array<std::atomic<float>, kNumModLanes * kMaxModPoints>;
+// Hand-edited drum steps (see PatternParams::edits), voice * kPatternSteps + step.
+using StepEditStore = std::array<std::atomic<int>, kNumVoices * kPatternSteps>;
 inline std::atomic<float>& lanePoint(ModPointStore& store, int lane, int index) { return store[static_cast<size_t>(lane * kMaxModPoints + index)]; }
 inline const std::atomic<float>& lanePoint(const ModPointStore& store, int lane, int index) { return store[static_cast<size_t>(lane * kMaxModPoints + index)]; }
 inline int barsForChoice(int choice) { return choice <= 0 ? 1 : choice == 1 ? 2 : 4; }
@@ -231,7 +233,7 @@ void setActiveOffsets(const ParamOffsets* offsets);
 
 // Reads the current parameter values into engine parameters. Lock-free (atomic
 // loads only), so it is safe on both the audio and the message thread.
-EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state, const ModPointStore& lanes);
+EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state, const ModPointStore& lanes, const StepEditStore* edits = nullptr);
 
 // Built-in sound settings (also lock-free).
 sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& state);

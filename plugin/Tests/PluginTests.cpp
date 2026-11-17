@@ -832,3 +832,28 @@ TEST("plugin: the Beads pitch knob steps through octaves, fifths and fourths; th
     const Run run = play(*proc, 2000);
     CHECK(run.nonFinite == 0 && run.peak <= 1.0f && run.peak > 0.05f);
 }
+
+TEST("plugin: hand step edits play, travel with snapshots and survive a project reload")
+{
+    auto proc = makeProcessor();
+    using namespace gristo;
+    proc->setStepEdit(Snare, 5, 1);
+    proc->setStepEdit(Kick, 0, 2);
+    CHECK(proc->stepEdit(Snare, 5) == 1 && proc->stepEdit(Kick, 0) == 2 && proc->stepEdit(Snare, 6) == 0);
+
+    const Snapshot withEdits = proc->presets.captureSnapshot();
+    proc->clearStepEdits(-1);
+    CHECK(proc->stepEdit(Snare, 5) == 0 && proc->stepEdit(Kick, 0) == 0);
+    proc->presets.applySnapshot(withEdits);
+    CHECK(proc->stepEdit(Snare, 5) == 1 && proc->stepEdit(Kick, 0) == 2);
+
+    juce::MemoryBlock state;
+    proc->getStateInformation(state);
+    GristoProcessor other;
+    other.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    CHECK(other.stepEdit(Snare, 5) == 1 && other.stepEdit(Kick, 0) == 2 && other.stepEdit(HiHat1, 3) == 0);
+
+    // It still plays cleanly.
+    const Run run = play(*proc, 200);
+    CHECK(run.nonFinite == 0 && run.unpaired == 0 && run.peak > 0.0f);
+}

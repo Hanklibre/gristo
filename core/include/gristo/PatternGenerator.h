@@ -32,6 +32,10 @@ struct PatternParams
     // Elektron-style trig condition per voice: 0 = every bar, 1 = 1st of 2 bars,
     // 2 = 2nd of 2, 3 = 1st of 4, 4 = 4th of 4 (a fill every four bars).
     std::array<int, kNumVoices> condition {};
+    // Hand edits per drum and pattern step (0 = as generated, 1 = a hit, 2 = always a rest),
+    // counted in the drum's own loop. They win over the map, Fill, Linear and the trig
+    // condition; a hand-placed hit still answers to the drum's Probability and Mute.
+    std::array<std::array<std::int8_t, kPatternSteps>, kNumVoices> edits {};
     bool linear = false;
     std::uint32_t seed = 0x67726973u;
 };

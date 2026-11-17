@@ -120,6 +120,16 @@ source) and the Perkons inspired the choice of engines, not code.
   (-3 .. +3 octaves); the MIDI it sends is unchanged.
 * **Beads** has its own plugin output (with Separate outputs on; the eighth bus).
 
+### Drawing steps by hand
+
+Click a drum step in the timeline (at the bottom of the Play page) to change it: a
+hit becomes a rest (shown with a cross) and an empty step becomes a hit (shown with
+a ring). Click again to flip it back, drag along a row to draw several steps, and
+right-click a step to give it back to the generator. Edits sit in the drum's own
+loop (its Length), are saved with the song, presets and scenes, and win over the
+map, Fill, Busy, Wild, Linear and the trig condition. A hit you draw still goes
+through the drum's Probability and Mute; a rest you draw is always a rest.
+
 ### Felucca engines and Beads
 
 * **TRIO** (three oscillators, ring modulation, hard sync, combined waves, a

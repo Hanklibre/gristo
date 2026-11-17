@@ -25,6 +25,8 @@ GristoProcessor::GristoProcessor()
                          .withOutput("Beads", juce::AudioChannelSet::stereo(), false)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
+    for (auto& e : stepEdits)
+        e.store(0);
     p::registerParameterTargets(*this);
     resetLanes();
     // A fresh instance starts in a random key; opening a song or a preset sets its own.
@@ -116,7 +118,7 @@ void GristoProcessor::refreshSettings()
 void GristoProcessor::readSettings()
 {
     auto& c = settings_;
-    c.engine = p::readEngineParams(state, modPoints);
+    c.engine = p::readEngineParams(state, modPoints, &stepEdits);
     c.kit = p::readKitParams(state);
     for (int sIndex = 0; sIndex < gristo::sound::kNumSynths; ++sIndex)
         c.synths[sIndex] = p::readSynthParams(state, sIndex);
@@ -528,6 +530,30 @@ juce::AudioProcessorEditor* GristoProcessor::createEditor()
     return new GristoEditor(*this);
 }
 
+int GristoProcessor::stepEdit(int voice, int step) const
+{
+    if (voice < 0 || voice >= gristo::kNumVoices)
+        return 0;
+    return stepEdits[static_cast<size_t>(voice * gristo::kPatternSteps + gristo::floorMod(step, gristo::kPatternSteps))].load();
+}
+
+void GristoProcessor::setStepEdit(int voice, int step, int edit)
+{
+    if (voice < 0 || voice >= gristo::kNumVoices)
+        return;
+    stepEdits[static_cast<size_t>(voice * gristo::kPatternSteps + gristo::floorMod(step, gristo::kPatternSteps))].store(juce::jlimit(0, 2, edit));
+    paramGeneration_.fetch_add(1);
+}
+
+void GristoProcessor::clearStepEdits(int voice)
+{
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        if (voice < 0 || v == voice)
+            for (int k = 0; k < gristo::kPatternSteps; ++k)
+                stepEdits[static_cast<size_t>(v * gristo::kPatternSteps + k)].store(0);
+    paramGeneration_.fetch_add(1);
+}
+
 void GristoProcessor::writeLanes(juce::ValueTree& lanes) const
 {
     for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
@@ -537,6 +563,10 @@ void GristoProcessor::writeLanes(juce::ValueTree& lanes) const
             values.add(juce::String(p::lanePoint(modPoints, lane, k).load(), 3));
         lanes.setProperty("lane" + juce::String(lane), values.joinIntoString(","), nullptr);
     }
+    juce::String steps; // one digit per drum step
+    for (const auto& e : stepEdits)
+        steps << juce::String(e.load());
+    lanes.setProperty("steps", steps, nullptr);
 }
 
 void GristoProcessor::readLanes(const juce::ValueTree& lanes)
@@ -551,6 +581,10 @@ void GristoProcessor::readLanes(const juce::ValueTree& lanes)
             p::lanePoint(modPoints, lane, k).store(std::isfinite(v) ? juce::jlimit(0.0f, 1.0f, v) : 0.0f);
         }
     }
+    const auto steps = lanes.getProperty("steps").toString();
+    for (int i = 0; i < static_cast<int>(stepEdits.size()); ++i)
+        stepEdits[static_cast<size_t>(i)].store(i < steps.length() ? juce::jlimit(0, 2, steps[i] - '0') : 0);
+    paramGeneration_.fetch_add(1);
 }
 
 void GristoProcessor::getStateInformation(juce::MemoryBlock& destData)
@@ -612,7 +646,7 @@ std::vector<GristoProcessor::NoteSpan> GristoProcessor::renderSpans(double start
 {
     constexpr int kBlock = 512;
     constexpr double kRate = 48000.0;
-    gristo::EngineParams params = p::readEngineParams(state, modPoints);
+    gristo::EngineParams params = p::readEngineParams(state, modPoints, &stepEdits);
     params.partMute.fill(false);
     gristo::Engine engine;
     engine.setParams(params);
@@ -661,7 +695,7 @@ juce::MidiFile GristoProcessor::exportMidi(int bars, int part) const
     constexpr double kRate = 48000.0;
     auto value = [this](const juce::String& id) { return state.getRawParameterValue(id)->load(); };
 
-    gristo::EngineParams params = p::readEngineParams(state, modPoints);
+    gristo::EngineParams params = p::readEngineParams(state, modPoints, &stepEdits);
     const auto wasMuted = params.partMute;
     params.partMute.fill(false); // the engine plays everything; muted parts are left out below
     gristo::Engine engine;
@@ -1184,8 +1218,10 @@ void GristoProcessor::setMorph(float amount)
                 mix.values[i] = switches ? (amount < 0.5f ? a : b) : a + (b - a) * amount;
                 ++i;
             }
-    for (size_t k = 0; k < mix.lanePoints.size(); ++k)
-        mix.lanePoints[k] = morphFrom_.lanePoints[k] + (to.lanePoints[k] - morphFrom_.lanePoints[k]) * amount;
+    const size_t points = static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints);
+    for (size_t k = 0; k < mix.lanePoints.size(); ++k) // lane curves glide; drum step edits switch halfway
+        mix.lanePoints[k] = k < points ? morphFrom_.lanePoints[k] + (to.lanePoints[k] - morphFrom_.lanePoints[k]) * amount
+                                       : (amount < 0.5f ? morphFrom_.lanePoints[k] : to.lanePoints[k]);
     presets.applySnapshot(mix);
     currentScene.store(amount >= 1.0f ? morphScene_ : -1);
 }
@@ -1251,7 +1287,8 @@ void GristoProcessor::readScenes(const juce::ValueTree& parent)
         Snapshot snapshot { decode(scene["values"].toString()), decode(scene["lanes"].toString()) };
         // Only scenes saved with this exact set of parameters fit.
         if (i >= 0 && i < kNumScenes && snapshot.values.size() == expected
-            && snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints))
+            && (snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints)
+                || snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints) + stepEdits.size()))
             scenes_[static_cast<size_t>(i)] = std::move(snapshot);
     }
 }
@@ -1428,7 +1465,7 @@ void GristoProcessor::catchHarmony()
         setValue(p::chordFrozen, 0.0f);
         return;
     }
-    const auto chords = p::readEngineParams(state, modPoints).chords;
+    const auto chords = p::readEngineParams(state, modPoints, &stepEdits).chords;
     const auto step = static_cast<std::int64_t>(std::floor(displayPpq.load() * gristo::kStepsPerBeat));
     auto phrase = gristo::Chords::phraseAt(chords, step);
     // Early in a phrase, what you just heard and liked is the one before.

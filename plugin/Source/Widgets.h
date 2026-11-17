@@ -286,6 +286,7 @@ public:
     explicit TimelineView(GristoProcessor& processor) : processor_(processor) {}
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
     // Called from the editor's timer.
     void update(double ppq, bool playing, int bars, int selectedPart);
     std::function<void(int part)> onSelect;
@@ -293,6 +294,11 @@ public:
 private:
     GristoProcessor& processor_;
     std::vector<GristoProcessor::NoteSpan> spans_;
+    // Drum step editing: the cell under the mouse, and what a drag paints.
+    bool cellAt(juce::Point<float> pos, int& voice, std::int64_t& step) const;
+    bool hitAt(int voice, std::int64_t step) const;
+    int dragEdit_ = -1, dragVoice_ = -1;
+    std::int64_t dragStep_ = -1;
     double ppq_ = 0.0, windowStart_ = 0.0;
     bool playing_ = false;
     int bars_ = 1, selectedPart_ = 0;

@@ -97,6 +97,30 @@ StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absolut
 
     if (p.linear)
         applyLinear(hits);
+    for (int v = 0; v < kNumVoices; ++v)
+    {
+        const int length = std::clamp(p.length[static_cast<size_t>(v)], 1, kPatternSteps);
+        const int edit = p.edits[static_cast<size_t>(v)][static_cast<size_t>(floorMod(absoluteStep, length))];
+        if (edit == 0)
+            continue;
+        VoiceHit& h = hits[static_cast<size_t>(v)];
+        if (edit == 1 && !h.on && !p.mute[static_cast<size_t>(v)])
+        {
+            h.level = std::max(h.level, 0.6f); // a solid, unaccented hit
+            h.threshold = std::min(h.threshold, 0.4f);
+            // A hand-placed hit still answers to the drum's Probability (the same roll as a generated one).
+            const float probability = probabilityAt(p, v, absoluteStep);
+            const bool plays = probability >= 1.0f
+                               || rnd::unit(rnd::hash(p.seed, kProbabilityStream + static_cast<std::uint32_t>(v), absoluteStep)) < probability;
+            h.on = plays;
+            h.dropped = !plays;
+        }
+        else if (edit == 2)
+        {
+            h.on = h.accent = false;
+            h.dropped = false;
+        }
+    }
     return hits;
 }
 
