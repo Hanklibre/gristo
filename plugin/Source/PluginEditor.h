@@ -117,7 +117,7 @@ private:
     Knob voiceHumanize_[gristo::kNumVoices];
     Knob voiceDynamics_[gristo::kNumVoices];
     Knob voiceRatchet_[gristo::kNumVoices], voiceSwing_[gristo::kNumVoices];
-    std::unique_ptr<NumberSelector> voiceLengths_[gristo::kNumVoices];
+    std::unique_ptr<NumberSelector> voiceLengths_[gristo::kNumVoices], voiceDivides_[gristo::kNumVoices];
     juce::TextButton voiceTabs_[3]; // Pattern (what plays) / Play (how it is played and sent) / Sound (the selected drum)
     // Sound tab: one set of knobs, bound to the drum selected in the part strip.
     Knob drumSound_[10];
@@ -197,7 +197,8 @@ private:
     {
         juce::ComboBox sound;
         std::unique_ptr<ComboIdAttachment> soundAttachment; // the menu is grouped by category
-        Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck, body;
+        Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck, body, bodyTune, bodyDecay;
+        Choice bodyType;
         std::unique_ptr<NumberSelector> octave;
     };
     Choice soundKit_, fxTime_;
@@ -214,7 +215,8 @@ private:
     Choice chordKey_, chordMinor_, chordMode_, chordRate_, chordPhrase_, chordPlay_, chordOctave_, chordVoicing_, chordStrumDir_;
     std::unique_ptr<NumberSelector> chordChannel_, chordShift_;
     std::unique_ptr<VelocityRange> chordVelocity_;
-    Knob chordWander_, chordGate_, chordStrum_, chordChance_;
+    Knob chordWander_, chordGate_, chordStrum_, chordChance_, chordStabChance_;
+    Choice chordPush_, chordRestrike_, chordStabEvery_;
     juce::TextButton catchButton_ { "Catch" };
     juce::Label chordOutLabel_, chordNowLabel_;
     juce::Label reverbNote_;

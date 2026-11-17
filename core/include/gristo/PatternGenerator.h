@@ -9,6 +9,19 @@ namespace gristo {
 // Level at or above which a hit counts as accented (Grids uses 192/255).
 constexpr float kAccentLevel = 0.75f;
 
+constexpr int kMaxClockDivide = 8;
+
+// The step of a drum's own loop at an absolute step, given its Length and clock
+// divider; -1 when its clock doesn't tick on that step.
+inline int voiceLoopStep(std::int64_t absoluteStep, int length, int divide)
+{
+    divide = divide < 1 ? 1 : divide > kMaxClockDivide ? kMaxClockDivide : divide;
+    if (floorMod(absoluteStep, divide) != 0)
+        return -1;
+    length = length < 1 ? 1 : length > kPatternSteps ? kPatternSteps : length;
+    return floorMod(floorDiv(absoluteStep, divide), length);
+}
+
 struct PatternParams
 {
     float mapX = 0.5f;
@@ -29,6 +42,9 @@ struct PatternParams
     std::array<bool, kNumVoices> mute {};
     // Polymeter: a voice loops its first `length` steps (kPatternSteps = the whole pattern).
     std::array<int, kNumVoices> length { kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps, kPatternSteps };
+    // Clock divider per drum: it plays only on every Nth 16th and walks through its own
+    // pattern (and Length, and hand edits) that many times slower. 1 = every 16th.
+    std::array<int, kNumVoices> divide { 1, 1, 1, 1, 1, 1 };
     // Elektron-style trig condition per voice: 0 = every bar, 1 = 1st of 2 bars,
     // 2 = 2nd of 2, 3 = 1st of 4, 4 = 4th of 4 (a fill every four bars).
     std::array<int, kNumVoices> condition {};

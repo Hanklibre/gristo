@@ -448,6 +448,13 @@ constexpr BodyMode kBodyModes[DrumBody::Count][8] = {
       { 3.31f, 0.45f, 0.80f }, { 4.25f, 0.35f, 0.70f }, { 5.06f, 0.30f, 0.65f }, { 6.65f, 0.25f, 0.60f } },
     { { 1.0f, 1.00f, 1.00f }, { 2.0f, 0.62f, 0.71f }, { 3.0f, 0.46f, 0.58f }, { 4.0f, 0.38f, 0.50f },
       { 5.0f, 0.32f, 0.45f }, { 6.0f, 0.28f, 0.41f }, { 7.0f, 0.25f, 0.38f }, { 8.0f, 0.23f, 0.35f } },
+    // Wood: an acoustic instrument's body: the air (Helmholtz) mode, the top and back
+    // plates, then denser, quicker plate modes.
+    { { 1.00f, 1.00f, 1.00f }, { 1.95f, 0.85f, 0.80f }, { 2.25f, 0.70f, 0.70f }, { 2.90f, 0.50f, 0.55f },
+      { 3.60f, 0.40f, 0.45f }, { 4.50f, 0.30f, 0.38f }, { 5.60f, 0.24f, 0.30f }, { 7.10f, 0.18f, 0.25f } },
+    // Glass: a free bar's modes (1, 2.76, 5.40, 8.93) and a few in between, bright and long.
+    { { 1.00f, 1.00f, 1.00f }, { 2.76f, 0.80f, 0.95f }, { 5.40f, 0.65f, 0.90f }, { 8.93f, 0.50f, 0.85f },
+      { 1.50f, 0.25f, 0.80f }, { 3.90f, 0.30f, 0.80f }, { 6.80f, 0.25f, 0.70f }, { 11.0f, 0.20f, 0.65f } },
 };
 } // namespace
 

@@ -68,7 +68,7 @@ struct DrumTweak
     float body = 0.0f;      // 0..1 amount
     float bodyTune = 0.0f;  // semitones from the drum's own pitch, -24..24
     float bodyDecay = 0.5f; // 0..1, short and woody .. long and ringing
-    int bodyType = 0;       // 0 shell, 1 box, 2 metal, 3 tube
+    int bodyType = 0;       // 0 shell, 1 box, 2 metal, 3 tube, 4 wood, 5 glass
 };
 
 struct KitParams
@@ -99,7 +99,10 @@ struct SynthParams
     float delaySend = 0.0f;
     float cutoffMod = 0.0f; // modulation lane offset, added to `cutoff`
     float duck = 0.0f;      // 0..1: how far the kick pushes this synth down (sidechain pumping)
-    float body = 0.0f;      // 0..1: a wooden resonant body around the sound
+    float body = 0.0f;      // 0..1: a resonant body around the sound (see DrumBody in Fx.h)
+    int bodyType = 4;       // 0 shell, 1 box, 2 metal, 3 tube, 4 wood, 5 glass
+    float bodyTune = 0.0f;  // semitones, -24..24, on the body's own pitch
+    float bodyDecay = 0.4f; // 0..1, short and dry .. long and singing
 };
 
 struct FxParams

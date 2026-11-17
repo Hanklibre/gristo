@@ -68,6 +68,13 @@ struct ChordParams
     ChordPlay play = ChordPlay::Held;
     std::array<bool, kNumVoices> stabTriggers { false, true, false, false, false, false };
     float stabGateSteps = 2.0f;
+    int stabEvery = 1;      // Stabs: only every Nth trigger hit (counted from each bar's start)
+    float stabChance = 1.0f; // Stabs: chance of each stab to play
+    // Held: Push moves every chord change this many 16ths early (negative: late), so a
+    // chord can land before (or after) the one. Re-strike plays the held chord again
+    // every N 16ths (0 = held until the next chord).
+    int heldPush = 0;
+    int restrikeSteps = 0;
     float velMin = 50.0f / 127.0f, velMax = 100.0f / 127.0f;
     int shift = 0; // semitones added to the MIDI out (see ArpParams::shift)
 

@@ -949,3 +949,28 @@ TEST("plugin: a muted part sends no MIDI and is silent, but still feeds Beads pr
     CHECK(solo.nonFinite == 0 && solo.peak > 0.01f);
     CHECK(solo.noteOns[static_cast<size_t>(chordChannel)] == 0); // soloed away: no MIDI either
 }
+
+TEST("plugin: clock dividers, stab Every / Chance, Push, Re-strike and the synths' Body reach the engine and play")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::voiceId(p::voiceDivide, gristo::HiHat1), 3.0f);
+    setParam(*proc, p::chordStabEvery, 1.0f);
+    setParam(*proc, p::chordStabChance, 0.5f);
+    setParam(*proc, p::chordPush, 2.0f);
+    setParam(*proc, p::chordRestrike, 3.0f);
+    setParam(*proc, p::laneId(p::synthBodyType, 1), 5.0f);
+    setParam(*proc, p::laneId(p::synthBodyTune, 1), 7.0f);
+    setParam(*proc, p::laneId(p::synthBody, 1), 1.0f);
+    setParam(*proc, p::voiceId(p::drumBodyType, gristo::Snare), 4.0f);
+    const auto e = p::readEngineParams(proc->state, proc->modPoints);
+    CHECK(e.pattern.divide[gristo::HiHat1] == 3 && e.pattern.divide[gristo::Kick] == 1);
+    CHECK(e.chords.stabEvery == 2 && std::abs(e.chords.stabChance - 0.5f) < 1e-4f);
+    CHECK(e.chords.heldPush == 2 && e.chords.restrikeSteps == 4);
+    const auto synth = p::readSynthParams(proc->state, 1);
+    CHECK(synth.bodyType == 5 && std::abs(synth.bodyTune - 7.0f) < 1e-3f);
+    CHECK(p::readKitParams(proc->state).voice[gristo::Snare].bodyType == 4);
+    setParam(*proc, p::chordOn, 1.0f);
+    proc->pump(2);
+    const Run run = play(*proc, 600);
+    CHECK(run.nonFinite == 0 && run.unpaired == 0 && run.peak > 0.01f && run.peak <= 1.0f);
+}

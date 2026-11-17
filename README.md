@@ -120,6 +120,22 @@ source) and the Perkons inspired the choice of engines, not code.
   (-3 .. +3 octaves); the MIDI it sends is unchanged.
 * **Beads** has its own plugin output (with Separate outputs on; the eighth bus).
 
+### Clock dividers, stab and held rhythm, more Body
+
+* **Clock divider per drum** (Pattern tab, next to each Length: /1 .. /8): the drum
+  plays only on every Nth 16th and walks through its pattern, Length and hand edits
+  that many times slower. /2 is a half-time hat, /3 a hat in threes against the
+  fours.
+* **Chord stabs:** **Every** (every hit, or every 2nd, 3rd, 4th, 6th, 8th hit of the
+  stab drums, counted from each bar) and **Stab %** (the chance of each stab).
+* **Held chords:** **Push**: the chords change on the 1, or early (a 16th, an 8th
+  or a beat ahead, anticipating the bar) or late (laid back). **Re-strike**: the
+  chord plays again on a pulse (every 8th, dotted 8th, beat, dotted beat, half bar or
+  bar, from its own pushed start), each strike rolling Chance anew.
+* **Body on the synths:** a material (Wood, the default: an instrument's body;
+  Box; Shell; Metal; Glass; Tube), **B.Tune** and **B.Decay**. Drums get Wood and
+  Glass too.
+
 ### Mixer, a delay of its own, pre-fader Beads sends
 
 * **Mixer** (the button next to Rings): a strip per channel, Kit, Arp 1-3,

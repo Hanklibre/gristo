@@ -828,3 +828,52 @@ TEST("chords: Note chance thins each note on its own, the same way every render"
     for (const auto& e : b) if (e.voice == kChordVoice && e.on) eb.push_back({ e.sample, e.note });
     CHECK(ea == eb);
 }
+
+TEST("chords: stabs on every Nth hit, with a chance; held chords pushed off the one and re-struck")
+{
+    auto stabs = [](int every, float chance) {
+        EngineParams p = fourOnFloor();
+        p.chords = cMajor();
+        p.chords.play = ChordPlay::Stabs;
+        p.chords.stabTriggers = { true, false, false, false, false, false }; // the kick: 4 a bar
+        p.chords.stabEvery = every;
+        p.chords.stabChance = chance;
+        std::set<std::int64_t> starts;
+        for (const auto& e : render(p, 256, kBar * 8))
+            if (e.on && e.voice == kChordVoice)
+                starts.insert(e.sample);
+        return starts;
+    };
+    const auto all = stabs(1, 1.0f), half = stabs(2, 1.0f), some = stabs(1, 0.5f);
+    CHECK(all.size() == 32);
+    CHECK(half.size() == 16);
+    for (const auto t : half) // the 1st and 3rd kick of every bar
+        CHECK(all.count(t) == 1 && (t % kBar) < kBar / 2 + 1000 && ((t % kBar) < 1000 || std::abs(static_cast<double>(t % kBar) - kBar / 2.0) < 1000.0));
+    CHECK(some.size() > 8 && some.size() < 24);
+    CHECK(stabs(1, 0.5f) == some); // the same every time
+
+    auto held = [](int push, int restrike) {
+        EngineParams p = fourOnFloor();
+        p.chords = cMajor();
+        p.chords.wander = 1.0f; // a new chord every bar
+        p.chords.chordSteps = 16;
+        p.chords.heldPush = push;
+        p.chords.restrikeSteps = restrike;
+        std::vector<std::int64_t> starts;
+        std::int64_t last = -1;
+        for (const auto& e : render(p, 256, kBar * 4))
+            if (e.on && e.voice == kChordVoice && e.sample != last)
+                starts.push_back(last = e.sample);
+        return starts;
+    };
+    const auto onTheOne = held(0, 0), early = held(2, 0), struck = held(0, 4);
+    const std::int64_t eighth = kBar / 8;
+    CHECK(!onTheOne.empty());
+    for (const auto t : onTheOne)
+        CHECK(t % kBar < 200); // on the bar line
+    int pushed = 0;
+    for (const auto t : early)
+        pushed += std::abs(static_cast<double>((t + eighth) % kBar)) < 200 ? 1 : 0; // an 8th before the bar line
+    CHECK(pushed >= 2);
+    CHECK(struck.size() >= 14); // every beat for four bars
+}

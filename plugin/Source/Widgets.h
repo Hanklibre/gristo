@@ -292,6 +292,7 @@ public:
     std::function<void(int part)> onSelect;
 
 private:
+    int loopStepOf(int voice, std::int64_t step) const; // -1: off the drum's clock
     GristoProcessor& processor_;
     std::vector<GristoProcessor::NoteSpan> spans_;
     // Drum step editing: the cell under the mouse, and what a drag paints.

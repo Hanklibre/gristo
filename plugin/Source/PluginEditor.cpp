@@ -98,8 +98,10 @@ GristoView::GristoView(GristoProcessor& proc)
         setupCellKnob(voiceDynamics_[v], p::voiceId(p::voiceDynamics, v), false);
         setupCellKnob(voiceRatchet_[v], p::voiceId(p::voiceRatchet, v), false);
         setupCellKnob(voiceSwing_[v], p::voiceId(p::voiceSwing, v), false);
-        voiceLengths_[v] = std::make_unique<NumberSelector>(*proc.state.getParameter(p::voiceId(p::voiceLength, v)), "", 1, gristo::kPatternSteps, " steps");
+        voiceLengths_[v] = std::make_unique<NumberSelector>(*proc.state.getParameter(p::voiceId(p::voiceLength, v)), "", 1, gristo::kPatternSteps, "");
         addAndMakeVisible(*voiceLengths_[v]);
+        voiceDivides_[v] = std::make_unique<NumberSelector>(*proc.state.getParameter(p::voiceId(p::voiceDivide, v)), "/", 1, gristo::kMaxClockDivide, "");
+        addAndMakeVisible(*voiceDivides_[v]);
         velocityRanges_[v] = std::make_unique<VelocityRange>(*proc.state.getParameter(p::voiceId(p::velMin, v)),
                                                              *proc.state.getParameter(p::voiceId(p::velMax, v)), voiceColours[v]);
         addAndMakeVisible(*velocityRanges_[v]);
@@ -298,7 +300,9 @@ GristoView::GristoView(GristoProcessor& proc)
         setHelp(voiceHumanize_[v], name + " Humanize", "Scales the master Humanize for this voice. 0 % = on the grid, 200 % = twice as loose.");
         setHelp(voiceRatchet_[v], name + " Ratchet", "Chance that a hit plays as two or three quick hits. Arps listening to this drum ratchet with it.");
         setHelp(voiceSwing_[v], name + " Swing", "How much of the Shuffle this drum follows. 0 % = straight on the grid while the others swing.");
-        setHelp(*voiceLengths_[v], name + " Length", "Polymeter: the drum loops after this many 16ths. 32 = the whole 2-bar pattern. Try 5 or 7 on a hat.");
+        setHelp(*voiceLengths_[v], name + " Length", "Polymeter: the drum loops after this many of its steps. 32 = the whole 2-bar pattern. Try 5 or 7 on a hat.");
+        setHelp(*voiceDivides_[v], name + " Clock divide", "This drum's own clock: /1 every 16th, /2 every 8th, /3 every third 16th (against the 4s), up to /8. "
+                                                           "Its pattern, Length and hand edits run that many times slower.");
         setHelp(voiceDynamics_[v], name + " Dynamics", "Scales the master Dynamics for this voice: how much softer its weaker notes are.");
         setHelp(*velocityRanges_[v], name + " Velocity", "MIDI velocity range. Accents play at the top, ghost notes near the bottom. Drag the ends; double-click = 1-127.");
         setHelp(*notes_[v], name + " Note", "MIDI note this voice sends. Defaults are GM three octaves down (Pitch +36 in Live restores GM). Click for a list, scroll to step.");
@@ -1259,7 +1263,15 @@ void GristoView::setupSoundPage()
         addAndMakeVisible(*row.octave);
         setHelp(*row.octave, name + "Sound octave (audio)", "Moves the built-in sound up or down in octaves. Audio only: the MIDI it sends doesn't move (that is the MIDI out Shift, next to the channel).");
         setupSmallKnob(row.body, p::laneId(p::synthBody, a), "Body");
-        setHelp(row.body, name + "Body", "A wooden resonant body around the sound: makes plucks, keys and voices feel acoustic.");
+        setHelp(row.body, name + "Body", "A resonant body around the sound (its material in the menu by the octave): makes plucks, keys and voices feel acoustic.");
+        setupSmallKnob(row.bodyTune, p::laneId(p::synthBodyTune, a), "B.Tune");
+        setHelp(row.bodyTune, name + "Body tune", "The body's pitch, in semitones. It stays put whatever note plays, like an instrument's body.");
+        setupSmallKnob(row.bodyDecay, p::laneId(p::synthBodyDecay, a), "B.Decay");
+        setHelp(row.bodyDecay, name + "Body decay", "How long the body rings: dry and boxy, or long and singing.");
+        setupChoice(row.bodyType, p::laneId(p::synthBodyType, a), "Body");
+        row.bodyType.label.setVisible(false);
+        setHelp(row.bodyType.box, name + "Body type", "What the Body is made of. Wood: an acoustic instrument's body. Box: a cajon-like box. Shell: a drum. "
+                                                   "Metal: a struck plate. Glass: a bar or a glass, bright and long. Tube: a pipe (harmonic).");
         setupSmallKnob(row.duck, p::laneId(p::synthDuck, a), "Duck");
         setHelp(row.duck, name + "Duck", "Sidechain pumping: every kick pushes this sound down and it swells back.");
         if (arp >= 0)
@@ -1351,6 +1363,16 @@ void GristoView::setupChordPage()
     setupSmallKnob(chordGate_, p::chordGate, "Gate");
     setupSmallKnob(chordStrum_, p::chordStrum, "Strum");
     setupSmallKnob(chordChance_, p::chordNoteChance, "Chance");
+    setupSmallKnob(chordStabChance_, p::chordStabChance, "Stab %");
+    setHelp(chordStabChance_, "Stab chance", "Stabs: the chance of each stab to play at all (the notes of the ones that play still roll Chance).");
+    setupChoice(chordPush_, p::chordPush, "Push");
+    setHelp(chordPush_.box, "Push", "Held: when the chords change. On the 1, or early (pushed, anticipating the bar: a 16th, an 8th, a beat ahead) or late (laid back).");
+    setupChoice(chordRestrike_, p::chordRestrike, "Strike");
+    setHelp(chordRestrike_.box, "Re-strike", "Held: the chord plays again on this pulse (counted from the chord's own, pushed start), instead of being held until the next chord. Each strike rolls Chance anew.");
+    setupChoice(chordStabEvery_, p::chordStabEvery, "Every");
+    for (Choice* c : { &chordPush_, &chordRestrike_, &chordStabEvery_ })
+        c->label.setVisible(false);
+    setHelp(chordStabEvery_.box, "Stab every", "Stabs: only every 2nd, 3rd... hit of the stab drums, counted from each bar's start.");
     reverbNote_.setText("Reverb: Beads'.\nIts colour follows\nQuality (below).", juce::dontSendNotification);
     reverbNote_.setFont(juce::FontOptions(11.0f));
     reverbNote_.setColour(juce::Label::textColourId, colours::dim);
@@ -1395,7 +1417,8 @@ std::vector<juce::Component*> GristoView::chordPageComponents()
                                          &chordPlay_.box, &chordOctave_.box, chordChannel_.get(), chordShift_.get(), chordVelocity_.get(),
                                          &chordOutLabel_, &chordNowLabel_, &harmonyPad_, &catchButton_,
                                          &chordWander_.slider, &chordWander_.label, &chordGate_.slider, &chordGate_.label,
-                                         &chordStrum_.slider, &chordStrum_.label, &chordChance_.slider, &chordChance_.label, &chordVoicing_.box, &chordVoicing_.label,
+                                         &chordStrum_.slider, &chordStrum_.label, &chordChance_.slider, &chordChance_.label, &chordStabChance_.slider, &chordStabChance_.label,
+                                         &chordPush_.box, &chordRestrike_.box, &chordStabEvery_.box, &chordVoicing_.box, &chordVoicing_.label,
                                          &chordStrumDir_.box, &chordStrumDir_.label };
     for (auto& t : chordStabs_)
         list.push_back(&t.button);
@@ -2144,6 +2167,7 @@ std::vector<juce::Component*> GristoView::drumsPageComponents()
                          &voiceRatchet_[v], &voiceSwing_[v] })
             list.push_back(&k->slider);
         list.push_back(voiceLengths_[v].get());
+        list.push_back(voiceDivides_[v].get());
         list.push_back(velocityRanges_[v].get());
         list.push_back(notes_[v].get());
         list.push_back(channels_[v].get());
@@ -2179,6 +2203,7 @@ void GristoView::showVoiceTab(int tab)
         for (Knob* k : { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceRatchet_[v] })
             k->slider.setVisible(drums && tab == 0);
         voiceLengths_[v]->setVisible(drums && tab == 0);
+        voiceDivides_[v]->setVisible(drums && tab == 0);
         for (Knob* k : { &voiceHumanize_[v], &voiceDynamics_[v], &voiceSwing_[v] })
             k->slider.setVisible(drums && tab == 1);
         for (juce::Component* c : std::initializer_list<juce::Component*> { velocityRanges_[v].get(), notes_[v].get(), channels_[v].get(), &sampleButtons_[v] })
@@ -2257,8 +2282,9 @@ std::vector<juce::Component*> GristoView::masterPageComponents()
 std::vector<juce::Component*> GristoView::synthComponents(int synth)
 {
     auto& row = synthRows_[synth];
-    std::vector<juce::Component*> list { &row.sound, row.octave.get() };
-    for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck, &row.body })
+    std::vector<juce::Component*> list { &row.sound, row.octave.get(), &row.bodyType.box };
+    for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck, &row.body,
+                     &row.bodyTune, &row.bodyDecay })
     {
         list.push_back(&k->slider);
         list.push_back(&k->label);
@@ -2560,7 +2586,7 @@ void GristoView::paint(juce::Graphics& g)
             }
         }
         g.setFont(juce::FontOptions(11.5f));
-        static const char* const patternRows[] = { "Fill", "Random", "Probability", "Random", "Ratchet", "Length" };
+        static const char* const patternRows[] = { "Fill", "Random", "Probability", "Random", "Ratchet", "Length / clock" };
         static const char* const playRows[] = { "Humanize", "Dynamics", "Swing", "Velocity", "Note", "Channel", "Sample" };
         const int count = voiceTab_ == 0 ? 6 : voiceTab_ == 1 ? 7 : 0;
         if (voiceTab_ == 2)
@@ -2821,7 +2847,8 @@ void GristoView::resized()
         Knob* pattern[] = { &fills_[v], &fillRandoms_[v], &probabilities_[v], &probabilityRandoms_[v], &voiceRatchet_[v] };
         for (int r = 0; r < 5; ++r)
             pattern[r]->slider.setBounds(x + 2, kVoiceRowY[r] + 3, kVoiceColW - 4, kVoiceRowH);
-        voiceLengths_[v]->setBounds(x + 5, kVoiceRowY[5] + 13, kVoiceColW - 10, 24);
+        voiceLengths_[v]->setBounds(x + 3, kVoiceRowY[5] + 13, 36, 24);
+        voiceDivides_[v]->setBounds(x + 41, kVoiceRowY[5] + 13, 26, 24);
         // Play tab
         Knob* play[] = { &voiceHumanize_[v], &voiceDynamics_[v], &voiceSwing_[v] };
         for (int r = 0; r < 3; ++r)
@@ -2932,6 +2959,11 @@ void GristoView::resized()
         row.sound.setBounds(px + 24, py + 352, 190, 30);
         if (row.octave != nullptr)
             row.octave->setBounds(px + 24, py + 432, 110, 24);
+        row.bodyType.box.setBounds(px + 138, py + 432, 86, 24);
+        row.bodyTune.slider.setBounds(px + 142, py + 388, 38, 28);
+        row.bodyTune.label.setBounds(px + 136, py + 415, 50, 12);
+        row.bodyDecay.slider.setBounds(px + 186, py + 388, 38, 28);
+        row.bodyDecay.label.setBounds(px + 180, py + 415, 50, 12);
         Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.body, &row.reverb, &row.delay, &row.duck };
         for (int i = 0; i < 11; ++i)
             placeLabeled(*knobs[i], { px + 228 + i * 75 + (i >= 8 ? 12 : 0), py + 332, 72, 142 });
@@ -3012,6 +3044,10 @@ void GristoView::resized()
         placeSmallKnob(chordStrum_, 740, y + 48);
         placeSmallKnob(chordGate_, 800, y + 48);
         placeSmallKnob(chordChance_, 860, y + 48);
+        placeSmallKnob(chordStabChance_, 920, y + 48);
+        chordPush_.box.setBounds(740, y + 98, 116, 22);
+        chordRestrike_.box.setBounds(860, y + 98, 116, 22);
+        chordStabEvery_.box.setBounds(740, y + 124, 116, 22);
         chordVoicing_.label.setBounds(640, y + 150, 52, 24);
         chordVoicing_.box.setBounds(692, y + 150, 136, 24);
         chordStrumDir_.label.setBounds(836, y + 150, 40, 24);

@@ -36,6 +36,9 @@ inline const juce::String drumEngine = "dEngine";
 inline const juce::String drumFilter = "dFilter";
 inline const juce::String drumCutoff = "dCut";
 inline const juce::String synthBody = "synBody";
+inline const juce::String synthBodyType = "synBodyType";
+inline const juce::String synthBodyTune = "synBodyTune";
+inline const juce::String synthBodyDecay = "synBodyDec";
 inline const juce::String synthOctave = "synOct"; // per synth: the built-in sound only, not the MIDI out
 inline const juce::String voiceDynamics = "dyn";
 inline const juce::String partMute = "partMute"; // per part: 6 drums, 3 arps, chords
@@ -208,6 +211,16 @@ inline const juce::String delayToReverb = "dlyToRev";
 inline const juce::String delayToBeads = "dlyToBeads";
 inline const juce::String reverbLevel = "revLevel";
 inline const juce::String reverbMute = "revMute";
+
+// Rhythm: a clock divider per drum; Every and Chance for chord stabs; Push and
+// Re-strike for held chords.
+inline const juce::String voiceDivide = "dDiv";
+inline const juce::String chordStabEvery = "chStabEvery";
+inline const juce::String chordStabChance = "chStabChance";
+inline const juce::String chordPush = "chPush";
+inline const juce::String chordRestrike = "chRestrike";
+inline const int kChordPushSteps[] = { 0, 1, 2, 4, -1, -2 }; // On the 1, early 1/16, 1/8, 1/4, late 1/16, 1/8
+inline const int kRestrikeSteps[] = { 0, 2, 3, 4, 6, 8, 16 }; // off, 1/8, dotted 1/8, 1/4, dotted 1/4, 1/2, 1 bar
 
 // Beads-style random modulation amounts
 inline const juce::String mapRandom = "mapRnd";

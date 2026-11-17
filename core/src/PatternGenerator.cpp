@@ -62,15 +62,19 @@ StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absolut
     for (int v = 0; v < kNumVoices; ++v)
     {
         const int length = std::clamp(p.length[static_cast<size_t>(v)], 1, kPatternSteps);
-        const int patternStep = floorMod(absoluteStep, length);
-        const std::int64_t cycle = floorDiv(absoluteStep, length);
+        const int divide = std::clamp(p.divide[static_cast<size_t>(v)], 1, kMaxClockDivide);
+        VoiceHit& h = hits[static_cast<size_t>(v)];
+        if (floorMod(absoluteStep, divide) != 0)
+            continue; // its clock doesn't tick here
+        const std::int64_t clockStep = floorDiv(absoluteStep, divide); // the drum's own steps
+        const int patternStep = floorMod(clockStep, length);
+        const std::int64_t cycle = floorDiv(clockStep, length);
         float level = map_.level(v, patternStep, mapX, mapY);
         if (p.chaos > 0.0f)
         {
             const float n = rnd::bipolar(rnd::hash(p.seed, kChaosStream + static_cast<std::uint32_t>(v), cycle, patternStep));
             level = std::clamp(level + n * p.chaos * kChaosDepth, 0.0f, 1.0f);
         }
-        VoiceHit& h = hits[static_cast<size_t>(v)];
         h.level = level;
         h.threshold = 1.0f - fillAt(p, v, absoluteStep);
         h.on = level > h.threshold && level > 0.0f && !p.mute[static_cast<size_t>(v)];
@@ -99,8 +103,10 @@ StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absolut
         applyLinear(hits);
     for (int v = 0; v < kNumVoices; ++v)
     {
-        const int length = std::clamp(p.length[static_cast<size_t>(v)], 1, kPatternSteps);
-        const int edit = p.edits[static_cast<size_t>(v)][static_cast<size_t>(floorMod(absoluteStep, length))];
+        const int loopStep = voiceLoopStep(absoluteStep, p.length[static_cast<size_t>(v)], p.divide[static_cast<size_t>(v)]);
+        if (loopStep < 0)
+            continue;
+        const int edit = p.edits[static_cast<size_t>(v)][static_cast<size_t>(loopStep)];
         if (edit == 0)
             continue;
         VoiceHit& h = hits[static_cast<size_t>(v)];

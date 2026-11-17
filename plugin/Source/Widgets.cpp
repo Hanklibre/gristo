@@ -1159,10 +1159,10 @@ void TimelineView::mouseDown(const juce::MouseEvent& e)
     dragEdit_ = -1;
     if (!cellAt(e.position, voice, step))
         return;
-    // The step in the drum's own loop (its Length, for polymeter).
-    const int length = juce::jlimit(1, gristo::kPatternSteps,
-                                    static_cast<int>(processor_.state.getRawParameterValue(gristo::params::voiceId(gristo::params::voiceLength, voice))->load()));
-    const int loopStep = gristo::floorMod(step, length);
+    // The step in the drum's own loop (its Length and clock divider); none off its clock.
+    const int loopStep = loopStepOf(voice, step);
+    if (loopStep < 0)
+        return;
     const int current = processor_.stepEdit(voice, loopStep);
     if (e.mods.isPopupMenu())
         dragEdit_ = 0;
@@ -1183,15 +1183,19 @@ void TimelineView::mouseDrag(const juce::MouseEvent& e)
     std::int64_t step = 0;
     if (dragEdit_ < 0 || !cellAt(e.position, voice, step) || voice != dragVoice_)
         return;
-    const int length = juce::jlimit(1, gristo::kPatternSteps,
-                                    static_cast<int>(processor_.state.getRawParameterValue(gristo::params::voiceId(gristo::params::voiceLength, voice))->load()));
-    const int loopStep = gristo::floorMod(step, length);
-    if (loopStep == dragStep_)
+    const int loopStep = loopStepOf(voice, step);
+    if (loopStep < 0 || loopStep == dragStep_)
         return;
     dragStep_ = loopStep;
     processor_.setStepEdit(voice, loopStep, dragEdit_);
     stale_ = true;
     renderedAt_ = 0;
+}
+
+int TimelineView::loopStepOf(int voice, std::int64_t step) const
+{
+    auto value = [&](const juce::String& id) { return static_cast<int>(processor_.state.getRawParameterValue(gristo::params::voiceId(id, voice))->load()); };
+    return gristo::voiceLoopStep(step, value(gristo::params::voiceLength), value(gristo::params::voiceDivide));
 }
 
 void TimelineView::paint(juce::Graphics& g)
@@ -1251,12 +1255,11 @@ void TimelineView::paint(juce::Graphics& g)
     // Hand-edited drum steps: a ring on a forced hit, a cross on a forced rest.
     for (int v = 0; v < kNumVoices; ++v)
     {
-        const int loopLength = juce::jlimit(1, kPatternSteps,
-                                        static_cast<int>(processor_.state.getRawParameterValue(gristo::params::voiceId(gristo::params::voiceLength, v))->load()));
         const auto first = static_cast<std::int64_t>(std::llround(windowStart_ * kStepsPerBeat));
         for (int s = 0; s < steps; ++s)
         {
-            const int edit = processor_.stepEdit(v, floorMod(first + s, loopLength));
+            const int loopStep = loopStepOf(v, first + s);
+            const int edit = loopStep < 0 ? 0 : processor_.stepEdit(v, loopStep);
             if (edit == 0)
                 continue;
             const float x = grid.getX() + grid.getWidth() * static_cast<float>(s) / static_cast<float>(steps);

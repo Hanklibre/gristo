@@ -9,6 +9,7 @@
 namespace gristo {
 
 namespace {
+constexpr std::uint32_t kStabChanceStream = 0x57AB5u;
 constexpr float kMinVelocity = 1.0f / 127.0f;
 constexpr int kMaxStepsPerBlock = 4096;
 constexpr double kSlideOverlapBeats = 0.02; // legato overlap for slides (~10 ms at 120 bpm)
@@ -341,11 +342,17 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
             const double beats = byKeys ? ppqStart : gridAt(s);
             if (beats >= ppqEnd && !byKeys)
                 break;
-            const ChordPosition pos = chordPositionAt(s);
-            const Chord chord = pos.valid ? outNotes(Chords::thin(cp, Chords::build(cp, pos.cell), pos.serial)) : Chord {};
+            // Push: the harmony is read ahead (or behind), so the change lands off the one.
+            const std::int64_t at = byKeys ? s : s + std::clamp(cp.heldPush, -8, 8);
+            const ChordPosition pos = chordPositionAt(at);
+            // Re-strike: the chord plays again every N 16ths (each strike its own Chance roll).
+            const int restrike = byKeys ? 0 : std::clamp(cp.restrikeSteps, 0, 64);
+            const std::int64_t strike = restrike > 0 ? floorDiv(at, restrike) : 0;
+            const Chord chord = pos.valid ? outNotes(Chords::thin(cp, Chords::build(cp, pos.cell), pos.serial * 4099 + strike)) : Chord {};
             const bool edited = st.haveChord && (chord.count != st.held.count
                                                  || !std::equal(chord.notes.begin(), chord.notes.begin() + chord.count, st.held.notes.begin()));
-            if (!st.haveChord || pos.serial != st.lastSerial || edited)
+            const bool restruck = restrike > 0 && st.haveChord && strike != st.lastStrike;
+            if (!st.haveChord || pos.serial != st.lastSerial || edited || restruck)
             {
                 releaseHeldChord(beats);
                 // Stabs still sounding (Play switched from Stabs): end them here, so the
@@ -359,6 +366,7 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
                 st.held = chord;
                 st.haveChord = chord.count > 0;
                 st.lastSerial = pos.serial;
+                st.lastStrike = strike;
             }
             if (byKeys)
             {
@@ -370,22 +378,16 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
         {
             releaseHeldChord(ppqStart);
             HitInfo best;
-            bool found = false;
             double earliest = std::numeric_limits<double>::infinity();
-            for (int v = 0; v < kNumVoices; ++v)
-            {
-                if (!cp.stabTriggers[static_cast<size_t>(v)])
-                    continue;
-                const HitInfo h = describe(s, v, bpm, true);
-                earliest = std::min(earliest, h.timeBeats);
-                if (h.on && (!found || h.velocityNorm > best.velocityNorm))
-                {
-                    best = h;
-                    found = true;
-                }
-            }
+            bool found = stabHit(s, bpm, best, earliest);
             if (earliest >= ppqEnd)
                 break;
+            // Every: only every Nth stab hit of the bar. Chance: each stab rolls.
+            const int every = std::clamp(cp.stabEvery, 1, 16);
+            if (found && every > 1)
+                found = stabIndexInBar(s, bpm) % every == 0;
+            if (found && cp.stabChance < 1.0f)
+                found = rnd::unit(rnd::hash(cp.seed, kStabChanceStream, s)) < std::max(0.0f, cp.stabChance);
             if (found)
             {
                 const Chord chord = outNotes(Chords::thin(cp, chordAt(s), s));
@@ -401,6 +403,36 @@ void Engine::processChords(double ppqStart, double ppqEnd, double bpm)
         }
         ++st.nextStep;
     }
+}
+
+bool Engine::stabHit(std::int64_t step, double bpm, HitInfo& best, double& earliest) const
+{
+    const ChordParams& cp = params_.chords;
+    bool found = false;
+    earliest = std::numeric_limits<double>::infinity();
+    for (int v = 0; v < kNumVoices; ++v)
+    {
+        if (!cp.stabTriggers[static_cast<size_t>(v)])
+            continue;
+        const HitInfo h = describe(step, v, bpm, true);
+        earliest = std::min(earliest, h.timeBeats);
+        if (h.on && (!found || h.velocityNorm > best.velocityNorm))
+        {
+            best = h;
+            found = true;
+        }
+    }
+    return found;
+}
+
+int Engine::stabIndexInBar(std::int64_t step, double bpm) const
+{
+    int index = 0;
+    HitInfo h;
+    double earliest = 0.0;
+    for (std::int64_t t = floorDiv(step, kStepsPerBar) * kStepsPerBar; t < step; ++t)
+        index += stabHit(t, bpm, h, earliest) ? 1 : 0;
+    return index;
 }
 
 void Engine::processArp(int arp, double ppqStart, double ppqEnd, double bpm)

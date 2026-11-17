@@ -340,3 +340,31 @@ TEST("pattern: hand edits add hits and rests in each drum's own loop; Probabilit
     p.mute[Snare] = true;
     CHECK(!gen.evaluate(p, 4)[Snare].on);
 }
+
+TEST("pattern: a drum's clock divider plays only on its own ticks, its pattern and edits slowed down")
+{
+    DrumMap map(defaultMapData());
+    PatternGenerator gen(map);
+    PatternParams p;
+    p.fill = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f };
+    p.divide[HiHat1] = 3;
+    PatternParams plain = p;
+    plain.divide[HiHat1] = 1;
+    for (std::int64_t s = 0; s < 96; ++s)
+    {
+        const VoiceHit h = gen.evaluate(p, s)[HiHat1];
+        if (s % 3 != 0)
+            CHECK(!h.on);
+        else // on its ticks it plays what its undivided self would play a third as far in
+            CHECK(h.on == gen.evaluate(plain, s / 3)[HiHat1].on);
+        CHECK(gen.evaluate(p, s)[Kick].on == gen.evaluate(plain, s)[Kick].on); // the others don't change
+    }
+    // A hand edit sits on the drum's own step: step 2 of a /2 clock is absolute step 4.
+    PatternParams e;
+    e.fill = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    e.divide[Snare] = 2;
+    e.edits[Snare][2] = 1;
+    CHECK(voiceLoopStep(4, kPatternSteps, 2) == 2 && voiceLoopStep(5, kPatternSteps, 2) == -1);
+    for (std::int64_t s = 0; s < 128; ++s)
+        CHECK(gen.evaluate(e, s)[Snare].on == (floorMod(s, 64) == 4));
+}

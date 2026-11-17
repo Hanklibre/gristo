@@ -407,7 +407,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     for (int v = 0; v < kNumVoices; ++v)
         layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { voiceId(drumBodyType, v), kVersion },
                                                                 juce::String(voiceName(v)) + " Body Type",
-                                                                juce::StringArray { "Shell", "Box", "Metal", "Tube" }, 0));
+                                                                juce::StringArray { "Shell", "Box", "Metal", "Tube", "Wood", "Glass" }, 0));
     // Rings
     layout.add(boolParam(ringsOn, "Rings On", false));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { ringsSource, kVersion }, "Rings Played By",
@@ -446,6 +446,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add(percentParam(delayToBeads, "Delay To Beads", 0.0f));
     layout.add(percentParam(reverbLevel, "Reverb Level", 1.0f));
     layout.add(boolParam(reverbMute, "Reverb Mute", false));
+    // Rhythm
+    for (int v = 0; v < kNumVoices; ++v)
+        layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { voiceId(voiceDivide, v), kVersion },
+                                                             juce::String(voiceName(v)) + " Clock Divide", 1, kMaxClockDivide, 1));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordStabEvery, kVersion }, "Chord Stab Every",
+        juce::StringArray { "Stab every hit", "Every 2nd hit", "Every 3rd hit", "Every 4th hit", "Every 6th hit", "Every 8th hit" }, 0));
+    layout.add(percentParam(chordStabChance, "Chord Stab Chance", 1.0f));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordPush, kVersion }, "Chord Push",
+        juce::StringArray { "Change on the 1", "Early 1/16", "Early 1/8", "Early 1/4", "Late 1/16", "Late 1/8" }, 0));
+    for (int synth = 0; synth < sound::kNumSynths; ++synth)
+    {
+        const juce::String name = synth < kNumArps ? "Synth " + juce::String(synth + 1) + " " : juce::String("Chord Synth ");
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(synthBodyType, synth), kVersion }, name + "Body Type",
+                                                                juce::StringArray { "Shell", "Box", "Metal", "Tube", "Wood", "Glass" }, 4));
+        layout.add(floatParam(laneId(synthBodyTune, synth), name + "Body Tune", { -24.0f, 24.0f, 0.1f }, 0.0f, "st", 1));
+        layout.add(percentParam(laneId(synthBodyDecay, synth), name + "Body Decay", 0.4f));
+    }
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordRestrike, kVersion }, "Chord Re-strike",
+        juce::StringArray { "Held", "Strike 1/8", "Strike dotted 1/8", "Strike 1/4", "Strike dotted 1/4", "Strike 1/2", "Strike every bar" }, 0));
     return layout;
 }
 
@@ -471,6 +490,7 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         p.dynamics.voiceDynamics[i] = load(s, voiceId(voiceDynamics, v));
         p.pattern.probabilityRandom[i] = load(s, voiceId(probabilityRandom, v));
         p.pattern.length[i] = static_cast<int>(load(s, voiceId(voiceLength, v)));
+        p.pattern.divide[i] = juce::jlimit(1, kMaxClockDivide, juce::roundToInt(load(s, voiceId(voiceDivide, v))));
         p.groove.ratchet[i] = load(s, voiceId(voiceRatchet, v));
         p.groove.swing[i] = load(s, voiceId(voiceSwing, v));
         p.pattern.condition[i] = static_cast<int>(load(s, voiceId(voiceCondition, v)));
@@ -579,6 +599,13 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         c.stabTriggers[static_cast<size_t>(v)] = load(s, voiceId(chordStab, v)) > 0.5f;
     c.stabGateSteps = load(s, chordGate);
     {
+        static const int every[] = { 1, 2, 3, 4, 6, 8 };
+        c.stabEvery = every[juce::jlimit(0, 5, static_cast<int>(load(s, chordStabEvery)))];
+    }
+    c.stabChance = load(s, chordStabChance);
+    c.heldPush = kChordPushSteps[juce::jlimit(0, 5, static_cast<int>(load(s, chordPush)))];
+    c.restrikeSteps = kRestrikeSteps[juce::jlimit(0, 6, static_cast<int>(load(s, chordRestrike)))];
+    {
         const float lo = load(s, chordVelMin) / 127.0f, hi = load(s, chordVelMax) / 127.0f;
         c.velMin = std::min(lo, hi);
         c.velMax = std::max(lo, hi);
@@ -628,7 +655,7 @@ sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& s)
         t.body = load(s, voiceId(drumBody, v));
         t.bodyTune = load(s, voiceId(drumBodyTune, v));
         t.bodyDecay = load(s, voiceId(drumBodyDecay, v));
-        t.bodyType = juce::jlimit(0, 3, static_cast<int>(load(s, voiceId(drumBodyType, v))));
+        t.bodyType = juce::jlimit(0, 5, static_cast<int>(load(s, voiceId(drumBodyType, v))));
         t.engine = static_cast<int>(load(s, voiceId(drumEngine, v))) - 1;
         t.filter = static_cast<int>(load(s, voiceId(drumFilter, v)));
         t.cutoff = load(s, voiceId(drumCutoff, v));
@@ -654,6 +681,9 @@ sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& s, 
     p.delaySend = spaceSend(s, load(s, laneId(synthDelay, arp)));
     p.duck = load(s, laneId(synthDuck, arp));
     p.body = load(s, laneId(synthBody, arp));
+    p.bodyType = juce::jlimit(0, 5, static_cast<int>(load(s, laneId(synthBodyType, arp))));
+    p.bodyTune = load(s, laneId(synthBodyTune, arp));
+    p.bodyDecay = load(s, laneId(synthBodyDecay, arp));
     return p;
 }
 

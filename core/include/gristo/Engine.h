@@ -178,6 +178,7 @@ private:
         std::int64_t nextStep = 0;
         bool needsResync = true;
         std::int64_t lastSerial = 0;
+        std::int64_t lastStrike = 0; // Re-strike: which strike the held chord is
         bool haveChord = false;
         Chord held;                 // notes of the held chord (MIDI out notes)
         std::int64_t strums = 0;    // chords started (Alternate strum direction)
@@ -190,6 +191,10 @@ private:
     void dropChordOnsAfter(double beats);
     void startChordNotes(const Chord& chord, double beats, float velocity, double bpm, double offBeats);
     void processChords(double ppqStart, double ppqEnd, double bpm);
+    // Stabs: the loudest hit of the stab drums at a step (and the earliest time any of
+    // them could sound); the index of that stab hit in its bar, for Every.
+    bool stabHit(std::int64_t step, double bpm, HitInfo& best, double& earliest) const;
+    int stabIndexInBar(std::int64_t step, double bpm) const;
     double gridAt(std::int64_t step) const;
     void schedule(const HitInfo& hit, int voice);
     void flushNoteOffs(std::vector<OutputEvent>& out);

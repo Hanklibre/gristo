@@ -139,10 +139,12 @@ private:
 // Each type has its own mode ratios, levels and decays; higher modes die away faster,
 // as in real materials. Every strike moves the modes a little (Alive), so no two hits
 // ring quite alike. Tube is a harmonic series: the tuned-pipe sound of the old body.
+// Wood is an instrument's body (a guitar's or a violin's: the air mode, then the
+// plates), Glass a free bar or a glass: few, bright, very long modes.
 class DrumBody
 {
 public:
-    enum Type : int { Shell = 0, Box, Metal, Tube, Count };
+    enum Type : int { Shell = 0, Box, Metal, Tube, Wood, Glass, Count };
     void prepare(float sampleRate);
     void reset();
     // hz: the body's pitch (its first mode); decaySeconds: of that mode.

@@ -11,6 +11,7 @@ namespace {
 constexpr float kSynthPan[kNumSynths] = { -0.15f, 0.2f, -0.3f, 0.0f };
 constexpr float kBodyCoupling = 0.12f; // how much of the rest of the kit a drum's body hears
 constexpr float kBodyLevel = 0.5f;
+constexpr float kSynthBodyLevel = 0.6f;
 // Where a noise drum's body sits (a tonal drum's rings at the drum's own pitch).
 constexpr float kBodyBaseHz[kNumDrumVoices] = { 70.0f, 190.0f, 620.0f, 620.0f, 330.0f, 330.0f };
 constexpr int kOpenHat = 3, kClosedHat = 2;
@@ -60,7 +61,9 @@ struct SoundEngine::Impl
     BeadsParams beadsParams;
     float beadsLevel = 0.0f, beadsReverb = 0.0f;
     DrumBody drumBody[kNumDrumVoices];
-    Resonator synthBody[kNumSynths][2];
+    DrumBody synthBody[kNumSynths];
+    int synthBodyType[kNumSynths] { -1, -1, -1, -1 };
+    float synthBodyTune[kNumSynths] {}, synthBodyDecay[kNumSynths] {};
     std::uint32_t bodyStrikes = 0;
     float drumBodyRing[kNumDrumVoices] {};
     float drumBodyDrive[kNumDrumVoices] { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f }; // noise drums have little energy where their body rings
@@ -125,14 +128,10 @@ void SoundEngine::prepare(double sampleRate)
     m.vastVerb.prepare(m.sampleRate);
     for (auto& r : m.drumBody)
         r.prepare(m.sampleRate);
-    for (auto& pair : m.synthBody)
-    {
-        // Two body modes a fourth apart, short and dull: wood, not a note.
-        pair[0].prepare(m.sampleRate);
-        pair[1].prepare(m.sampleRate);
-        pair[0].set(155.0f, 0.18f, 0.7f);
-        pair[1].set(233.0f, 0.12f, 0.6f);
-    }
+    for (auto& body : m.synthBody)
+        body.prepare(m.sampleRate);
+    for (auto& type : m.synthBodyType)
+        type = -1; // tuned on the next setSynth
     for (int s = 0; s < kNumSynths; ++s)
         m.panDrift[s].prepare(m.sampleRate, 0.25f, 0xa11ceu + static_cast<std::uint32_t>(s) * 977u);
     setCharacter(m.character);
@@ -173,9 +172,8 @@ void SoundEngine::reset()
     m.vastVerb.reset();
     for (auto& r : m.drumBody)
         r.reset();
-    for (auto& pair : m.synthBody)
-        for (auto& r : pair)
-            r.reset();
+    for (auto& body : m.synthBody)
+        body.reset();
     for (auto& ring : m.drumBodyRing)
         ring = 0.0f;
     m.shimmerFeed = 0.0f;
@@ -230,8 +228,22 @@ void SoundEngine::setSynth(int synth, const SynthParams& params)
                                     { &p.glide, d.glide }, { &p.level, 0.0f }, { &p.reverbSend, 0.0f },
                                     { &p.delaySend, 0.0f }, { &p.cutoffMod, 0.0f }, { &p.duck, 0.0f }, { &p.body, 0.0f } })
         *value = finite(*value, fallback);
-    impl_->synthParams[synth] = p;
-    impl_->synths[synth].setParams(p);
+    p.bodyType = std::clamp(p.bodyType, 0, static_cast<int>(DrumBody::Count) - 1);
+    p.bodyTune = std::clamp(finite(p.bodyTune, 0.0f), -24.0f, 24.0f);
+    p.bodyDecay = dsp::clamp01(finite(p.bodyDecay, d.bodyDecay));
+    auto& m = *impl_;
+    // The body is an instrument's: its pitch doesn't follow the notes. Bright materials sit higher.
+    if (p.bodyType != m.synthBodyType[synth] || p.bodyTune != m.synthBodyTune[synth] || p.bodyDecay != m.synthBodyDecay[synth])
+    {
+        static const float base[DrumBody::Count] = { 150.0f, 110.0f, 330.0f, 196.0f, 105.0f, 520.0f };
+        m.synthBody[synth].strike(base[p.bodyType] * std::exp2(p.bodyTune / 12.0f), dsp::macroLog(p.bodyDecay, 0.05f, 0.3f, 3.0f),
+                                  p.bodyType, 0.0f, 1u);
+        m.synthBodyType[synth] = p.bodyType;
+        m.synthBodyTune[synth] = p.bodyTune;
+        m.synthBodyDecay[synth] = p.bodyDecay;
+    }
+    m.synthParams[synth] = p;
+    m.synths[synth].setParams(p);
 }
 
 namespace {
@@ -607,7 +619,11 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             glide(m.synthOpen[s], mix.synthMute[static_cast<size_t>(s)] ? 0.0f : 1.0f);
             float y = m.synths[s].tick() * m.duckGain[s];
             if (const float bodyAmount = m.synthParams[s].body; bodyAmount > 0.0f)
-                y += (m.synthBody[s][0].process(y) + m.synthBody[s][1].process(y)) * 0.35f * bodyAmount;
+            {
+                // Each material at about the same loudness.
+                static const float trim[DrumBody::Count] = { 0.85f, 1.25f, 0.8f, 0.6f, 0.85f, 0.95f };
+                y = y * (1.0f - 0.3f * bodyAmount) + m.synthBody[s].process(y) * bodyAmount * kSynthBodyLevel * trim[m.synthBodyType[s] < 0 ? 4 : m.synthBodyType[s]];
+            }
             const float amount = m.synths[s].chorus();
             if (amount > 0.0f && !m.chorusOn[s])
                 m.chorus[s].reset(); // back to an ensemble sound: no stale audio from before
