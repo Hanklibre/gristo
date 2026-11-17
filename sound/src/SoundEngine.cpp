@@ -51,6 +51,10 @@ struct SoundEngine::Impl
     Beads beads;
     Rings rings;
     RingsParams ringsParams;
+    MixParams mix;
+    // Glided mixer gains: the synths' and Rings' mutes, Beads' mute, the two returns.
+    float synthOpen[kNumSynths] { 1.0f, 1.0f, 1.0f, 1.0f };
+    float ringsOpen = 1.0f, beadsOpen = 1.0f, delayOut = 1.0f, reverbOut = 1.0f;
     float ringsLevel = 0.0f;
     BeadsReverb beadsVerb, vastVerb; // Beads' reverb on the grains; the same as the main reverb
     BeadsParams beadsParams;
@@ -260,7 +264,8 @@ void SoundEngine::setFx(const FxParams& params)
     m.fx = fx;
     updateMainReverb(m.vastVerb, m.beadsParams.quality, fx.reverbSize);
     const double bpm = std::clamp(fx.bpm, 20.0, 400.0);
-    m.delay.set(static_cast<float>(fx.delayBeats * 60.0 / bpm), fx.delayFeedback);
+    m.delay.set(static_cast<float>(fx.delayBeats * 60.0 / bpm), fx.delayFeedback, fx.delayType, dsp::clamp01(finite(fx.delayAge, 0.3f)),
+                fx.delayPingPong);
 }
 
 void SoundEngine::setBeads(const BeadsParams& params)
@@ -416,6 +421,14 @@ void SoundEngine::noteOn(int synth, int id, float pitch, float velocity)
     }
 }
 
+void SoundEngine::setMix(const MixParams& params)
+{
+    MixParams x = params;
+    for (float* v : { &x.beadsToReverb, &x.delayLevel, &x.delayToReverb, &x.delayToBeads, &x.reverbLevel })
+        *v = dsp::clamp01(finite(*v, 0.0f));
+    impl_->mix = x;
+}
+
 void SoundEngine::setRings(const RingsParams& params)
 {
     auto& m = *impl_;
@@ -476,6 +489,7 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
     const bool fxStem = stems != nullptr && stems->fx[0] != nullptr && stems->fx[1] != nullptr;
     const bool beadsStem = stems != nullptr && stems->beads[0] != nullptr && stems->beads[1] != nullptr;
     const bool ringsStem = stems != nullptr && stems->rings[0] != nullptr && stems->rings[1] != nullptr;
+    const bool delayStem = stems != nullptr && stems->delay[0] != nullptr && stems->delay[1] != nullptr;
     bool synthStem[kNumSynths] {};
     for (int s = 0; s < kNumSynths; ++s)
         synthStem[s] = stems != nullptr && stems->synth[s][0] != nullptr && stems->synth[s][1] != nullptr;
@@ -580,14 +594,17 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
         }
 
         m.duckEnv *= m.duckRelease;
+        // Faders and mutes glide, so nothing clicks.
+        const MixParams& mix = m.mix;
         float beadsInL = 0.0f, beadsInR = 0.0f;
-        // Synths, each through its ensemble when the sound has one
+        // Synths, each through its inserts (body, ensemble, tremolo, grit), then its fader.
         for (int s = 0; s < kNumSynths; ++s)
         {
             const float duckTarget = 1.0f - dsp::clamp01(m.synthParams[s].duck) * m.duckEnv;
             m.duckGain[s] += (duckTarget - m.duckGain[s]) * m.duckAttack;
             glide(m.revSend[1 + s], m.synthParams[s].reverbSend);
             glide(m.dlySend[1 + s], m.synthParams[s].delaySend);
+            glide(m.synthOpen[s], mix.synthMute[static_cast<size_t>(s)] ? 0.0f : 1.0f);
             float y = m.synths[s].tick() * m.duckGain[s];
             if (const float bodyAmount = m.synthParams[s].body; bodyAmount > 0.0f)
                 y += (m.synthBody[s][0].process(y) + m.synthBody[s][1].process(y)) * 0.35f * bodyAmount;
@@ -613,6 +630,16 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
                 m.crusher[1 + s].process(yl, yr);
             if (m.overdrive[1 + s].on())
                 m.overdrive[1 + s].process(yl, yr);
+            // Pre-fader: Beads hears the part even when its fader is down or it is muted.
+            const float fader = m.synths[s].level();
+            const float post = fader * m.synthOpen[s];
+            const float beadsTap = mix.beadsPre[static_cast<size_t>(s)] ? fader : post;
+            beadsInL += yl * beadsTap * m.beadsParams.send[static_cast<size_t>(s)];
+            beadsInR += yr * beadsTap * m.beadsParams.send[static_cast<size_t>(s)];
+            yl *= post;
+            yr *= post;
+            if (post <= 0.0f)
+                continue;
             if (synthStem[s])
                 toStem(stems->synth[s], i, yl, yr);
             else
@@ -622,14 +649,13 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
                 l += yl * (1.0f - pan);
                 r += yr * (1.0f + pan);
             }
-            revIn += y * m.revSend[1 + s];
-            beadsInL += yl * m.beadsParams.send[static_cast<size_t>(s)];
-            beadsInR += yr * m.beadsParams.send[static_cast<size_t>(s)];
-            dlyIn += y * m.dlySend[1 + s];
+            revIn += (yl + yr) * 0.5f * m.revSend[1 + s];
+            dlyIn += (yl + yr) * 0.5f * m.dlySend[1 + s];
         }
 
         // Rings: strummed by its part's notes (see noteOn), maybe excited by the drums.
         m.ringsLevel += ((m.ringsParams.on ? m.ringsParams.level : 0.0f) - m.ringsLevel) * m.sendCoef;
+        glide(m.ringsOpen, mix.ringsMute ? 0.0f : 1.0f);
         if (m.ringsParams.on || m.ringsLevel > 1e-4f)
         {
             const float drive = m.ringsParams.exciter != 0 ? (kl + kr) * 0.5f : 0.0f;
@@ -637,12 +663,14 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             {
                 float gl = 0.0f, gr = 0.0f;
                 m.rings.process(drive, gl, gr);
-                gl *= m.ringsLevel;
-                gr *= m.ringsLevel;
+                const float post = m.ringsLevel * m.ringsOpen;
+                const float beadsTap = (mix.ringsBeadsPre ? (m.ringsParams.on ? 1.0f : 0.0f) : post) * m.ringsParams.beads;
+                beadsInL += gl * beadsTap;
+                beadsInR += gr * beadsTap;
+                gl *= post;
+                gr *= post;
                 revIn += (gl + gr) * 0.5f * m.ringsParams.reverb;
                 dlyIn += (gl + gr) * 0.5f * m.ringsParams.delay;
-                beadsInL += gl * m.ringsParams.beads;
-                beadsInR += gr * m.ringsParams.beads;
                 if (ringsStem)
                     toStem(stems->rings, i, gl, gr);
                 else
@@ -653,9 +681,20 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             }
         }
 
-        // Beads: the synths it hears, its grains back into the mix and the reverb.
+        // Delay: its own return, which can feed Beads and the reverb.
+        glide(m.delayOut, mix.delayMute ? 0.0f : mix.delayLevel);
+        float dl = 0.0f, dr = 0.0f;
+        m.delay.process(dlyIn, dl, dr);
+        dl *= m.delayOut;
+        dr *= m.delayOut;
+        beadsInL += dl * mix.delayToBeads;
+        beadsInR += dr * mix.delayToBeads;
+        revIn += (dl + dr) * 0.5f * mix.delayToReverb;
+
+        // Beads: what is sent to it, its grains back into the mix and to the reverb.
         m.beadsLevel += (m.beadsParams.level - m.beadsLevel) * m.sendCoef;
         m.beadsReverb += (m.beadsParams.reverb - m.beadsReverb) * m.sendCoef;
+        glide(m.beadsOpen, mix.beadsMute ? 0.0f : 1.0f);
         float bl = 0.0f, br = 0.0f;
         if (m.beadsLevel > 1e-4f || m.beadsParams.level > 0.0f)
         {
@@ -668,18 +707,28 @@ void SoundEngine::render(float* left, float* right, int numSamples, float gain, 
             m.beadsVerb.setLowpass(caveman ? 0.4f : 0.6f); // as the module's code: every medium but Digital at 0.4
             m.beadsVerb.setMedium(m.beadsParams.quality);
             m.beadsVerb.process(bl, br);
-            bl *= m.beadsLevel * 1.5f;
-            br *= m.beadsLevel * 1.5f;
+            bl *= m.beadsLevel * 1.5f * m.beadsOpen;
+            br *= m.beadsLevel * 1.5f * m.beadsOpen;
+            revIn += (bl + br) * 0.5f * mix.beadsToReverb;
         }
-        float dl = 0.0f, dr = 0.0f, rl = 0.0f, rr = 0.0f;
-        m.delay.process(dlyIn, dl, dr);
-        rl = rr = (revIn + (dl + dr) * 0.15f + m.shimmerFeed) * 0.5f;
+
+        // Reverb, last: everything may have sent to it.
+        glide(m.reverbOut, mix.reverbMute ? 0.0f : mix.reverbLevel);
+        float rl = 0.0f, rr = 0.0f;
+        rl = rr = (revIn + m.shimmerFeed) * 0.5f;
         m.vastVerb.process(rl, rr);
         m.shimmerFeed = m.fx.shimmer > 0.0f ? dsp::fastTanh(m.shimmer.process((rl + rr) * 0.5f) * 2.5f) * 0.8f * m.fx.shimmer : 0.0f;
+        rl *= m.reverbOut;
+        rr *= m.reverbOut;
         if (beadsStem)
         {
             toStem(stems->beads, i, bl, br);
             bl = br = 0.0f;
+        }
+        if (delayStem)
+        {
+            toStem(stems->delay, i, dl, dr);
+            dl = dr = 0.0f;
         }
         if (fxStem)
             toStem(stems->fx, i, dl + rl + bl, dr + rr + br);

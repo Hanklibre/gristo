@@ -427,6 +427,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add(percentParam(ringsReverb, "Rings Reverb", 0.25f));
     layout.add(percentParam(ringsDelay, "Rings Delay", 0.0f));
     layout.add(percentParam(ringsBeads, "Rings Into Beads", 0.0f));
+    // The mixer and the delay as its own effect
+    for (int s = 0; s < sound::kNumSynths; ++s)
+        layout.add(boolParam(laneId(beadsPre, s), (s < kNumArps ? "Arp " + juce::String(s + 1) : juce::String("Chords")) + " Beads Pre-Fader", false));
+    layout.add(boolParam(ringsMute, "Rings Mute", false));
+    layout.add(boolParam(ringsSolo, "Rings Solo", false));
+    layout.add(boolParam(ringsBeadsPre, "Rings Beads Pre-Fader", false));
+    layout.add(boolParam(beadsMute, "Beads Mute", false));
+    layout.add(boolParam(beadsSolo, "Beads Solo", false));
+    layout.add(percentParam(beadsToReverb, "Beads To Reverb", 0.0f));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { delayType, kVersion }, "Delay Type",
+                                                            juce::StringArray { "Tape", "BBD", "Clean" }, 0));
+    layout.add(percentParam(delayAge, "Delay Age", 0.3f));
+    layout.add(boolParam(delayPing, "Delay Ping-Pong", true));
+    layout.add(percentParam(delayLevel, "Delay Level", 1.0f));
+    layout.add(boolParam(delayMute, "Delay Mute", false));
+    layout.add(percentParam(delayToReverb, "Delay To Reverb", 0.15f));
+    layout.add(percentParam(delayToBeads, "Delay To Beads", 0.0f));
+    layout.add(percentParam(reverbLevel, "Reverb Level", 1.0f));
+    layout.add(boolParam(reverbMute, "Reverb Mute", false));
     return layout;
 }
 
@@ -529,8 +548,8 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         ap.velMax = std::max(lo, hi);
     }
 
-    // Mute and solo: with any part soloed, only soloed parts sound.
-    bool anySolo = false;
+    // Mute and solo: with any part (or Rings, or Beads) soloed, only soloed ones sound.
+    bool anySolo = load(s, ringsSolo) > 0.5f || load(s, beadsSolo) > 0.5f;
     for (int part = 0; part < kNumParts; ++part)
         anySolo = anySolo || load(s, voiceId(partSolo, part)) > 0.5f;
     for (int part = 0; part < kNumParts; ++part)
@@ -647,6 +666,9 @@ sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& s)
     f.delayBeats = kDelayBeatChoices[juce::jlimit(0, 3, static_cast<int>(load(s, fxTime)))];
     f.delayFeedback = juce::jlimit(0.0f, 0.9f, load(s, fxFeedback) + 0.3f * more);
     f.shimmer = load(s, fxShimmer);
+    f.delayType = juce::jlimit(0, 2, static_cast<int>(load(s, delayType)));
+    f.delayAge = load(s, delayAge);
+    f.delayPingPong = load(s, delayPing) > 0.5f;
     return f;
 }
 
@@ -673,6 +695,37 @@ sound::BeadsParams readBeadsParams(const juce::AudioProcessorValueTreeState& s)
     for (int i = 0; i < sound::kNumSynths; ++i)
         b.send[static_cast<size_t>(i)] = load(s, laneId(beadsSend, i));
     return b;
+}
+
+sound::MixParams readMixParams(const juce::AudioProcessorValueTreeState& s)
+{
+    sound::MixParams m;
+    bool anySolo = load(s, ringsSolo) > 0.5f || load(s, beadsSolo) > 0.5f;
+    for (int part = 0; part < kNumParts; ++part)
+        anySolo = anySolo || load(s, voiceId(partSolo, part)) > 0.5f;
+    auto muted = [&](const juce::String& mute, const juce::String& solo) {
+        return load(s, mute) > 0.5f || (anySolo && load(s, solo) <= 0.5f);
+    };
+    for (int arp = 0; arp <= kNumArps; ++arp) // the arps, then the chords
+    {
+        const int part = kNumVoices + arp;
+        const int synth = arp == kNumArps ? sound::kChordSynth : mod::synthOfArp(arp);
+        m.synthMute[static_cast<size_t>(synth)] = muted(voiceId(partMute, part), voiceId(partSolo, part));
+    }
+    for (int synth = 0; synth < sound::kNumSynths; ++synth)
+        m.beadsPre[static_cast<size_t>(synth)] = load(s, laneId(beadsPre, synth)) > 0.5f;
+    m.ringsMute = muted(ringsMute, ringsSolo);
+    m.ringsBeadsPre = load(s, ringsBeadsPre) > 0.5f;
+    m.beadsMute = muted(beadsMute, beadsSolo);
+    m.beadsToReverb = load(s, beadsToReverb);
+    // The returns are solo-safe: soloing a part keeps its echoes and reverb.
+    m.delayLevel = load(s, delayLevel);
+    m.delayMute = load(s, delayMute) > 0.5f;
+    m.delayToReverb = load(s, delayToReverb);
+    m.delayToBeads = load(s, delayToBeads);
+    m.reverbLevel = load(s, reverbLevel);
+    m.reverbMute = load(s, reverbMute) > 0.5f;
+    return m;
 }
 
 sound::RingsParams readRingsParams(const juce::AudioProcessorValueTreeState& s)

@@ -1327,7 +1327,7 @@ float Synth::tick()
     float out = 0.0f;
     for (auto& v : voices_)
         out += v.tick(live_, glideCoef_);
-    return out * live_.level;
+    return out; // the mixer applies level() after the part's inserts (a pre-fader tap)
 }
 
 int Synth::activeVoices() const

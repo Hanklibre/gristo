@@ -18,6 +18,7 @@ constexpr bool kIsMobile = false;
 constexpr int kTopBar = 78; // two rows: transport, then scenes and the help line
 constexpr int kPageX = 200, kPageY = 82, kPageW = 1072, kPageH = 500;
 constexpr int kTimelineY = 588;
+constexpr int kMixX0 = 72, kMixColW = 108; // mixer strips
 constexpr int partRowY(int part) { return 88 + part * 36 + (part >= 6 ? 6 : 0) + (part >= 9 ? 6 : 0) + (part >= 10 ? 6 : 0); }
 constexpr int kMacroY = 506; // two rows of four macro knobs under the parts
 
@@ -356,6 +357,7 @@ GristoView::GristoView(GristoProcessor& proc)
     setupPlayPage();
     setupBeads();
     setupRings();
+    setupMixer();
     partSelect_[0].setToggleState(true, juce::dontSendNotification);
     showPage(kPlayPage);
 
@@ -1272,7 +1274,16 @@ void GristoView::setupSoundPage()
     setupChoice(fxTime_, p::fxTime, "Delay");
     fxTime_.label.setFont(juce::FontOptions(10.5f));
     setHelp(fxSize_, "Reverb Size", "Small room to big hall.");
-    setHelp(fxFeedback_, "Delay Feedback", "How many echoes. The delay ping-pongs left and right and follows the tempo.");
+    setHelp(fxFeedback_, "Delay Feedback", "How many echoes. Tape and BBD saturate as they build up; a BBD can be pushed close to runaway.");
+    setupChoice(delayType_, p::delayType, "Type");
+    delayType_.label.setFont(juce::FontOptions(10.5f));
+    setHelp(delayType_.box, "Delay type", "Tape: a worn tape echo, wow and flutter, each repeat darker and softly saturated, a little hiss. "
+                                          "BBD: an analog bucket-brigade chip; longer times run its clock slower, so long echoes get darker and grainier. "
+                                          "Clean: digital.");
+    setupSmallKnob(delayAge_, p::delayAge, "Age");
+    setHelp(delayAge_, "Delay age", "How worn the tape or the chip is: more wobble, darker repeats, more hiss and grit.");
+    setupToggle(delayPing_, p::delayPing, "Ping-pong");
+    setHelp(delayPing_.button, "Ping-pong", "On: the echoes cross between left and right. Off: both sides repeat together.");
     setHelp(fxTime_.box, "Delay Time", "Echo spacing in note values, synced to the tempo.");
 
     // Every sound knob can take a lane.
@@ -1596,6 +1607,107 @@ std::vector<juce::Component*> GristoView::ringsPageComponents()
     return list;
 }
 
+namespace {
+// The mixer's channels, in order, and the parameters each strip has (empty: none).
+struct StripSpec
+{
+    const char* name;
+    juce::String reverb, delay, beads, pre, level, mute, solo;
+};
+std::vector<StripSpec> mixerSpecs()
+{
+    std::vector<StripSpec> specs;
+    specs.push_back({ "Kit", p::kitReverb, p::kitDelay, {}, {}, {}, {}, {} });
+    for (int arp = 0; arp <= gristo::kNumArps; ++arp)
+    {
+        const int synth = arp == gristo::kNumArps ? gristo::sound::kChordSynth : gristo::mod::synthOfArp(arp);
+        const int part = gristo::kNumVoices + arp;
+        specs.push_back({ arp == gristo::kNumArps ? "Chords" : arp == 0 ? "Arp 1" : arp == 1 ? "Arp 2" : "Arp 3",
+                          p::laneId(p::synthReverb, synth), p::laneId(p::synthDelay, synth), p::laneId(p::beadsSend, synth),
+                          p::laneId(p::beadsPre, synth), p::laneId(p::synthLevel, synth), p::voiceId(p::partMute, part),
+                          p::voiceId(p::partSolo, part) });
+    }
+    specs.push_back({ "Rings", p::ringsReverb, p::ringsDelay, p::ringsBeads, p::ringsBeadsPre, p::ringsLevel, p::ringsMute, p::ringsSolo });
+    specs.push_back({ "Beads", p::beadsToReverb, {}, {}, {}, p::beadsLevel, p::beadsMute, p::beadsSolo });
+    specs.push_back({ "Delay", p::delayToReverb, {}, p::delayToBeads, {}, p::delayLevel, p::delayMute, {} });
+    specs.push_back({ "Reverb", {}, {}, {}, {}, p::reverbLevel, p::reverbMute, {} });
+    return specs;
+}
+} // namespace
+
+void GristoView::setupMixer()
+{
+    const auto specs = mixerSpecs();
+    for (int i = 0; i < kMixStrips; ++i)
+    {
+        const auto& spec = specs[static_cast<size_t>(i)];
+        auto& strip = mixStrips_[static_cast<size_t>(i)];
+        const juce::String name(spec.name);
+        auto knob = [&](Knob& k, const juce::String& id, const juce::String& text, bool& has, const juce::String& help) {
+            has = id.isNotEmpty();
+            if (!has)
+                return;
+            setupSmallKnob(k, id, text);
+            setHelp(k, name + " " + text, help);
+        };
+        knob(strip.reverb, spec.reverb, "Reverb", strip.hasReverb, "How much goes to the reverb.");
+        knob(strip.delay, spec.delay, "Delay", strip.hasDelay, "How much goes to the delay.");
+        knob(strip.beads, spec.beads, "Beads", strip.hasBeads, "How much Beads records of it.");
+        strip.hasLevel = spec.level.isNotEmpty();
+        if (strip.hasLevel)
+        {
+            setupKnob(strip.level, spec.level, "Level");
+            setHelp(strip.level, name + " level", i >= 7 ? "The level of this return." : "This channel's fader.");
+        }
+        strip.hasPre = spec.pre.isNotEmpty();
+        if (strip.hasPre)
+        {
+            setupToggle(strip.pre, spec.pre, "Pre");
+            setHelp(strip.pre.button, name + " Beads pre-fader",
+                    "On: Beads hears this channel before its fader and mute, so it can be muted (or turned down) and still feed the grains. Off: after them.");
+        }
+        strip.hasMute = spec.mute.isNotEmpty();
+        if (strip.hasMute)
+        {
+            setupToggle(strip.mute, spec.mute, "M");
+            setHelp(strip.mute.button, name + " mute", i <= 5 ? "Silences this channel. Its notes still play inside: Rings and a pre-fader Beads send still hear them; no MIDI is sent."
+                                                               : "Silences this channel.");
+        }
+        strip.hasSolo = spec.solo.isNotEmpty();
+        if (strip.hasSolo)
+        {
+            setupToggle(strip.solo, spec.solo, "S");
+            strip.solo.button.setColour(juce::TextButton::buttonOnColourId, colours::random);
+            setHelp(strip.solo.button, name + " solo", "Only soloed channels sound (the delay and reverb returns stay).");
+        }
+    }
+    mixerNote_.setText("Order: the parts and Rings feed the Delay, the Delay feeds Beads, all of them feed the Reverb. "
+                       "Kit levels are per drum, on the left. The Delay's sound is on the FX / Beads page.",
+                       juce::dontSendNotification);
+    mixerNote_.setFont(juce::FontOptions(11.5f));
+    mixerNote_.setColour(juce::Label::textColourId, colours::dim);
+    addAndMakeVisible(mixerNote_);
+}
+
+std::vector<juce::Component*> GristoView::mixerPageComponents()
+{
+    std::vector<juce::Component*> list { &mixerNote_ };
+    for (auto& strip : mixStrips_)
+    {
+        for (auto [knob, has] : { std::pair<Knob*, bool> { &strip.reverb, strip.hasReverb }, { &strip.delay, strip.hasDelay },
+                                  { &strip.beads, strip.hasBeads }, { &strip.level, strip.hasLevel } })
+            if (has)
+            {
+                list.push_back(&knob->slider);
+                list.push_back(&knob->label);
+            }
+        for (auto [toggle, has] : { std::pair<Toggle*, bool> { &strip.pre, strip.hasPre }, { &strip.mute, strip.hasMute }, { &strip.solo, strip.hasSolo } })
+            if (has)
+                list.push_back(&toggle->button);
+    }
+    return list;
+}
+
 std::vector<juce::Component*> GristoView::playPageComponents()
 {
     std::vector<juce::Component*> list { &grit_.box, &mutateAmount_ };
@@ -1661,11 +1773,11 @@ std::vector<juce::Component*> GristoView::arpPageComponents()
 
 void GristoView::setupPartStrip()
 {
-    for (int part = 0; part <= kRingsPart; ++part)
+    for (int part = 0; part <= kMixerPart; ++part)
     {
         auto& b = partSelect_[part];
         const bool master = part >= gristo::kNumParts;
-        b.setButtonText(part == kRingsPart ? "Rings" : master ? "FX / Beads" : gristo::partName(part));
+        b.setButtonText(part == kMixerPart ? "Mixer" : part == kRingsPart ? "Rings" : master ? "FX / Beads" : gristo::partName(part));
         b.setClickingTogglesState(true);
         b.setRadioGroupId(4713);
         b.setColour(juce::TextButton::buttonOnColourId, master ? colours::accent : partColour(part));
@@ -1676,8 +1788,9 @@ void GristoView::setupPartStrip()
             setEditMode(editMode_ || master);
         };
         addAndMakeVisible(b);
-        setHelp(b, part == kRingsPart ? juce::String("Rings") : master ? juce::String("FX / Beads") : juce::String(gristo::partName(part)),
-                part == kRingsPart ? "Mutable Instruments' Rings: a resonator (modal, strings, FM) strummed by the notes of an arp or the chords, so it plays in the song's key."
+        setHelp(b, part == kMixerPart ? juce::String("Mixer") : part == kRingsPart ? juce::String("Rings") : master ? juce::String("FX / Beads") : juce::String(gristo::partName(part)),
+                part == kMixerPart ? "Every channel side by side: levels, mutes, solos and sends, with the delay and reverb returns. Beads sends can be taken before the fader."
+                : part == kRingsPart ? "Mutable Instruments' Rings: a resonator (modal, strings, FM) strummed by the notes of an arp or the chords, so it plays in the song's key."
                 : master ? "Reverb, delay, output settings, and Beads: a granular processor fed by the synths and gated by the drums."
                          : "Selects this part. Edit (top right) shows its detailed controls.");
         if (master)
@@ -1685,7 +1798,7 @@ void GristoView::setupPartStrip()
         setupToggle(partMute_[part], p::voiceId(p::partMute, part), "M");
         setupToggle(partSolo_[part], p::voiceId(p::partSolo, part), "S");
         partSolo_[part].button.setColour(juce::TextButton::buttonOnColourId, colours::random);
-        setHelp(partMute_[part].button, "Mute", "Silences this part. A muted drum still clocks the arps and chords that listen to it.");
+        setHelp(partMute_[part].button, "Mute", "Silences this part. A muted drum still clocks the arps and chords that listen to it; a muted arp or chord part still plays Rings and a pre-fader Beads send, but sends no MIDI.");
         setHelp(partSolo_[part].button, "Solo", "Only soloed parts sound.");
         const juce::String levelId = part < gristo::kNumVoices ? p::voiceId(p::drumLevel, part)
                                                                 : p::laneId(p::synthLevel, part - gristo::kNumVoices);
@@ -1695,7 +1808,7 @@ void GristoView::setupPartStrip()
     }
     setupToggle(separateOuts_, p::separateOuts, "Separate outputs");
     setHelp(separateOuts_.button, "Separate outputs",
-            "Sends Kit, Arp 1-3, Chords, FX, Beads and Rings to their own outputs of the plugin (enable them in your DAW) instead of the main mix.");
+            "Sends Kit, Arp 1-3, Chords, Reverb, Beads, Rings and Delay to their own outputs of the plugin (enable them in your DAW) instead of the main mix.");
 
     tempoBar_.setSliderStyle(juce::Slider::LinearBar);
     tempoBar_.setTextValueSuffix(" bpm");
@@ -2004,7 +2117,7 @@ int GristoView::pageOfPart(int part)
         return 0;
     if (part < gristo::kChordVoice)
         return 1 + part - gristo::kNumVoices;
-    return part == gristo::kChordVoice ? kChordsPage : part == kRingsPart ? kRingsPage : kMasterPage;
+    return part == gristo::kChordVoice ? kChordsPage : part == kRingsPart ? kRingsPage : part == kMixerPart ? kMixerPage : kMasterPage;
 }
 
 void GristoView::dragMidi(int part)
@@ -2117,7 +2230,8 @@ std::vector<juce::Component*> GristoView::masterPageComponents()
 {
     std::vector<juce::Component*> list { &fxSize_.slider, &fxSize_.label, &fxFeedback_.slider, &fxFeedback_.label, &fxTime_.box, &fxTime_.label,
                                          &noteLength_.slider, &noteLength_.label, &separateOuts_.button, &alive_.slider, &alive_.label,
-                                         &fxShimmer_.slider, &fxShimmer_.label, &reverbNote_ };
+                                         &fxShimmer_.slider, &fxShimmer_.label, &reverbNote_, &delayType_.box, &delayType_.label,
+                                         &delayAge_.slider, &delayAge_.label, &delayPing_.button };
     for (auto& k : beadsKnobs_)
     {
         list.push_back(&k.slider);
@@ -2172,6 +2286,8 @@ void GristoView::showPage(int page)
         c->setVisible(page == kMasterPage);
     for (auto* c : ringsPageComponents())
         c->setVisible(page == kRingsPage);
+    for (auto* c : mixerPageComponents())
+        c->setVisible(page == kMixerPage);
     for (int s = 0; s < gristo::sound::kNumSynths; ++s)
         for (auto* c : synthComponents(s))
             c->setVisible(isArpPage() ? s == page - 1 : page == kChordsPage && s == gristo::sound::kChordSynth);
@@ -2471,18 +2587,46 @@ void GristoView::paint(juce::Graphics& g)
     }
     else if (page_ == kMasterPage)
     {
-        drawPanel(g, { px, py, 520, 200 }, "Reverb / Delay");
-        drawPanel(g, { px + 528, py, 544, 200 }, "Output");
+        drawPanel(g, { px, py, 330, 200 }, "Reverb");
+        drawPanel(g, { px + 338, py, 430, 200 }, "Delay  -  its own return (Mixer page)");
+        drawPanel(g, { px + 776, py, 296, 200 }, "Output");
         drawPanel(g, { px, py + 208, kPageW, kPageH - 208 }, "Beads  -  grains of the synths, gated by the drums");
         g.setColour(colours::dim);
         g.setFont(juce::FontOptions(11.5f));
         g.drawText("Gates", px + 760, py + 236 + 64, 56, 24, juce::Justification::centredLeft);
         g.drawText("Input", px + 760, py + 236 + 120, 56, 24, juce::Justification::centredLeft);
         g.setColour(colours::dim);
-        g.setFont(juce::FontOptions(12.0f));
-        g.drawFittedText("MIDI to your DAW: drag the handles in the bar below the pages onto a track. "
-                         "Separate outputs: Kit, Arp 1-3, Chords, FX, Beads and Rings each get their own plugin output.",
-                         { px + 548, py + 136, 504, 52 }, juce::Justification::topLeft, 3);
+        g.setFont(juce::FontOptions(11.0f));
+        g.drawFittedText("Separate outputs: Kit, Arp 1-3, Chords, Reverb, Beads, Rings and Delay each get their own plugin output.",
+                         { px + 790, py + 160, 270, 34 }, juce::Justification::topLeft, 3);
+    }
+    else if (page_ == kMixerPage)
+    {
+        drawPanel(g, { px, py, kPageW, kPageH }, "Mixer");
+        static const char* const names[kMixStrips] = { "Kit", "Arp 1", "Arp 2", "Arp 3", "Chords", "Rings", "Beads", "Delay", "Reverb" };
+        const juce::Colour stripColours[kMixStrips] = { voiceColours[0], arpColours[0], arpColours[1], arpColours[2], colours::random,
+                                                        colours::cool, colours::accent, colours::dim, colours::dim };
+        for (int i = 0; i < kMixStrips; ++i)
+        {
+            const int x = px + kMixX0 + i * kMixColW;
+            if (i == 6) // the returns
+            {
+                g.setColour(colours::dim.withAlpha(0.35f));
+                g.drawVerticalLine(x - 4, static_cast<float>(py + 30), static_cast<float>(py + kPageH - 50));
+            }
+            g.setColour(stripColours[i]);
+            g.fillRoundedRectangle(juce::Rectangle<float>(static_cast<float>(x + 8), static_cast<float>(py + 30), static_cast<float>(kMixColW - 16), 3.0f), 1.5f);
+            g.setColour(colours::text);
+            g.setFont(juce::FontOptions(13.0f, juce::Font::bold));
+            g.drawText(names[i], x, py + 36, kMixColW, 20, juce::Justification::centred);
+        }
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(11.0f));
+        const char* const rows[4] = { "Reverb", "Delay", "Beads", "Level" };
+        const int rowY[4] = { py + 72, py + 132, py + 192, py + 290 };
+        for (int r = 0; r < 4; ++r)
+            g.drawText(rows[r], px + 12, rowY[r], 60, 20, juce::Justification::centredLeft);
+        g.drawText("sends", px + 12, py + 86, 60, 14, juce::Justification::centredLeft);
     }
     else if (page_ == kRingsPage)
     {
@@ -2625,8 +2769,9 @@ void GristoView::resized()
         partSolo_[part].button.setBounds(126, y + 4, 24, 24);
         partLevel_[part].slider.setBounds(152, y, 36, 32);
     }
-    partSelect_[gristo::kNumParts].setBounds(18, partRowY(gristo::kNumParts), 102, 28);
-    partSelect_[kRingsPart].setBounds(124, partRowY(gristo::kNumParts), 64, 28);
+    partSelect_[gristo::kNumParts].setBounds(18, partRowY(gristo::kNumParts), 72, 28);
+    partSelect_[kRingsPart].setBounds(93, partRowY(gristo::kNumParts), 46, 28);
+    partSelect_[kMixerPart].setBounds(142, partRowY(gristo::kNumParts), 46, 28);
     for (int m = 0; m < gristo::kNumMacros; ++m)
         macros_[m].slider.setBounds(18 + (m % 4) * 44, kMacroY + (m / 4) * 38 - 4, 36, 32);
 
@@ -2710,15 +2855,39 @@ void GristoView::resized()
     lock_.button.setBounds(px + 952, gy + 56, 112, 28);
 
     // Master page
-    placeLabeled(fxSize_, { px + 24, py + 40, 110, 130 });
-    placeLabeled(fxFeedback_, { px + 144, py + 40, 110, 130 });
-    fxTime_.label.setBounds(px + 280, py + 70, 90, 14);
-    fxTime_.box.setBounds(px + 280, py + 86, 100, 28);
-    placeKnob(noteLength_, { px + 960, py + 30, 96, 110 });
-    separateOuts_.button.setBounds(px + 548, py + 40, 190, 28);
-    placeLabeled(alive_, { px + 780, py + 26, 100, 104 });
-    placeLabeled(fxShimmer_, { px + 390, py + 40, 110, 130 });
-    reverbNote_.setBounds(px + 270, py + 124, 120, 56);
+    // Reverb
+    placeLabeled(fxSize_, { px + 16, py + 40, 110, 130 });
+    placeLabeled(fxShimmer_, { px + 120, py + 40, 110, 130 });
+    reverbNote_.setBounds(px + 230, py + 56, 96, 80);
+    // Delay
+    fxTime_.label.setBounds(px + 356, py + 40, 90, 14);
+    fxTime_.box.setBounds(px + 356, py + 56, 104, 28);
+    delayType_.label.setBounds(px + 356, py + 96, 90, 14);
+    delayType_.box.setBounds(px + 356, py + 112, 104, 28);
+    delayPing_.button.setBounds(px + 356, py + 152, 104, 26);
+    placeLabeled(fxFeedback_, { px + 470, py + 40, 110, 130 });
+    placeLabeled(delayAge_, { px + 588, py + 40, 110, 130 });
+    // Output
+    separateOuts_.button.setBounds(px + 790, py + 30, 170, 28);
+    placeLabeled(alive_, { px + 786, py + 64, 90, 92 });
+    placeKnob(noteLength_, { px + 970, py + 30, 90, 110 });
+    // Mixer page
+    for (int i = 0; i < kMixStrips; ++i)
+    {
+        auto& strip = mixStrips_[static_cast<size_t>(i)];
+        const int x = px + kMixX0 + i * kMixColW;
+        const int cx = x + kMixColW / 2;
+        placeSmallKnob(strip.reverb, cx - 22, py + 64);
+        placeSmallKnob(strip.delay, cx - 22, py + 124);
+        placeSmallKnob(strip.beads, cx - 22, py + 184);
+        strip.pre.button.setBounds(cx - 20, py + 232, 40, 20);
+        placeKnob(strip.level, { x + 10, py + 262, kMixColW - 20, 110 });
+        strip.mute.button.setBounds(cx - 27, py + 384, 26, 26);
+        strip.solo.button.setBounds(cx + 1, py + 384, 26, 26);
+        if (!strip.hasSolo)
+            strip.mute.button.setBounds(cx - 13, py + 384, 26, 26);
+    }
+    mixerNote_.setBounds(px + 16, py + kPageH - 44, kPageW - 32, 36);
     // Rings page
     {
         const int ry = py + 34;

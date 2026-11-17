@@ -191,6 +191,24 @@ inline const juce::String ringsReverb = "rngRev";
 inline const juce::String ringsDelay = "rngDly";
 inline const juce::String ringsBeads = "rngBeads";
 
+// The mixer (see sound::MixParams) and the delay as its own effect
+inline const juce::String beadsPre = "bdsPre";     // per synth: Beads send before the fader / mute
+inline const juce::String ringsMute = "rngMute";
+inline const juce::String ringsSolo = "rngSolo";
+inline const juce::String ringsBeadsPre = "rngPre";
+inline const juce::String beadsMute = "bdsMute";
+inline const juce::String beadsSolo = "bdsSolo";
+inline const juce::String beadsToReverb = "bdsToRev";
+inline const juce::String delayType = "dlyType";
+inline const juce::String delayAge = "dlyAge";
+inline const juce::String delayPing = "dlyPing";
+inline const juce::String delayLevel = "dlyLevel";
+inline const juce::String delayMute = "dlyMute";
+inline const juce::String delayToReverb = "dlyToRev";
+inline const juce::String delayToBeads = "dlyToBeads";
+inline const juce::String reverbLevel = "revLevel";
+inline const juce::String reverbMute = "revMute";
+
 // Beads-style random modulation amounts
 inline const juce::String mapRandom = "mapRnd";
 inline const juce::String shuffleRandom = "shuffleRnd";
@@ -258,6 +276,8 @@ sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& sta
 sound::FxParams readFxParams(const juce::AudioProcessorValueTreeState& state);
 sound::BeadsParams readBeadsParams(const juce::AudioProcessorValueTreeState& state);
 sound::RingsParams readRingsParams(const juce::AudioProcessorValueTreeState& state);
+// Mutes (solo included: parts, Rings and Beads solo together) and the returns.
+sound::MixParams readMixParams(const juce::AudioProcessorValueTreeState& state);
 sound::CharacterParams readCharacterParams(const juce::AudioProcessorValueTreeState& state);
 
 } // namespace gristo::params

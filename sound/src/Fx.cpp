@@ -10,14 +10,10 @@ void Delay::prepare(float sampleRate)
     const auto length = static_cast<size_t>(sampleRate * 3.0f) + 4; // 1/4 note at 20 bpm
     left_.assign(length, 0.0f);
     right_.assign(length, 0.0f);
-    for (int i = 0; i < 2; ++i)
-    {
-        damp_[i].setLowpass(4500.0f, sampleRate);
-        lowCut_[i].setLowpass(120.0f, sampleRate);
-    }
     glideCoef_ = 1.0f - std::exp(-1.0f / (0.04f * sampleRate)); // time changes glide over ~40 ms
-    wowInc_ = 0.45f / sampleRate;
-    wowDepth_ = 0.0004f * sampleRate; // +-0.4 ms
+    envRelease_ = std::exp(-1.0f / (0.08f * sampleRate));
+    drift_.prepare(sampleRate, 0.3f, 0xd71f7u);
+    voicedType_ = -1;
     reset();
 }
 
@@ -29,18 +25,71 @@ void Delay::reset()
     for (int i = 0; i < 2; ++i)
     {
         damp_[i].reset();
+        damp2_[i].reset();
         lowCut_[i].reset();
+        inFilter_[i].reset();
+        outFilter_[i].reset();
+        sat_[i].reset();
     }
+    env_ = 0.0f;
     time_ = targetTime_;
 }
 
-void Delay::set(float seconds, float feedback)
+void Delay::set(float seconds, float feedback, int type, float age, bool pingPong)
 {
     const float maxSamples = static_cast<float>(left_.size()) - 4.0f;
     targetTime_ = std::clamp(seconds * sampleRate_, 1.0f, std::max(1.0f, maxSamples));
     if (time_ <= 0.0f)
         time_ = targetTime_;
-    feedback_ = std::clamp(feedback, 0.0f, 0.9f);
+    type_ = std::clamp(type, 0, static_cast<int>(Count) - 1);
+    age_ = dsp::clamp01(age);
+    pingPong_ = pingPong;
+    // A BBD can be pushed further: its clipping keeps it from running away.
+    feedback_ = std::clamp(feedback, 0.0f, type_ == Bbd ? 0.95f : 0.9f);
+}
+
+void Delay::voice()
+{
+    const float seconds = time_ / sampleRate_;
+    float hz = 12000.0f, low = 60.0f;
+    switch (type_)
+    {
+        case Tape:
+            hz = 6500.0f * std::pow(0.4f, age_); // 6.5 kHz new, 2.6 kHz worn
+            low = 90.0f + 120.0f * age_;
+            loopDrive_ = 1.3f + 1.7f * age_;
+            noise_ = 0.0006f + 0.004f * age_ * age_;
+            break;
+        case Bbd:
+        {
+            // A 4096-stage chip: clock = stages / (2 * time); the audio band ends near clock / 2.5.
+            const float clock = 4096.0f / (2.0f * std::max(0.02f, seconds));
+            hz = std::clamp(clock / 2.5f, 1200.0f, 10000.0f) * (1.0f - 0.35f * age_);
+            low = 70.0f;
+            loopDrive_ = 1.8f + 1.5f * age_;
+            noise_ = 0.002f + 0.006f * age_;
+            break;
+        }
+        default:
+            hz = 12000.0f;
+            low = 40.0f;
+            loopDrive_ = 1.0f;
+            noise_ = 0.0f;
+            break;
+    }
+    hz = std::min(hz, sampleRate_ * 0.45f);
+    for (int i = 0; i < 2; ++i)
+    {
+        damp_[i].setLowpass(hz, sampleRate_);
+        damp2_[i].setLowpass(hz * 1.2f, sampleRate_);
+        inFilter_[i].setLowpass(type_ == Bbd ? hz * 1.4f : 20000.0f, sampleRate_);
+        outFilter_[i].setLowpass(std::min(hz * 1.3f, sampleRate_ * 0.45f), sampleRate_);
+        lowCut_[i].setLowpass(low, sampleRate_);
+        sat_[i].setBias(type_ == Tape ? 0.1f : 0.0f);
+    }
+    voicedTime_ = time_;
+    voicedAge_ = age_;
+    voicedType_ = type_;
 }
 
 float Delay::read(const std::vector<float>& line, float delaySamples) const
@@ -63,22 +112,59 @@ void Delay::process(float in, float& outL, float& outR)
         return;
     }
     time_ += (targetTime_ - time_) * glideCoef_; // glide time changes instead of clicking
-    wowPhase_ += wowInc_;
-    wowPhase_ -= std::floor(wowPhase_);
-    const float wow = wowDepth_ * std::sin(dsp::kTwoPi * wowPhase_);
-    const float l = read(left_, std::max(1.0f, time_ + wow));
-    const float r = read(right_, std::max(1.0f, time_ - wow));
-    // Ping-pong: the input enters on the left, each repeat crosses sides. The repeats
-    // saturate gently, like tape.
-    auto tape = [](float x) { return dsp::fastTanh(x * 1.5f) * (1.0f / 1.5f); };
-    const float toLeft = in + tape(lowCut_[0].highpass(damp_[0].lowpass(r)) * feedback_);
-    const float toRight = tape(lowCut_[1].highpass(damp_[1].lowpass(l)) * feedback_);
-    left_[write_] = toLeft;
-    right_[write_] = toRight;
+    if (type_ != voicedType_ || age_ != voicedAge_ || std::abs(time_ - voicedTime_) > 0.002f * voicedTime_)
+        voice();
+
+    // The heads (tape) or the clock (BBD) wander.
+    float mod = 0.0f;
+    if (type_ == Tape)
+    {
+        wowPhase_ += 0.45f / sampleRate_;
+        wowPhase_ -= std::floor(wowPhase_);
+        flutterPhase_ += 6.1f / sampleRate_;
+        flutterPhase_ -= std::floor(flutterPhase_);
+        mod = sampleRate_ * ((0.0003f + 0.0012f * age_) * (std::sin(dsp::kTwoPi * wowPhase_) + 0.7f * drift_.tick())
+                             + (0.00003f + 0.0001f * age_) * std::sin(dsp::kTwoPi * flutterPhase_));
+    }
+    else if (type_ == Bbd)
+    {
+        lfoPhase_ += 0.25f / sampleRate_;
+        lfoPhase_ -= std::floor(lfoPhase_);
+        const float tri = 4.0f * std::abs(lfoPhase_ - 0.5f) - 1.0f;
+        mod = sampleRate_ * (0.0002f + 0.0012f * age_) * tri;
+    }
+    const float spread = pingPong_ ? 1.0f : 1.013f; // not ping-pong: the right side a touch later, for width
+    const float l = read(left_, std::max(1.0f, time_ + mod));
+    const float r = read(right_, std::max(1.0f, time_ * spread - mod));
+
+    // Each repeat: darker, thinner, softly saturated (Clean: only a gentle limit).
+    const float peak = std::max(std::abs(l), std::abs(r));
+    env_ = peak > env_ ? peak : env_ * envRelease_;
+    // Hiss only while echoes sound (a BBD's compander breathes with them), never in silence.
+    const float breath = env_ > 1e-5f ? noise_ * std::min(1.0f, env_ * 4.0f) : 0.0f;
+    auto loop = [&](int i, float x) {
+        x = damp2_[i].lowpass(damp_[i].lowpass(x));
+        x = lowCut_[i].highpass(x);
+        x = sat_[i].process(x * feedback_ * loopDrive_) / loopDrive_;
+        return x + hiss_.next() * breath * feedback_;
+    };
+    const float fromL = loop(0, l), fromR = loop(1, r);
+    const float input = inFilter_[0].lowpass(in);
+    if (pingPong_)
+    {
+        left_[write_] = input + fromR; // the input enters on the left, each repeat crosses sides
+        right_[write_] = fromL;
+    }
+    else
+    {
+        left_[write_] = input + fromL;
+        right_[write_] = input + fromR;
+    }
     if (++write_ >= left_.size())
         write_ = 0;
-    outL = l;
-    outR = r;
+    // What comes out has been through the tape's (or the chip's) filters too, the first echo included.
+    outL = type_ == Clean ? l : outFilter_[0].lowpass(l);
+    outR = type_ == Clean ? r : outFilter_[1].lowpass(r);
 }
 
 // ---------------------------------------------------------------------------------

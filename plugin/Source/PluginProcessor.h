@@ -170,6 +170,10 @@ private:
         gristo::sound::FxParams fx;
         gristo::sound::BeadsParams beads;
         gristo::sound::RingsParams rings;
+        gristo::sound::MixParams mix;
+        // Arp and chord parts that are muted (or soloed away): they still play inside, for
+        // pre-fader sends and Rings, but send no MIDI.
+        std::array<bool, gristo::kNumArps + 1> midiMuted {};
         gristo::sound::CharacterParams character;
         int notes[gristo::kNumVoices] {}, channels[gristo::kNumParts] {}, shifts[gristo::kNumArps + 1] {};
         int octaves[gristo::sound::kNumSynths] {};

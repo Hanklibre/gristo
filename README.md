@@ -120,6 +120,29 @@ source) and the Perkons inspired the choice of engines, not code.
   (-3 .. +3 octaves); the MIDI it sends is unchanged.
 * **Beads** has its own plugin output (with Separate outputs on; the eighth bus).
 
+### Mixer, a delay of its own, pre-fader Beads sends
+
+* **Mixer** (the button next to Rings): a strip per channel, Kit, Arp 1-3,
+  Chords, Rings and Beads, then the Delay and Reverb returns. Each has its level,
+  Mute and Solo (the returns: Mute; they stay on when you solo, so a soloed part
+  keeps its echoes and reverb) and its sends to the Reverb, the Delay and Beads.
+  Rings, Beads, Delay and Reverb now each have their own level and mute.
+* **Pre** on a Beads send: Beads hears the channel before its fader and mute. Mute
+  an arp and keep only its grains. A muted arp or chord part keeps playing
+  inside (for Rings and pre-fader sends); its sound is silent and it sends no MIDI.
+* **The delay is its own effect** (FX / Beads page): **Tape** (a worn tape echo:
+  wow, flutter, darker and softly saturated repeats, a little hiss), **BBD** (an
+  analog bucket-brigade chip: longer times run its clock slower, so long echoes
+  get darker and grainier; a slow modulation; it can be pushed close to runaway)
+  or **Clean**; **Age** (how worn), **Ping-pong**, and on the Mixer its return
+  level, mute, and sends **into the Reverb** and **into Beads**.
+* The order is fixed so nothing feeds back on itself: the parts and Rings feed
+  the Delay, the Delay feeds Beads, and all of them feed the Reverb.
+* **Separate outputs:** the old FX output is now **Reverb**, and the Delay has its
+  own output (the tenth bus).
+* The synths' level is now applied after their inserts (ensemble, grit), as on a
+  mixing desk.
+
 ### Rings, chord Chance and voicings, one reverb, a new Body, gentler Dirt
 
 * **Rings** (the **Rings** button under the parts): Mutable Instruments' resonator,
@@ -311,8 +334,8 @@ plays and holds the modulation lanes.
   Shell; Upper + bass), **Strum** (ms between notes; up, down or alternating)
   and **Chance** (per note).
 * **Sound:** each synth has **Duck** (pumps with the kick). **Separate
-  outputs** (Master / FX page) gives Kit, Arp 1-3, Chords, FX, Beads and Rings
-  their own plugin outputs.
+  outputs** (Master / FX page) gives Kit, Arp 1-3, Chords, Reverb, Beads, Rings
+  and Delay their own plugin outputs.
 * **MIDI to the DAW:** drag the handles in the timeline bar onto a track to
   drop 1-8 bars of the selected part or of everything as a MIDI clip.
 

@@ -1278,3 +1278,93 @@ TEST("sound: Rings rings in tune at any host rate, on every model, strummed by i
     renderInto(e, out, 0.5);
     CHECK(out.peak < 1e-6f);
 }
+
+TEST("sound: a muted part is silent, but a pre-fader Beads send keeps feeding Beads")
+{
+    auto run = [](bool mute, bool pre, bool beads) {
+        SoundEngine e;
+        dryEngine(e);
+        CharacterParams c;
+        c.dirt = 0.0f;
+        e.setCharacter(c);
+        SynthParams p;
+        p.sound = SynthSound::WarmPad;
+        p.reverbSend = p.delaySend = 0.0f;
+        e.setSynth(kChordSynth, p);
+        BeadsParams b;
+        b.level = beads ? 1.0f : 0.0f;
+        b.reverb = 0.0f;
+        b.density = 0.35f;
+        b.time = 0.05f;
+        b.send[kChordSynth] = 1.0f;
+        e.setBeads(b);
+        MixParams m;
+        m.synthMute[kChordSynth] = mute;
+        m.beadsPre[kChordSynth] = pre;
+        e.setMix(m);
+        e.noteOn(kChordSynth, 60, 60.0f, 0.8f);
+        Rendered out;
+        renderInto(e, out, 2.0);
+        return out.rms(48000, 96000);
+    };
+    const float open = run(false, false, false);
+    CHECK(open > 1e-3f);
+    CHECK(run(true, false, false) < open * 0.01f);  // muted: gone
+    CHECK(run(true, false, true) < open * 0.01f);   // post-fader: Beads hears nothing either
+    CHECK(run(true, true, true) > open * 0.05f);    // pre-fader: the grains still come
+}
+
+TEST("sound: the delay's Tape, BBD and Clean are three echoes; all die away; returns can be muted and routed")
+{
+    auto echo = [](int type, float age, bool mute = false, float toReverb = 0.0f) {
+        SoundEngine e;
+        dryEngine(e);
+        FxParams fx;
+        fx.delayType = type;
+        fx.delayAge = age;
+        fx.delayFeedback = 0.8f;
+        fx.delayBeats = 0.5;
+        e.setFx(fx);
+        CharacterParams c;
+        c.dirt = 0.0f;
+        e.setCharacter(c);
+        KitParams kit;
+        kit.reverbSend = 0.0f;
+        kit.delaySend = 1.0f;
+        e.setKit(kit);
+        MixParams m;
+        m.delayMute = mute;
+        m.delayToReverb = toReverb;
+        e.setMix(m);
+        e.triggerDrum(1, 1.0f);
+        Rendered out;
+        renderInto(e, out, 12.0);
+        return out;
+    };
+    std::vector<Rendered> types { echo(0, 0.5f), echo(1, 0.5f), echo(2, 0.5f) };
+    for (const auto& t : types)
+    {
+        CHECK(t.finite && t.peak <= 1.0f);
+        CHECK(t.rms(static_cast<size_t>(0.5 * kRate), static_cast<size_t>(1.5 * kRate)) > 1e-3f); // echoes
+        CHECK(t.rms(t.left.size() - 24000, t.left.size()) < 1e-4f);                               // that end
+    }
+    // BBD and Tape are darker than Clean: less of the echoes' energy in their highs.
+    auto brightness = [](const Rendered& r) {
+        double hi = 0.0, all = 0.0;
+        for (size_t i = static_cast<size_t>(0.6 * kRate); i < static_cast<size_t>(2.0 * kRate); ++i)
+        {
+            const double d = static_cast<double>(r.left[i]) - r.left[i - 1];
+            hi += d * d;
+            all += static_cast<double>(r.left[i]) * r.left[i];
+        }
+        return hi / std::max(all, 1e-12);
+    };
+    CHECK(brightness(types[1]) < brightness(types[2]) * 0.7);
+    CHECK(brightness(types[0]) < brightness(types[2]) * 0.7);
+    // Muted: no echoes. Into the reverb: a tail after the echoes would have ended.
+    const Rendered muted = echo(0, 0.5f, true);
+    CHECK(muted.rms(static_cast<size_t>(0.5 * kRate), static_cast<size_t>(1.5 * kRate)) < 1e-4f);
+    const Rendered reverb = echo(2, 0.0f, false, 1.0f);
+    CHECK(reverb.rms(static_cast<size_t>(0.5 * kRate), static_cast<size_t>(1.5 * kRate))
+          > types[2].rms(static_cast<size_t>(0.5 * kRate), static_cast<size_t>(1.5 * kRate)));
+}

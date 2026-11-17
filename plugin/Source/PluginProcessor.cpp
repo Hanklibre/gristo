@@ -23,9 +23,10 @@ GristoProcessor::GristoProcessor()
                          .withOutput("Arp 2", juce::AudioChannelSet::stereo(), false)
                          .withOutput("Arp 3", juce::AudioChannelSet::stereo(), false)
                          .withOutput("Chords", juce::AudioChannelSet::stereo(), false)
-                         .withOutput("FX", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("Reverb", juce::AudioChannelSet::stereo(), false)
                          .withOutput("Beads", juce::AudioChannelSet::stereo(), false)
-                         .withOutput("Rings", juce::AudioChannelSet::stereo(), false)),
+                         .withOutput("Rings", juce::AudioChannelSet::stereo(), false)
+                         .withOutput("Delay", juce::AudioChannelSet::stereo(), false)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
     for (auto& e : stepEdits)
@@ -122,6 +123,15 @@ void GristoProcessor::readSettings()
 {
     auto& c = settings_;
     c.engine = p::readEngineParams(state, modPoints, &stepEdits);
+    // A muted arp or chord part keeps playing inside (its pre-fader Beads send and Rings
+    // still hear it); the mixer silences its sound and the MIDI out leaves its notes out.
+    for (int arp = 0; arp <= gristo::kNumArps; ++arp)
+    {
+        auto& muted = c.engine.partMute[static_cast<size_t>(gristo::kNumVoices + arp)];
+        c.midiMuted[static_cast<size_t>(arp)] = muted;
+        muted = false;
+    }
+    c.mix = p::readMixParams(state);
     c.kit = p::readKitParams(state);
     for (int sIndex = 0; sIndex < gristo::sound::kNumSynths; ++sIndex)
         c.synths[sIndex] = p::readSynthParams(state, sIndex);
@@ -196,6 +206,7 @@ void GristoProcessor::applySoundSettings(std::int64_t step, bool playing)
     sound_.setFx(fx);
     sound_.setBeads(c.beads);
     sound_.setRings(c.rings);
+    sound_.setMix(c.mix);
     sound_.setCharacter(c.character);
 }
 
@@ -340,7 +351,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     float* right = mainOut.getNumChannels() > 1 ? mainOut.getWritePointer(1) : nullptr;
 
     // Separate Outputs: every part whose output bus the host has switched on goes
-    // there instead of the main mix. Buses in order: Kit, Arp 1-3, Chords, FX, Beads, Rings.
+    // there instead of the main mix. Buses in order: Kit, Arp 1-3, Chords, Reverb, Beads, Rings, Delay.
     gristo::sound::Stems stems;
     bool anyStem = false;
     if (settings_.separateOuts && right != nullptr)
@@ -350,9 +361,10 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             if (out.getNumChannels() < 2)
                 continue;
             float* const pair[2] = { out.getWritePointer(0), out.getWritePointer(1) };
-            if (bus > 8)
+            if (bus > 9)
                 continue;
-            float** target = bus == 1 ? stems.kit : bus == 6 ? stems.fx : bus == 7 ? stems.beads : bus == 8 ? stems.rings : stems.synth[bus - 2];
+            float** target = bus == 1 ? stems.kit : bus == 6 ? stems.fx : bus == 7 ? stems.beads : bus == 8 ? stems.rings
+                           : bus == 9 ? stems.delay : stems.synth[bus - 2];
             target[0] = pair[0];
             target[1] = pair[1];
             anyStem = true;
@@ -365,7 +377,7 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         if (right != nullptr)
         {
             gristo::sound::Stems at = stems;
-            for (float** pair : { at.kit, at.synth[0], at.synth[1], at.synth[2], at.synth[3], at.fx, at.beads, at.rings })
+            for (float** pair : { at.kit, at.synth[0], at.synth[1], at.synth[2], at.synth[3], at.fx, at.beads, at.rings, at.delay })
                 for (int ch = 0; ch < 2; ++ch)
                     if (pair[ch] != nullptr)
                         pair[ch] += rendered;
@@ -396,17 +408,19 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         const bool isArp = ev.voice >= gristo::kArpVoiceBase;
         int note = isArp ? ev.note : notes[ev.voice];
         int channel = channels[ev.voice];
+        // A muted arp or chord part: sounding inside, no MIDI out (-1: this note wasn't sent).
+        const bool midiMuted = isArp && settings_.midiMuted[static_cast<size_t>(juce::jlimit(0, gristo::kNumArps, ev.voice - gristo::kArpVoiceBase))];
         if (ev.noteOn)
         {
             if (isArp)
-                sentChannel_[static_cast<size_t>(ev.voice)][static_cast<size_t>(note & 127)] = static_cast<juce::int8>(channel);
+                sentChannel_[static_cast<size_t>(ev.voice)][static_cast<size_t>(note & 127)] = static_cast<juce::int8>(midiMuted ? -1 : channel);
             else
                 drumSent_[static_cast<size_t>(ev.voice)] = { note, channel };
         }
         else if (isArp)
         {
             const int sent = sentChannel_[static_cast<size_t>(ev.voice)][static_cast<size_t>(note & 127)];
-            channel = sent > 0 ? sent : channel;
+            channel = sent != 0 ? sent : channel;
         }
         else if (drumSent_[static_cast<size_t>(ev.voice)].second > 0)
             std::tie(note, channel) = drumSent_[static_cast<size_t>(ev.voice)];
@@ -415,7 +429,8 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         {
             displayActivity[static_cast<size_t>(ev.voice)].store(ev.velocity, std::memory_order_relaxed);
             const auto velocity = static_cast<juce::uint8>(juce::jlimit(1, 127, juce::roundToInt(ev.velocity * 127.0f)));
-            midi.addEvent(juce::MidiMessage::noteOn(channel, note, velocity), ev.sampleOffset);
+            if (!midiMuted)
+                midi.addEvent(juce::MidiMessage::noteOn(channel, note, velocity), ev.sampleOffset);
             if (kitOn)
             {
                 if (isArp)
@@ -430,7 +445,8 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         }
         else
         {
-            midi.addEvent(juce::MidiMessage::noteOff(channel, note), ev.sampleOffset);
+            if (channel > 0) // -1: its note-on was muted, so was never sent
+                midi.addEvent(juce::MidiMessage::noteOff(channel, note), ev.sampleOffset);
             if (isArp)
                 sound_.noteOff(synthOf(ev.voice - gristo::kArpVoiceBase), note);
         }

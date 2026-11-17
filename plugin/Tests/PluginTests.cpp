@@ -784,7 +784,7 @@ TEST("plugin: Beads and Rings can have their own outputs")
 {
     auto proc = std::make_unique<GristoProcessor>();
     auto layout = proc->getBusesLayout();
-    CHECK(layout.outputBuses.size() == 9);
+    CHECK(layout.outputBuses.size() == 10);
     for (int bus = 1; bus < layout.outputBuses.size(); ++bus)
         layout.outputBuses.getReference(bus) = juce::AudioChannelSet::stereo();
     CHECK(proc->setBusesLayout(layout));
@@ -910,4 +910,42 @@ TEST("plugin: lane routings to parameters are saved by name, so updates can't re
     // The removed reverb type keeps its place: the parameters after it keep their numbers.
     CHECK(p::parameterTarget("fxRevType") == p::parameterTarget(p::fxShimmer) + 1);
     CHECK(p::parameterTarget(p::beadsLevel) == p::parameterTarget(p::fxShimmer) + 2);
+}
+
+TEST("plugin: a muted part sends no MIDI and is silent, but still feeds Beads pre-fader; Rings and Beads solo")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::chordOn, 1.0f);
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        setParam(*proc, p::voiceId(p::partMute, v), 1.0f);
+    setParam(*proc, p::kitReverb, 0.0f);
+    setParam(*proc, p::laneId(p::synthReverb, gristo::sound::kChordSynth), 0.0f);
+    setParam(*proc, p::voiceId(p::partMute, gristo::kChordVoice), 1.0f);
+    setParam(*proc, p::beadsLevel, 1.0f);
+    setParam(*proc, p::beadsReverb, 0.0f);
+    setParam(*proc, p::beadsDensity, 0.3f);
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+        setParam(*proc, p::voiceId(p::beadsTrigger, v), 0.0f);
+    proc->pump(2);
+    const int chordChannel = static_cast<int>(getParam(*proc, p::chordChannel));
+    const Run post = play(*proc, 600);
+    CHECK(post.noteOns[static_cast<size_t>(chordChannel)] == 0); // muted: no MIDI
+    CHECK(post.unpaired == 0);
+    CHECK(post.peak < 0.01f); // and nothing heard: the post-fader send is muted too
+    setParam(*proc, p::laneId(p::beadsPre, gristo::sound::kChordSynth), 1.0f);
+    proc->pump(2);
+    const Run pre = play(*proc, 600, 256, &post);
+    CHECK(pre.noteOns[static_cast<size_t>(chordChannel)] == 0);
+    CHECK_MSG(pre.peak > 0.01f, "pre-fader grains: peak " << pre.peak); // the grains of a part you don't hear
+
+    // Solo Beads: the chords' own sound stays off even unmuted, the grains play on.
+    setParam(*proc, p::voiceId(p::partMute, gristo::kChordVoice), 0.0f);
+    setParam(*proc, p::beadsSolo, 1.0f);
+    proc->pump(2);
+    auto mix = p::readMixParams(proc->state);
+    CHECK(mix.synthMute[gristo::sound::kChordSynth] && !mix.beadsMute && mix.ringsMute);
+    CHECK(!p::readMixParams(proc->state).delayMute); // returns are solo-safe
+    const Run solo = play(*proc, 400, 256, &pre);
+    CHECK(solo.nonFinite == 0 && solo.peak > 0.01f);
+    CHECK(solo.noteOns[static_cast<size_t>(chordChannel)] == 0); // soloed away: no MIDI either
 }

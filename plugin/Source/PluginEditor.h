@@ -147,8 +147,9 @@ private:
     static constexpr int kSoundsPage = 2 + gristo::kNumArps;
     static constexpr int kMasterPage = kSoundsPage; // pages: 0 = drums, 1..3 = arps, chords, master
     // Part strip: the ten parts and Master / FX; the selected one fills the page.
-    juce::TextButton partSelect_[gristo::kNumParts + 2]; // the parts, FX / Beads, Rings
+    juce::TextButton partSelect_[gristo::kNumParts + 3]; // the parts, FX / Beads, Rings, Mixer
     static constexpr int kRingsPart = gristo::kNumParts + 1;
+    static constexpr int kMixerPart = gristo::kNumParts + 2;
     Toggle partMute_[gristo::kNumParts], partSolo_[gristo::kNumParts], separateOuts_;
     Knob partLevel_[gristo::kNumParts];
     std::array<float, gristo::kNumParts> activity_ {};
@@ -222,6 +223,23 @@ private:
     // Play screen: the two pads and the big knobs. Edit shows the selected part's page instead.
     static constexpr int kPlayPage = kMasterPage + 1;
     static constexpr int kRingsPage = kPlayPage + 1;
+    static constexpr int kMixerPage = kRingsPage + 1;
+    // Mixer page: one strip per channel (Kit, Arp 1-3, Chords, Rings, Beads, Delay, Reverb).
+    static constexpr int kMixStrips = 9;
+    struct MixStrip
+    {
+        Knob reverb, delay, beads, level;
+        Toggle pre, mute, solo;
+        bool hasReverb = false, hasDelay = false, hasBeads = false, hasPre = false, hasLevel = false, hasMute = false, hasSolo = false;
+    };
+    std::array<MixStrip, kMixStrips> mixStrips_;
+    juce::Label mixerNote_;
+    void setupMixer();
+    std::vector<juce::Component*> mixerPageComponents();
+    // FX page: the delay as its own effect
+    Choice delayType_;
+    Knob delayAge_;
+    Toggle delayPing_;
     // Rings page
     Toggle ringsOn_;
     Choice ringsSource_, ringsModel_, ringsPoly_, ringsExciter_;

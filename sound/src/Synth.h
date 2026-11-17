@@ -158,7 +158,8 @@ public:
     void noteOn(int id, float pitch, float velocity);
     void noteOff(int id);
     void allNotesOff();
-    float tick();
+    float tick(); // before the level: see level()
+    float level() const { return live_.level; } // the part's fader, glided
     int activeVoices() const;
 
 private:

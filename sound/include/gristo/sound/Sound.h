@@ -108,6 +108,9 @@ struct FxParams
     float delayBeats = 0.75f;    // delay time in beats (0.75 = dotted 8th)
     float delayFeedback = 0.35f; // 0..0.9
     float shimmer = 0.0f;        // 0..1: the reverb feeds itself an octave up
+    int delayType = 0;           // 0 tape, 1 BBD, 2 clean (see Delay in Fx.h)
+    float delayAge = 0.3f;       // 0..1: how worn the tape / chip is
+    bool delayPingPong = true;
     // The reverb is Beads' reverb; its character follows BeadsParams::quality.
     double bpm = 120.0;
 };
@@ -158,6 +161,24 @@ struct RingsParams
     float reverb = 0.2f, delay = 0.0f, beads = 0.0f; // sends: main reverb, delay, into Beads
 };
 
+// The mixer: channel mutes (solo is the caller's: it mutes the others), where each
+// Beads send is taken from, and the returns. A muted channel's notes still play, so a
+// pre-fader send keeps feeding Beads; its own sound and post-fader sends are silent.
+// The order is Rings -> Delay -> Beads -> Reverb, so the returns can feed the later
+// ones without a loop.
+struct MixParams
+{
+    std::array<bool, kNumSynths> synthMute {};
+    std::array<bool, kNumSynths> beadsPre {}; // Beads send before the fader and mute
+    bool ringsMute = false, ringsBeadsPre = false;
+    bool beadsMute = false;
+    float beadsToReverb = 0.0f; // the grains into the main reverb
+    float delayLevel = 1.0f, delayToReverb = 0.15f, delayToBeads = 0.0f;
+    bool delayMute = false;
+    float reverbLevel = 1.0f;
+    bool reverbMute = false;
+};
+
 // A one-shot sample that replaces a drum voice's synthesized sound.
 struct SampleData
 {
@@ -171,7 +192,8 @@ struct Stems
 {
     float* kit[2] {};
     float* synth[kNumSynths][2] {};
-    float* fx[2] {}; // reverb and delay returns
+    float* fx[2] {}; // the reverb return (and the delay's, unless it has its own)
+    float* delay[2] {}; // the delay return
     float* beads[2] {}; // Beads' grains (else they go with the FX, or the mix)
     float* rings[2] {}; // Rings (dry; its sends still go to the effects)
 };
@@ -194,6 +216,7 @@ public:
     void setBeads(const BeadsParams& params);
     int beadsGrains() const; // grains sounding (for tests and meters)
     void setRings(const RingsParams& params);
+    void setMix(const MixParams& params);
 
     // A drum voice plays this sample instead of its synthesized sound (nullptr: back to
     // the kit). The caller keeps the data alive while it is set. Tune, Decay (shorter

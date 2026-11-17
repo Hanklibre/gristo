@@ -200,24 +200,41 @@ private:
     dsp::OnePole dcL_, dcR_;
 };
 
-// Tempo-synced ping-pong delay with a darkening feedback path, a little tape wow and
-// soft saturation on the repeats (warmer echoes that can't run away).
+// Tempo-synced delay with three characters:
+//   Tape: a worn tape echo. Wow, flutter and a slow drift on the heads; every repeat
+//         loses highs and lows and saturates softly; hiss in the loop.
+//   BBD:  a bucket-brigade (analog chip) echo. Its clock slows down for longer times,
+//         so long echoes are darker and grainier; the filters around the chip are
+//         steep; a slow modulation, and a little noise that breathes with the signal.
+//   Clean: digital, only gently darkened.
+// Age makes Tape and BBD more worn. Ping-pong: the echoes cross between left and
+// right; otherwise both sides repeat together (slightly apart, for width).
 class Delay
 {
 public:
+    enum Type : int { Tape = 0, Bbd, Clean, Count };
     void prepare(float sampleRate);
     void reset();
-    void set(float seconds, float feedback);
+    void set(float seconds, float feedback, int type = Tape, float age = 0.3f, bool pingPong = true);
     void process(float in, float& outL, float& outR);
 
 private:
     float read(const std::vector<float>& line, float delaySamples) const;
+    void voice(); // filters for the current type, age and time
     std::vector<float> left_, right_;
     size_t write_ = 0;
     float sampleRate_ = 48000.0f;
-    float time_ = 0.0f, targetTime_ = 0.0f, feedback_ = 0.35f;
-    float glideCoef_ = 0.0005f, wowPhase_ = 0.0f, wowInc_ = 0.0f, wowDepth_ = 0.0f;
-    dsp::OnePole damp_[2], lowCut_[2];
+    float time_ = 0.0f, targetTime_ = 0.0f, feedback_ = 0.35f, age_ = 0.3f;
+    int type_ = Tape;
+    bool pingPong_ = true;
+    float glideCoef_ = 0.0005f, wowPhase_ = 0.0f, flutterPhase_ = 0.0f, lfoPhase_ = 0.0f;
+    float voicedTime_ = -1.0f, voicedAge_ = -1.0f;
+    int voicedType_ = -1;
+    float loopDrive_ = 1.5f, noise_ = 0.0f, env_ = 0.0f, envRelease_ = 0.999f;
+    dsp::OnePole damp_[2], damp2_[2], lowCut_[2], inFilter_[2], outFilter_[2];
+    dsp::SoftSaturator sat_[2];
+    dsp::Noise hiss_ { 0xec40u };
+    Wobble drift_;
 };
 
 } // namespace gristo::sound
