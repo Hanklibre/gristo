@@ -1002,7 +1002,19 @@ TEST("plugin: a progression's slots reach the engine and play; a clicked chord c
     quiet->auditionChord(gristo::cellCode(0, 2));
     const Run heard = play(*quiet, 60);
     CHECK(heard.peak > 0.01f && heard.noteOns[static_cast<size_t>(channel)] == 0); // sound only, no MIDI
+    // Held: it keeps sounding (here ~3 s) until let go.
+    play(*quiet, 500);
+    const Run held = play(*quiet, 60);
+    CHECK(held.peak > heard.peak * 0.3f);
+    quiet->auditionRelease();
     play(*quiet, 400);
     const Run after = play(*quiet, 200);
     CHECK(after.peak < heard.peak * 0.5f);
+    // A quick click (pressed and let go at once) still sounds for about a second.
+    quiet->auditionChord(gristo::cellCode(1, 0));
+    quiet->auditionRelease();
+    const Run click = play(*quiet, 120);
+    CHECK(click.peak > 0.01f);
+    play(*quiet, 400);
+    CHECK(play(*quiet, 200).peak < click.peak * 0.5f);
 }

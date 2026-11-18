@@ -199,7 +199,13 @@ public:
     void update(const gristo::ChordParams& params, int playing);
     std::function<void()> onTouched; // a press on the pad (to switch the chords on)
     // A press on a cell; return true to take it (the home cell then stays where it is).
+    // A taken press can be dragged onto the progression (see kChordDragPrefix).
     std::function<bool(gristo::HarmonyCell)> onCellPressed;
+    std::function<void()> onCellReleased;
+    std::function<void(gristo::HarmonyCell)> onCellDoubleClicked;
+    void setCandidate(int cellCode); // the chord last heard, marked on the map (-1 none)
+    void mouseDoubleClick(const juce::MouseEvent&) override;
+    static constexpr const char* kChordDragPrefix = "gristo-chord:";
     juce::String playingName() const; // "Am9", or the home chord while nothing sounds
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
@@ -214,15 +220,24 @@ private:
     int playing_ = -1;
     std::array<int, 3> trail_ { -1, -1, -1 }; // the cells before the current one
     bool taken_ = false; // this press was taken by onCellPressed
+    bool dragged_ = false;
+    int pressedCode_ = -1, candidate_ = -1;
+    gristo::HarmonyCell cellAt(juce::Point<float> pos) const;
 };
 
 // The chord progression: up to eight slots, the one playing lit. In Progression mode
 // they are the chords you picked (click one to select it, so the next chord you click
 // on the harmony map replaces it; right-click to remove it); in Wander mode they show,
 // dimmed, the walk being played, ready for Use walk.
-class ProgressionStrip : public juce::Component
+class ProgressionStrip : public juce::Component, public juce::DragAndDropTarget
 {
 public:
+    // A chord dragged from the map onto a slot (the slot after the last chord: appended).
+    std::function<void(int slot, int cellCode)> onDrop;
+    bool isInterestedInDragSource(const SourceDetails&) override;
+    void itemDragMove(const SourceDetails&) override;
+    void itemDragExit(const SourceDetails&) override;
+    void itemDropped(const SourceDetails&) override;
     void update(const gristo::ChordParams& params, const std::array<int, gristo::kMaxProgression>& slots, bool editable, int playing);
     int selected() const { return selected_; }
     void clearSelection();
@@ -236,7 +251,8 @@ private:
     gristo::ChordParams params_;
     std::array<int, gristo::kMaxProgression> slots_ {};
     bool editable_ = false;
-    int playing_ = -1, selected_ = -1;
+    int playing_ = -1, selected_ = -1, dropSlot_ = -1;
+    int slotAt(float x) const;
 };
 
 // Two-handle MIDI velocity range (1..127) for one voice. Accepts lanes (Velocity target).

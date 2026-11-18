@@ -352,11 +352,23 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                                   static_cast<float>(n + 12 * settings_.octaves[gristo::sound::kChordSynth]), 0.7f);
                     auditionNotes_.push_back(n);
                 }
-                auditionLeft_ = static_cast<int>(sampleRate_ * 1.1);
+                auditionLeft_ = static_cast<int>(sampleRate_ * 12.0); // held: until released (12 s at most)
+                auditionPlayed_ = 0;
+                auditionReleased_ = false;
             }
         }
-        else if (!auditionNotes_.empty() && (auditionLeft_ -= numSamples) <= 0)
-            stopAudition();
+        else if (!auditionNotes_.empty())
+        {
+            if (!auditionReleased_ && auditionReleasedFor_.load() == auditionHandled_)
+            {
+                // Let go: it still sounds for at least about a second in all.
+                auditionReleased_ = true;
+                auditionLeft_ = std::min(auditionLeft_, std::max(0, static_cast<int>(sampleRate_ * 1.1) - auditionPlayed_));
+            }
+            auditionPlayed_ += numSamples;
+            if ((auditionLeft_ -= numSamples) <= 0)
+                stopAudition();
+        }
     }
     if (block.playing)
         lastBpm_ = block.bpm;
@@ -1310,6 +1322,8 @@ void GristoProcessor::auditionChord(int cellCode)
     auditionCell_.store(cellCode);
     auditionRequest_.fetch_add(1);
 }
+
+void GristoProcessor::auditionRelease() { auditionReleasedFor_.store(auditionRequest_.load()); }
 
 void GristoProcessor::writeRoutes(juce::ValueTree& parent) const
 {

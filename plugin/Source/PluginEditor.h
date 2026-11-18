@@ -224,6 +224,10 @@ private:
     HarmonyPad harmonyPad_;
     ProgressionStrip progression_;
     juce::TextButton useWalk_ { "Use walk" }, clearProgression_ { "Clear" };
+    // The chord chart: the map and the progression, big. The candidate is the chord last
+    // heard; Add (or a double-click, or a drag onto a slot) puts it in.
+    juce::TextButton chartButton_ { "Chart" }, addChord_ { "Add" }, backFromChart_ { "Back" };
+    int candidate_ = -1, chartReturnPage_ = 0;
     void placeInProgression(int cellCode);
     void setProgression(const std::array<int, gristo::kMaxProgression>& slots);
 
@@ -231,6 +235,7 @@ private:
     static constexpr int kPlayPage = kMasterPage + 1;
     static constexpr int kRingsPage = kPlayPage + 1;
     static constexpr int kMixerPage = kRingsPage + 1;
+    static constexpr int kChartPage = kMixerPage + 1;
     // Mixer page: one strip per channel (Kit, Arp 1-3, Chords, Rings, Beads, Delay, Reverb).
     static constexpr int kMixStrips = 9;
     struct MixStrip

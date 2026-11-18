@@ -1398,14 +1398,47 @@ void GristoView::setupChordPage()
         const auto mode = static_cast<gristo::HarmonyMode>(juce::roundToInt(processor_.state.getRawParameterValue(p::chordMode)->load()));
         if (mode == gristo::HarmonyMode::Progression)
         {
+            // Listen first: the chord sounds while held and becomes the candidate.
             processor_.auditionChord(code);
-            placeInProgression(code);
+            candidate_ = code;
+            harmonyPad_.setCandidate(code);
+            const auto c = p::readEngineParams(processor_.state, processor_.modPoints).chords;
+            addChord_.setButtonText("Add  " + juce::String(gristo::Chords::name(c, cell)));
+            showMessage(gristo::Chords::name(c, cell), "Double-click it, drag it onto a slot, or press Add (Chart) to put it in the progression.");
             return true;
         }
         if (!processor_.displayPlaying.load())
             processor_.auditionChord(code);
         return false;
     };
+    harmonyPad_.onCellReleased = [this] { processor_.auditionRelease(); };
+    harmonyPad_.onCellDoubleClicked = [this](gristo::HarmonyCell cell) { placeInProgression(gristo::cellCode(cell.column, cell.row)); };
+    progression_.onDrop = [this](int slot, int code) {
+        std::array<int, gristo::kMaxProgression> slots {};
+        for (int k = 0; k < gristo::kMaxProgression; ++k)
+            slots[static_cast<size_t>(k)] = juce::roundToInt(processor_.state.getRawParameterValue(p::laneId(p::chordProgression, k))->load());
+        const int length = [&] { int n = 0; while (n < gristo::kMaxProgression && slots[static_cast<size_t>(n)] >= 0) ++n; return n; }();
+        slots[static_cast<size_t>(std::min(slot, length < gristo::kMaxProgression ? length : slot))] = code; // past the end: appended
+        setProgression(slots);
+        progression_.clearSelection();
+    };
+    addChord_.onClick = [this] {
+        if (candidate_ >= 0)
+            placeInProgression(candidate_);
+    };
+    chartButton_.onClick = [this] {
+        // The chart is where progressions are built: the chords play the progression.
+        setParameter(p::chordOn, 1.0f);
+        setParameter(p::chordMode, static_cast<float>(gristo::HarmonyMode::Progression));
+        chartReturnPage_ = page_;
+        showPage(kChartPage);
+    };
+    backFromChart_.onClick = [this] { showPage(chartReturnPage_ == kChartPage ? kPlayPage : chartReturnPage_); };
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &chartButton_, &addChord_, &backFromChart_ })
+        addAndMakeVisible(c);
+    setHelp(chartButton_, "Chord chart", "The harmony map and the progression, big: try chords, then keep the ones you like. Opening it sets Played by to Progression.");
+    setHelp(addChord_, "Add", "Puts the chord you last heard into the progression: the next free slot, or the slot you selected.");
+    setHelp(backFromChart_, "Back", "Back to where you were.");
     progression_.onRemove = [this](int slot) {
         std::array<int, gristo::kMaxProgression> slots {};
         for (int k = 0; k < gristo::kMaxProgression; ++k)
@@ -1436,8 +1469,9 @@ void GristoView::setupChordPage()
     };
     for (juce::Component* c : std::initializer_list<juce::Component*> { &progression_, &useWalk_, &clearProgression_ })
         addAndMakeVisible(c);
-    setHelp(progression_, "Progression", "Played by Progression: the chords you picked, in order, one per chord length. Click a chord on the map to hear it and add it; "
-                                         "click a slot to select it (the next chord replaces it); right-click to remove. In Wander, it shows the walk you hear.");
+    setHelp(progression_, "Progression", "Played by Progression: the chords you picked, in order, one per chord length. Click (and hold) chords on the map to hear them; "
+                                         "double-click one, drag it here, or press Add to keep it. Click a slot to select it (Add replaces it); right-click to remove. "
+                                         "In Wander, it shows the walk you hear.");
     setHelp(useWalk_, "Use walk", "Turns the walk Wander is playing (the caught one, if you caught it) into a progression you can edit chord by chord.");
     setHelp(clearProgression_, "Clear", "Empties the progression.");
     catchButton_.setClickingTogglesState(false);
@@ -1445,7 +1479,7 @@ void GristoView::setupChordPage()
     catchButton_.setColour(juce::TextButton::textColourOnId, colours::background);
     catchButton_.onClick = [this] { processor_.catchHarmony(); };
 
-    setHelp(harmonyPad_, "Harmony map", "Drag to move home. Neighbours share two notes, so any move sounds related: darker to the left, brighter to the right, richer towards the top.");
+    setHelp(harmonyPad_, "Harmony map", "Drag to move home. Neighbours share two notes, so any move sounds related: darker to the left, brighter to the right, richer towards the top. In Progression: click and hold a chord to hear it; double-click it or drag it onto a slot to keep it.");
     setHelp(chordOn_.button, "Chords on", "Switches the chord part on. Arps set to Chords follow it.");
     setHelp(chordKey_.box, "Key", "The key: its tonic chord sits in the middle column of the map.");
     setHelp(chordMinor_.box, "Major / minor", "Whether the middle of the map is the major or the minor tonic.");
@@ -1523,6 +1557,8 @@ void GristoView::updateChordPage(const gristo::EngineParams& params)
         progression_.update(c, editable ? c.progression : gristo::Chords::walkOf(c, walkStep), editable,
                             editable ? processor_.displayProgressionSlot.load() : (walkSlot < gristo::kMaxProgression ? walkSlot : -1));
         useWalk_.setEnabled(c.mode == gristo::HarmonyMode::Wander);
+        addChord_.setEnabled(editable && candidate_ >= 0);
+        harmonyPad_.setCandidate(editable ? candidate_ : -1);
         clearProgression_.setEnabled(editable && gristo::Chords::progressionLength(c) > 0);
     }
     chordNowLabel_.setText((c.enabled ? juce::String() : juce::String("Off  -  ")) + harmonyPad_.playingName(), juce::dontSendNotification);
@@ -2415,6 +2451,14 @@ void GristoView::showPage(int page)
         c->setVisible(page == kRingsPage);
     for (auto* c : mixerPageComponents())
         c->setVisible(page == kMixerPage);
+    addChord_.setVisible(page == kChartPage);
+    backFromChart_.setVisible(page == kChartPage);
+    chartButton_.setVisible(page == kChordsPage || page == kPlayPage);
+    if (page == kChartPage)
+        for (juce::Component* c : std::initializer_list<juce::Component*> { &harmonyPad_, &progression_, &useWalk_, &clearProgression_, &chordOn_.button,
+                                                                            &chordKey_.box, &chordMinor_.box, &chordMode_.box, &chordRate_.box,
+                                                                            &chordPlay_.box, &chordVoicing_.box })
+            c->setVisible(true);
     for (int s = 0; s < gristo::sound::kNumSynths; ++s)
         for (auto* c : synthComponents(s))
             c->setVisible(isArpPage() ? s == page - 1 : page == kChordsPage && s == gristo::sound::kChordSynth);
@@ -2732,6 +2776,15 @@ void GristoView::paint(juce::Graphics& g)
         g.setFont(juce::FontOptions(11.0f));
         g.drawFittedText("Separate outputs: Kit, Arp 1-3, Chords, Reverb, Beads, Rings and Delay each get their own plugin output.",
                          { px + 790, py + 160, 270, 34 }, juce::Justification::topLeft, 3);
+    }
+    else if (page_ == kChartPage)
+    {
+        drawPanel(g, { px, py, kPageW, kPageH }, "Chord chart");
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(11.5f));
+        g.drawText("Click and hold a chord to hear it.  Double-click, drag it onto a slot, or press Add to keep it.  "
+                   "Click a slot to select it (Add replaces it), right-click to remove.",
+                   px + 20, py + kPageH - 40, 790, 18, juce::Justification::centredLeft);
     }
     else if (page_ == kMixerPage)
     {
@@ -3148,9 +3201,10 @@ void GristoView::resized()
         chordPlay_.box.setBounds(640, y, 80, 26);
         chordOctave_.box.setBounds(726, y, 58, 26);
         harmonyPad_.setBounds(24, y + 34, 600, 128);
-        progression_.setBounds(22, y + 167, 452, 26);
-        useWalk_.setBounds(480, y + 167, 74, 26);
-        clearProgression_.setBounds(558, y + 167, 66, 26);
+        progression_.setBounds(22, y + 167, 388, 26);
+        useWalk_.setBounds(414, y + 167, 70, 26);
+        clearProgression_.setBounds(488, y + 167, 56, 26);
+        chartButton_.setBounds(548, y + 167, 76, 26);
         chordNowLabel_.setBounds(796, y, 180, 26);
         placeKnob(chordWander_, { 640, y + 38, 84, 104 });
         placeSmallKnob(chordStrum_, 740, y + 48);
@@ -3195,9 +3249,10 @@ void GristoView::resized()
         linear_.button.setBounds(px + 414, py + 190, 106, 28);
         // Harmony: the map, Wander and Catch.
         harmonyPad_.setBounds(px + 552, py + 26, 400, kPadPanelH - 90);
-        progression_.setBounds(px + 550, py + kPadPanelH - 60, 260, 26);
-        useWalk_.setBounds(px + 814, py + kPadPanelH - 60, 72, 26);
-        clearProgression_.setBounds(px + 890, py + kPadPanelH - 60, 62, 26);
+        progression_.setBounds(px + 550, py + kPadPanelH - 60, 226, 26);
+        useWalk_.setBounds(px + 780, py + kPadPanelH - 60, 62, 26);
+        clearProgression_.setBounds(px + 845, py + kPadPanelH - 60, 50, 26);
+        chartButton_.setBounds(px + 898, py + kPadPanelH - 60, 54, 26);
         chordNowLabel_.setBounds(px + 552, py + kPadPanelH - 26, 400, 18);
         chordOn_.button.setBounds(px + 962, py + 26, 98, 28);
         chordKey_.box.setBounds(px + 962, py + 78, 98, 26);
@@ -3213,6 +3268,24 @@ void GristoView::resized()
         grit_.box.setBounds(px + 8 + 3 * kKnobSlotW + 98, ky + 44, 76, 26);
         mutateAmount_.setBounds(px + 8 + 5 * kKnobSlotW, ky + 44, kKnobSlotW - 24, 26);
         timelineView_.setBounds(kPageX + 10, kPlayTimelineY + 8, kPageW - 20, kHeight - kPlayTimelineY - 22);
+    }
+    if (page_ == kChartPage)
+    {
+        // The chord chart: the map and the progression big, the harmony settings beside them.
+        harmonyPad_.setBounds(px + 20, py + 36, 780, 356);
+        progression_.setBounds(px + 18, py + 402, 784, 50);
+        const int rx = px + 822, rw = 230, half = (rw - 6) / 2;
+        addChord_.setBounds(rx, py + 36, rw, 46);
+        chordOn_.button.setBounds(rx, py + 96, 56, 28);
+        chordKey_.box.setBounds(rx + 62, py + 96, 70, 28);
+        chordMinor_.box.setBounds(rx + 138, py + 96, rw - 138, 28);
+        chordMode_.box.setBounds(rx, py + 132, rw, 28);
+        chordRate_.box.setBounds(rx, py + 168, half, 28);
+        chordPlay_.box.setBounds(rx + half + 6, py + 168, half, 28);
+        chordVoicing_.box.setBounds(rx, py + 204, rw, 28);
+        useWalk_.setBounds(rx, py + 250, half, 30);
+        clearProgression_.setBounds(rx + half + 6, py + 250, half, 30);
+        backFromChart_.setBounds(rx, py + 422, rw, 30);
     }
 }
 

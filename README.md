@@ -122,17 +122,24 @@ source) and the Perkons inspired the choice of engines, not code.
 
 ### Building a chord progression
 
-* **Played by: Progression.** Click chords on the harmony map: each one sounds right
-  away (even when stopped) and goes into the next of eight slots in the strip under
-  the map. The progression plays in order, one chord per Chord length, looping.
-  Click a slot to select it (you hear it): the next chord you click replaces it.
-  Right-click a slot to remove it. The map shows each chord's slot numbers.
-* **Use walk:** in Wander, the strip shows the walk you are hearing. When you like
-  it (Catch it first to keep it looping), Use walk turns it into a progression you can
+* **Played by: Progression.** The chords you keep, in order, in eight slots (the strip
+  under the map), one per Chord length, looping. The map shows each chord's slot numbers.
+* **Listen first:** click and hold chords on the map to hear them, as long as you hold
+  (at least about a second), as many as you like. Nothing is kept until you say so:
+  the last one you heard is the candidate (ringed in amber).
+* **Keep it:** double-click the chord, drag it onto a slot, or press **Add** (on the
+  chart). Click a slot to select it (you hear it): Add or a double-click then replaces
+  it. Right-click a slot to remove it.
+* **Chart:** the Chart button (Play and Chords pages) opens the chord chart: the map
+  and the progression big, with Key, mode, Played by, Chord length, Held / Stabs and
+  Voicing beside them. Opening it sets Played by to Progression.
+* **Use walk:** in Wander, the strip shows the walk you are hearing. When you like it
+  (Catch it first to keep it looping), Use walk turns it into a progression you can
   change chord by chord.
 * In Wander, a click on the map while stopped also lets you hear the chord.
 * Push, Re-strike, Stabs, Chance, voicings and arps following the chords all work on
-  a progression too; it is saved with the song, presets and scenes.
+  a progression too; it is saved with the song, presets and scenes. (Trying chords
+  plays the built-in Chords sound, not the MIDI out.)
 
 ### A new look
 

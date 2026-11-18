@@ -1223,9 +1223,14 @@ void HarmonyPad::paint(juce::Graphics& g)
                 g.setColour(colours::text.withAlpha(0.16f));
                 g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, 1.0f);
             }
-            if (cell == home)
+            if (cell == home && params_.mode != HarmonyMode::Progression)
             {
                 g.setColour(colours::text);
+                g.drawRoundedRectangle(area.reduced(1.0f), 6.0f, 2.0f);
+            }
+            if (code == candidate_ && params_.mode == HarmonyMode::Progression) // the chord last heard
+            {
+                g.setColour(colours::accent);
                 g.drawRoundedRectangle(area.reduced(1.0f), 6.0f, 2.0f);
             }
             if (keys && on) // the two octaves of chord keys
@@ -1276,16 +1281,33 @@ void HarmonyPad::setFromMouse(juce::Point<float> pos)
     set(p::chordHomeY, gristo::Chords::rowToY(row));
 }
 
+gristo::HarmonyCell HarmonyPad::cellAt(juce::Point<float> pos) const
+{
+    const int column = juce::jlimit(0, gristo::kHarmonyColumns - 1, static_cast<int>(pos.x / (static_cast<float>(getWidth()) / gristo::kHarmonyColumns)));
+    const int row = gristo::kHarmonyRows - 1
+                    - juce::jlimit(0, gristo::kHarmonyRows - 1, static_cast<int>(pos.y / (static_cast<float>(getHeight()) / gristo::kHarmonyRows)));
+    return { column - kHalfColumns, row };
+}
+
+void HarmonyPad::setCandidate(int cellCode)
+{
+    if (cellCode != candidate_)
+    {
+        candidate_ = cellCode;
+        repaint();
+    }
+}
+
 void HarmonyPad::mouseDown(const juce::MouseEvent& e)
 {
     if (onTouched)
         onTouched();
+    dragged_ = false;
     if (onCellPressed)
     {
-        const int column = juce::jlimit(0, gristo::kHarmonyColumns - 1, static_cast<int>(e.position.x / (static_cast<float>(getWidth()) / gristo::kHarmonyColumns)));
-        const int row = gristo::kHarmonyRows - 1
-                        - juce::jlimit(0, gristo::kHarmonyRows - 1, static_cast<int>(e.position.y / (static_cast<float>(getHeight()) / gristo::kHarmonyRows)));
-        if (onCellPressed({ column - kHalfColumns, row }))
+        const auto cell = cellAt(e.position);
+        pressedCode_ = gristo::cellCode(cell.column, cell.row);
+        if (onCellPressed(cell))
         {
             taken_ = true;
             return;
@@ -1300,15 +1322,39 @@ void HarmonyPad::mouseDown(const juce::MouseEvent& e)
 void HarmonyPad::mouseDrag(const juce::MouseEvent& e)
 {
     if (!taken_)
+    {
         setFromMouse(e.position);
+        return;
+    }
+    // A taken press dragged away: carry the chord to the progression.
+    if (!dragged_ && e.getDistanceFromDragStart() > 8)
+        if (auto* container = juce::DragAndDropContainer::findParentDragContainerFor(this))
+        {
+            dragged_ = true;
+            const auto area = cellArea(gristo::Chords::cellFromCode(pressedCode_)).reduced(1.5f).toNearestInt();
+            container->startDragging(juce::String(kChordDragPrefix) + juce::String(pressedCode_), this,
+                                     juce::ScaledImage(createComponentSnapshot(area, true)));
+        }
 }
 
 void HarmonyPad::mouseUp(const juce::MouseEvent&)
 {
     if (taken_)
+    {
+        if (onCellReleased)
+            onCellReleased();
         return;
+    }
+    if (onCellReleased)
+        onCellReleased();
     state_.getParameter(p::chordHomeX)->endChangeGesture();
     state_.getParameter(p::chordHomeY)->endChangeGesture();
+}
+
+void HarmonyPad::mouseDoubleClick(const juce::MouseEvent& e)
+{
+    if (taken_ && onCellDoubleClicked)
+        onCellDoubleClicked(cellAt(e.position));
 }
 
 // ---------------------------------------------------------------------------------
@@ -1349,9 +1395,9 @@ void ProgressionStrip::paint(juce::Graphics& g)
         const bool lit = k == playing_;
         g.setColour(lit ? colours::accent.withAlpha(0.22f) : filled ? colours::surface : colours::background);
         g.fillRoundedRectangle(area, 6.0f);
-        g.setColour(k == selected_ ? colours::accent : lit ? colours::accent.withAlpha(0.6f) : juce::Colours::white.withAlpha(0.06f));
-        g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, k == selected_ ? 1.6f : 1.0f);
-        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        g.setColour(k == selected_ || k == dropSlot_ ? colours::accent : lit ? colours::accent.withAlpha(0.6f) : juce::Colours::white.withAlpha(0.06f));
+        g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, k == selected_ || k == dropSlot_ ? 1.6f : 1.0f);
+        g.setFont(juce::FontOptions(std::clamp(area.getHeight() * 0.42f, 11.0f, 18.0f), juce::Font::bold));
         if (filled)
         {
             g.setColour(editable_ ? colours::text : colours::dim);
@@ -1364,6 +1410,42 @@ void ProgressionStrip::paint(juce::Graphics& g)
             g.drawText("+", area, juce::Justification::centred);
         }
     }
+}
+
+int ProgressionStrip::slotAt(float x) const
+{
+    return juce::jlimit(0, gristo::kMaxProgression - 1, static_cast<int>(x / (static_cast<float>(getWidth()) / gristo::kMaxProgression)));
+}
+
+bool ProgressionStrip::isInterestedInDragSource(const SourceDetails& details)
+{
+    return editable_ && details.description.toString().startsWith(HarmonyPad::kChordDragPrefix);
+}
+
+void ProgressionStrip::itemDragMove(const SourceDetails& details)
+{
+    const int slot = slotAt(static_cast<float>(details.localPosition.x));
+    if (slot != dropSlot_)
+    {
+        dropSlot_ = slot;
+        repaint();
+    }
+}
+
+void ProgressionStrip::itemDragExit(const SourceDetails&)
+{
+    dropSlot_ = -1;
+    repaint();
+}
+
+void ProgressionStrip::itemDropped(const SourceDetails& details)
+{
+    const int slot = slotAt(static_cast<float>(details.localPosition.x));
+    dropSlot_ = -1;
+    repaint();
+    const int code = details.description.toString().fromFirstOccurrenceOf(HarmonyPad::kChordDragPrefix, false, false).getIntValue();
+    if (onDrop)
+        onDrop(slot, code);
 }
 
 void ProgressionStrip::mouseDown(const juce::MouseEvent& e)
