@@ -468,6 +468,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     }
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordRestrike, kVersion }, "Chord Re-strike",
         juce::StringArray { "Held", "Strike 1/8", "Strike dotted 1/8", "Strike 1/4", "Strike dotted 1/4", "Strike 1/2", "Strike every bar" }, 0));
+    // The synths' own controls: eight Tone knobs (what each does depends on the sound's
+    // engine), the filter model and the FM algorithm.
+    for (int synth = 0; synth < sound::kNumSynths; ++synth)
+    {
+        const juce::String name = synth < kNumArps ? "Synth " + juce::String(synth + 1) + " " : juce::String("Chord Synth ");
+        for (int k = 0; k < sound::kSynthToneKnobs; ++k)
+            layout.add(percentParam(slotId(synthTone, synth, k), name + "Tone " + juce::String(k + 1), 0.5f));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(synthFilter, synth), kVersion }, name + "Filter",
+            juce::StringArray { "As designed", "Ladder 24 dB", "OTA 24 dB", "SEM low-pass", "SEM band-pass", "SEM high-pass" }, 0));
+        layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(synthAlgo, synth), kVersion }, name + "FM Algorithm",
+            juce::StringArray { "As designed", "1 Stack", "2 Two pairs", "3 Y", "4 Branch", "5 Fan", "6 Three into C", "7 Two into A", "8 Two carriers" }, 0));
+    }
     return layout;
 }
 
@@ -689,6 +701,10 @@ sound::SynthParams readSynthParams(const juce::AudioProcessorValueTreeState& s, 
     p.bodyType = juce::jlimit(0, 5, static_cast<int>(load(s, laneId(synthBodyType, arp))));
     p.bodyTune = load(s, laneId(synthBodyTune, arp));
     p.bodyDecay = load(s, laneId(synthBodyDecay, arp));
+    for (int k = 0; k < sound::kSynthToneKnobs; ++k)
+        p.tone[static_cast<size_t>(k)] = load(s, slotId(synthTone, arp, k));
+    p.filterChoice = juce::jlimit(0, 5, static_cast<int>(load(s, laneId(synthFilter, arp))));
+    p.fmAlgorithm = juce::jlimit(0, 8, static_cast<int>(load(s, laneId(synthAlgo, arp))));
     return p;
 }
 

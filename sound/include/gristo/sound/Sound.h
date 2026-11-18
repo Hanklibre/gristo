@@ -31,7 +31,8 @@ enum class SynthSound : int
     PhaseBass, ResoLead, PhasePad, PhaseKeys, FoldDrone,        // phase distortion (after Felucca's PHASE engine)
     TrioBass, TrioSync, RingBell, ChipChoir, TrioArp,           // three oscillators, ring and sync (Felucca TRIO)
     ChipLead, ChipBass, ChipArp, WaveVox,                       // chip voice (Felucca LOFI)
-    FmRhodes, DxBass, FmBells, FmMarimba, FmBrass, FmGlass,     // six-operator FM (Felucca FM6 / msfa algorithms)
+    FmRhodes, DxBass, FmBells, FmMarimba, FmBrass, FmGlass,     // FM (the four-operator engine)
+    PwmPad, MonoBass, SemPad, FmPluck, FmPad, FmChoir,          // added with the new synth engine
     Count
 };
 const char* synthSoundName(SynthSound sound);
@@ -85,6 +86,8 @@ struct KitParams
 };
 
 // Macro knobs are 0..1 with 0.5 = the sound as designed (glide and level excepted).
+constexpr int kSynthToneKnobs = 8;
+
 struct SynthParams
 {
     SynthSound sound = SynthSound::AcidBass;
@@ -103,7 +106,15 @@ struct SynthParams
     int bodyType = 4;       // 0 shell, 1 box, 2 metal, 3 tube, 4 wood, 5 glass
     float bodyTune = 0.0f;  // semitones, -24..24, on the body's own pitch
     float bodyDecay = 0.4f; // 0..1, short and dry .. long and singing
+    // The sound's own controls (what each does depends on its engine; 0.5 = as designed),
+    // the filter model (0 as designed, 1 ladder, 2 OTA 4-pole, 3 SEM low-pass, 4 SEM
+    // band-pass, 5 SEM high-pass) and the FM algorithm (0 as designed, 1..8).
+    std::array<float, kSynthToneKnobs> tone { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };
+    int filterChoice = 0;
+    int fmAlgorithm = 0;
 };
+// What a sound's Tone knob does, for the panel ("Wave", "Ratio A", ...).
+const char* synthToneName(SynthSound sound, int knob);
 
 struct FxParams
 {

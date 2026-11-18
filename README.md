@@ -44,7 +44,7 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
 * **Built-in sounds (Sounds tab):** twelve synthesized drum kits (Classic,
   808, Trap, Lo-fi, Minimal, Reggaeton, House 909, Techno, Breakbeat, Jungle,
   Amapiano with a log drum on P1, Dancehall) with Tune / Decay / Tone / Drive
-  and a level per drum, and a synth per arp and for the chords with 26 sounds:
+  and a level per drum, and a synth per arp and for the chords with 58 sounds, among them:
   bass (Sub, Acid, Reese, FM, Upright), keys (E-piano, Suitcase Keys, Tape
   Keys, Felt Piano, Bell, Celesta, Vibraphone, Pluck, Organ, Jazz Organ, Poly
   Synth), pads (Warm, Glass, Dark, Breath, Slow Strings, Poly Strings), leads
@@ -79,6 +79,45 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   notes three octaves down on channel 10 by default, so the drums sit below the
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
+
+### A new synth engine
+
+Every synth sound is rebuilt on a new engine. The voices run at twice the host's
+sample rate and are decimated once per synth, so filter drive, sync, FM and phase
+distortion stay clean instead of folding back as grit.
+
+* **Analog:** two oscillators that morph sine, triangle, saw and square (the
+  variable-shape oscillator of Mutable Instruments Plaits, band-limited, with a
+  band-limited hard sync), up to three stacked and detuned, a sub, noise and PWM,
+  into one of three filter models: a transistor **Ladder** (fat, squelchy, rings in
+  tune at full resonance), an **OTA** 4-pole (the rounder filter of the classic
+  polysynths) and a 12 dB **SEM** state-variable filter (low-, band-, high-pass or
+  notch; open and vocal). All three saturate inside, like the circuits. The
+  envelopes charge and fall like analog ones. Each voice has its own small
+  tolerances (cutoff, tuning, envelope times), and the oscillators drift slowly.
+* **FM**, after the Digitone's FM Tone engine: four operators (C, A, B1, B2), eight
+  algorithms, each with two outputs (X and Y) and a Mix between them, frequency
+  ratios in the Digitone's steps, Harmonics, Detune, Feedback on the top operator,
+  and an attack / decay / end envelope each for A and the B pair. Harder notes
+  modulate harder, high notes more gently; Cutoff is the brightness, Resonance
+  adds feedback, Env scales the modulators' decay.
+* **TRIO, LOFI, PHASE** (from Felucca), the organs, the formant voices, the plucked
+  strings and the singing bowl now run oversampled too; TRIO goes through the SEM
+  filter.
+* **Every sound re-voiced** on these engines: the acid bass on the ladder, the pads
+  and brass on the OTA, the e-pianos as an FM bark with a 14:1 tine, and so on.
+  Every sound is measured to the same loudness.
+* **Six new sounds:** PWM Pad, Mono Bass (three oscillators through the ladder), SEM
+  Pad (band-pass, singing), FM Pluck, FM Pad, FM Choir.
+* **Tone:** eight more knobs per synth, under the others on the Sound panel. What
+  they do follows the sound's engine: on the analog sounds Wave, Osc 2, Detune,
+  Sub, Noise, PWM, Drive and Analog (drift); on FM Ratio A, Ratio B, Harm, Detune,
+  Feedback, Mix, Level A and Level B; the organs get drawbars, TRIO its oscillator
+  set, intervals and pulse width, LOFI its chip, wave, crush, sweep and arpeggio,
+  PHASE its waves, depth, fold and ring. At 50% a sound is as designed
+  (double-click a knob to go back). **Filter** swaps the sound's filter for any of
+  the models, and **FM algorithm** picks one of the eight. All of them are
+  automatable from the host.
 
 ### The Beads reverb
 
@@ -244,9 +283,8 @@ through the drum's Probability and Mute; a rest you draw is always a rest.
 * **LOFI** (a chip voice: pulse, triangle, saw, noise and a 16-table wave RAM,
   bit depth, sample hold, pitch sweep, arpeggio): Chip Lead, Chip Bass, Chip
   Arp, Wave Vox.
-* **Six-operator FM** with the 32 classic algorithms: FM Rhodes, DX Bass, FM
-  Bells, FM Marimba, FM Brass, FM Glass. Cutoff is the modulators' level (the
-  brightness), Resonance the feedback, Env how long the modulators ring.
+* **FM** sounds: FM Rhodes, DX Bass, FM Bells, FM Marimba, FM Brass, FM Glass (now
+  on the four-operator engine, see "A new synth engine").
 * **Beads** (FX / Beads page): a granular processor that records the synths
   (an Input amount per synth) and plays grains of the last four seconds.
   The drums are its gates: pick which drums start grains, and Density divides
@@ -258,9 +296,8 @@ through the drum's Probability and Mute; a rest you draw is always a rest.
 * Presets: Bead Rhodes, Chip Ritual.
 
 Credits: TRIO and LOFI are ported from Felucca-Engines (MIT, Copyright (C) 2026
-Leo Kuroshita, Hügelton Instruments); the FM algorithm table is msfa's (Apache-2.0,
-Copyright 2012 Google Inc., 2016-2025 Pascal Gauthier) as Felucca carries it; Beads is
-ported from Mutable Instruments' eurorack code (MIT, Copyright 2017 Emilie Gillet).
+Leo Kuroshita, Hügelton Instruments); Beads is ported from Mutable Instruments'
+eurorack code (MIT, Copyright 2017 Emilie Gillet).
 
 ### Modelled acoustic drums
 
@@ -521,6 +558,11 @@ Gristo is inspired by Mutable Instruments **Grids** and Making Sound Machines
 **Stolperbeats**, and is not affiliated with either. It contains none of their
 code, map data, patterns or timing tables. The drum map is trained from the
 original corpus in `data/corpus`.
+
+The analog synth oscillator is ported from Mutable Instruments **Plaits**'
+variable-shape oscillator (MIT, Copyright 2016 Emilie Gillet). The FM engine follows
+the layout of Elektron's Digitone FM Tone (operators, algorithms, ratios); it
+contains none of Elektron's code.
 
 **Rings** is Mutable Instruments' own code (rings/dsp and its tables, MIT,
 Copyright 2015 Emilie Gillet) with the parts of **stmlib** it needs (MIT,

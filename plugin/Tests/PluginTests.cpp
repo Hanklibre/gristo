@@ -1018,3 +1018,24 @@ TEST("plugin: a progression's slots reach the engine and play; a clicked chord c
     play(*quiet, 400);
     CHECK(play(*quiet, 200).peak < click.peak * 0.5f);
 }
+
+TEST("plugin: the synths' Tone knobs, filter and FM algorithm reach the engine and play")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::slotId(p::synthTone, 2, 0), 0.9f);
+    setParam(*proc, p::slotId(p::synthTone, 2, 7), 0.1f);
+    setParam(*proc, p::laneId(p::synthFilter, 2), 4.0f);
+    setParam(*proc, p::laneId(p::synthAlgo, 2), 5.0f);
+    const auto synth = p::readSynthParams(proc->state, 2);
+    CHECK(std::abs(synth.tone[0] - 0.9f) < 1e-3f && std::abs(synth.tone[7] - 0.1f) < 1e-3f && std::abs(synth.tone[3] - 0.5f) < 1e-3f);
+    CHECK(synth.filterChoice == 4 && synth.fmAlgorithm == 5);
+    // The chords on an FM sound, every knob turned: it plays, finite and in range.
+    setParam(*proc, p::chordOn, 1.0f);
+    setParam(*proc, p::laneId(p::synthSound, gristo::sound::kChordSynth), static_cast<float>(gristo::sound::SynthSound::FmRhodes));
+    for (int k = 0; k < gristo::sound::kSynthToneKnobs; ++k)
+        setParam(*proc, p::slotId(p::synthTone, gristo::sound::kChordSynth, k), k % 2 ? 0.0f : 1.0f);
+    setParam(*proc, p::laneId(p::synthAlgo, gristo::sound::kChordSynth), 8.0f);
+    proc->pump(2);
+    const Run run = play(*proc, 600);
+    CHECK(run.nonFinite == 0 && run.unpaired == 0 && run.peak > 0.01f && run.peak <= 1.0f);
+}

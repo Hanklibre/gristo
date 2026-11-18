@@ -1522,6 +1522,10 @@ void GristoProcessor::dice(int section)
         setValue(p::laneId(p::synthRelease, synth), range(0.4f, 0.65f));
         setValue(p::laneId(p::synthReverb, synth), synth == 0 ? range(0.0f, 0.15f) : range(0.1f, 0.45f));
         setValue(p::laneId(p::synthDelay, synth), r.nextFloat() < 0.5f ? 0.0f : range(0.1f, 0.35f));
+        for (int k = 0; k < gristo::sound::kSynthToneKnobs; ++k) // a variation on the design, not a wreck of it
+            setValue(p::slotId(p::synthTone, synth, k), range(0.35f, 0.65f));
+        setValue(p::laneId(p::synthFilter, synth), 0.0f);
+        setValue(p::laneId(p::synthAlgo, synth), 0.0f);
     }
 }
 

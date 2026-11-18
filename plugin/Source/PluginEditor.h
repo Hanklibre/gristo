@@ -201,7 +201,12 @@ private:
         Knob cutoff, resonance, env, attack, release, glide, level, reverb, delay, duck, body, bodyTune, bodyDecay;
         Choice bodyType;
         std::unique_ptr<NumberSelector> octave;
+        // The sound's own controls: their names follow the sound's engine.
+        Knob tone[gristo::sound::kSynthToneKnobs];
+        Choice filter, algo;
+        int toneSound = -1; // the sound the Tone labels were last written for
     };
+    void updateToneLabels(int synth);
     Choice soundKit_, fxTime_;
     Knob kitTune_, kitDecay_, kitTone_, kitDrive_, kitReverb_, kitDelay_, fxSize_, fxFeedback_;
     Knob drumLevels_[gristo::kNumVoices];

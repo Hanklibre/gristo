@@ -72,15 +72,24 @@ void GristoLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wi
 
     // The track and the value: thin arcs.
     const float arcR = radius - stroke * 0.5f;
+    // "centred" knobs (50% = as designed) draw their value out from the top.
+    const bool centred = slider.getProperties()["centred"];
+    const float from = centred ? angleOf(0.5f) : startAngle;
     juce::Path track, value;
     track.addCentredArc(centre.x, centre.y, arcR, arcR, 0.0f, startAngle, endAngle, true);
-    value.addCentredArc(centre.x, centre.y, arcR, arcR, 0.0f, startAngle, angle, true);
+    value.addCentredArc(centre.x, centre.y, arcR, arcR, 0.0f, std::min(from, angle), std::max(from, angle), true);
     const juce::PathStrokeType arcStroke(stroke, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
     g.setColour(colours::outline);
     g.strokePath(track, arcStroke);
     g.setColour(slider.isEnabled() ? valueColour : valueColour.withAlpha(0.35f));
-    if (pos > 0.001f)
+    if (centred ? std::abs(pos - 0.5f) > 0.004f : pos > 0.001f)
         g.strokePath(value, arcStroke);
+    if (centred) // the design's own setting: a small mark at the top
+    {
+        g.setColour(colours::outline.brighter(0.5f));
+        const auto top = centre.getPointOnCircumference(arcR, from);
+        g.fillEllipse(juce::Rectangle<float>(stroke * 1.4f, stroke * 1.4f).withCentre(top));
+    }
 
     // The cap: a quiet disc, lit softly from above.
     const float capR = radius * (small ? 0.58f : 0.66f);

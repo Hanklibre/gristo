@@ -2,6 +2,7 @@
 
 #include "gristo/sound/Sound.h"
 #include "../sound/src/Dsp.h"
+#include "../sound/src/Synth.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1367,4 +1368,308 @@ TEST("sound: the delay's Tape, BBD and Clean are three echoes; all die away; ret
     const Rendered reverb = echo(2, 0.0f, false, 1.0f);
     CHECK(reverb.rms(static_cast<size_t>(0.5 * kRate), static_cast<size_t>(1.5 * kRate))
           > types[2].rms(static_cast<size_t>(0.5 * kRate), static_cast<size_t>(1.5 * kRate)));
+}
+
+// ---------------------------------------------------------------------------------
+// The synth engine.
+
+namespace {
+// One voice at twice the host rate, decimated, as the synth runs it; no drift.
+std::vector<float> runVoice(const SynthPatch& patch, float note, double seconds, const SynthParams& macros = {})
+{
+    SynthVoice v;
+    v.prepare(static_cast<float>(2.0 * kRate), 1234u);
+    v.setAlive(0.0f);
+    dsp::Decimator2 decimator;
+    v.start(patch, macros, 1, note, 1.0f);
+    std::vector<float> out(static_cast<size_t>(seconds * kRate));
+    for (auto& y : out)
+    {
+        const float a = v.tick(macros, 0.0f);
+        y = decimator.process(a, v.tick(macros, 0.0f));
+    }
+    return out;
+}
+double rmsOf(const std::vector<float>& x, size_t from, size_t to)
+{
+    double sum = 0.0;
+    for (size_t i = from; i < to; ++i)
+        sum += static_cast<double>(x[i]) * x[i];
+    return std::sqrt(sum / static_cast<double>(std::max<size_t>(1, to - from)));
+}
+double frequencyOf(const std::vector<float>& x, size_t from, size_t to)
+{
+    double first = -1.0, last = -1.0;
+    int crossings = 0;
+    for (size_t i = from + 1; i < to; ++i)
+        if (x[i - 1] < 0.0f && x[i] >= 0.0f)
+        {
+            const double t = static_cast<double>(i - 1) + x[i - 1] / (x[i - 1] - x[i]);
+            if (first < 0.0)
+                first = t;
+            last = t;
+            ++crossings;
+        }
+    return crossings > 1 ? (crossings - 1) * kRate / (last - first) : 0.0;
+}
+SynthPatch plainPatch()
+{
+    SynthPatch p;
+    p.driftCents = 0.0f;
+    p.filter = FilterModel::None;
+    p.a = 0.0001f;
+    p.s = 1.0f;
+    return p;
+}
+} // namespace
+
+TEST("synth: the ladder and the OTA filter ring in tune at full resonance; the SEM peak is held in")
+{
+    for (FilterModel model : { FilterModel::Ladder, FilterModel::Ota })
+        for (float cutoff : { 220.0f, 1000.0f, 4000.0f })
+        {
+            SynthPatch p = plainPatch();
+            p.osc1 = 0.0f;
+            p.hammer = 1.0f; // only a burst at the start
+            p.filter = model;
+            p.cutoffHz = cutoff;
+            p.keyTrack = 0.0f;
+            p.resonance = 1.0f;
+            p.velocityToFilter = 0.0f;
+            SynthParams m;
+            m.resonance = 1.0f;
+            m.envAmount = 0.0f;
+            const auto x = runVoice(p, 60.0f, 2.0, m);
+            const double f = frequencyOf(x, 48000, 96000);
+            CHECK_MSG(std::abs(f / cutoff - 1.0) < 0.06, "rings at " << f << " Hz for " << cutoff);
+            const double early = rmsOf(x, 48000, 52800), late = rmsOf(x, 91200, 96000);
+            CHECK(early > 0.05 && late > early * 0.8 && late < early * 1.2); // steady, neither dying nor growing
+        }
+    // A loud saw driven into a resonant SEM: rounded off, not blown up.
+    for (int mode = 0; mode < 4; ++mode)
+    {
+        SynthPatch p = plainPatch();
+        p.filter = FilterModel::Sem;
+        p.filterMode = mode;
+        p.cutoffHz = 800.0f;
+        p.resonance = 1.0f;
+        p.drive = 6.0f;
+        p.keyTrack = 0.0f;
+        const auto x = runVoice(p, 36.0f, 0.5);
+        float peak = 0.0f;
+        for (float v : x)
+            peak = std::max(peak, std::abs(v));
+        CHECK_MSG(peak < 1.9f, "SEM mode " << mode << " peak " << peak); // (the decimator's overshoot on top)
+    }
+}
+
+TEST("synth: the oscillators and FM are band-limited (little energy between the harmonics)")
+{
+    auto inharmonicDb = [](const std::vector<float>& x, double f0) {
+        const size_t n = 4096, start = 9600;
+        double harmonic = 0.0, other = 0.0;
+        for (size_t k = 4; k < n / 2; k += 2)
+        {
+            double re = 0.0, im = 0.0;
+            for (size_t i = 0; i < n; ++i)
+            {
+                const double w = 0.5 - 0.5 * std::cos(2.0 * kPi * static_cast<double>(i) / static_cast<double>(n));
+                const double a = 2.0 * kPi * static_cast<double>(k * i) / static_cast<double>(n);
+                re += x[start + i] * w * std::cos(a);
+                im -= x[start + i] * w * std::sin(a);
+            }
+            const double h = static_cast<double>(k) * kRate / static_cast<double>(n) / f0;
+            const bool near = std::abs(h - std::round(h)) * f0 < 3.0 * kRate / static_cast<double>(n);
+            (near ? harmonic : other) += re * re + im * im;
+        }
+        return 10.0 * std::log10(other / (harmonic + other));
+    };
+    const float note = 96.0f; // 2093 Hz: plenty of harmonics above Nyquist
+    const double f0 = 440.0 * std::pow(2.0, (note - 69.0) / 12.0);
+    for (float shape : { 0.0f, 0.5f, 1.0f })
+    {
+        SynthPatch p = plainPatch();
+        p.shape1 = shape;
+        CHECK_MSG(inharmonicDb(runVoice(p, note, 0.35), f0) < -28.0, "shape " << shape);
+    }
+    SynthPatch fm = plainPatch();
+    fm.osc = Osc::Fm4;
+    fm.fmAlg = 2;
+    fm.levelA = 0.5f;
+    fm.levelB = 0.4f;
+    fm.ratioB1 = 14.0f; // the tine, far above at this note: faded out, not folded back
+    fm.envA = { 0.0001f, 100.0f, 1.0f };
+    fm.envB = fm.envA;
+    CHECK(inharmonicDb(runVoice(fm, note, 0.35), f0) < -28.0);
+}
+
+TEST("synth: each FM algorithm is its own sound")
+{
+    SynthPatch p = plainPatch();
+    p.osc = Osc::Fm4;
+    p.ratioA = 2.0f;
+    p.ratioB1 = 3.0f;
+    p.ratioB2 = 1.0f;
+    p.levelA = 0.6f;
+    p.levelB = 0.5f;
+    p.fmMix = 0.5f;
+    p.fmFeedback = 0.3f;
+    p.envA = { 0.0001f, 100.0f, 1.0f };
+    p.envB = p.envA;
+    std::vector<std::vector<float>> spectra;
+    for (int alg = 0; alg < 8; ++alg)
+    {
+        p.fmAlg = alg;
+        const auto x = runVoice(p, 48.0f, 0.3);
+        std::vector<float> s;
+        for (int h = 1; h <= 12; ++h) // the first harmonics' levels
+        {
+            double re = 0.0, im = 0.0;
+            const double f = 130.81 * h;
+            for (size_t i = 4800; i < 14400; ++i)
+            {
+                re += x[i] * std::cos(2.0 * kPi * f * static_cast<double>(i) / kRate);
+                im += x[i] * std::sin(2.0 * kPi * f * static_cast<double>(i) / kRate);
+            }
+            s.push_back(static_cast<float>(10.0 * std::log10(re * re + im * im + 1e-9)));
+        }
+        spectra.push_back(s);
+    }
+    for (int a = 0; a < 8; ++a)
+        for (int b = a + 1; b < 8; ++b)
+        {
+            double diff = 0.0;
+            for (size_t h = 0; h < 12; ++h)
+                diff += std::abs(spectra[static_cast<size_t>(a)][h] - spectra[static_cast<size_t>(b)][h]);
+            CHECK_MSG(diff / 12.0 > 1.0, "algorithms " << a + 1 << " and " << b + 1 << " sound alike");
+        }
+}
+
+TEST("synth: the Tone knobs at 50% are the design; turned, they change the sound and stay safe")
+{
+    for (int s = 0; s < static_cast<int>(SynthSound::Count); ++s)
+    {
+        const auto sound = static_cast<SynthSound>(s);
+        const SynthPatch& design = synthPatch(sound);
+        SynthParams params;
+        params.sound = sound;
+        const SynthPatch same = applyTone(design, params);
+        CHECK(same.shape1 == design.shape1 && same.osc2 == design.osc2 && same.levelA == design.levelA && same.ratioA == design.ratioA
+              && same.pdWave == design.pdWave && same.trioSet == design.trioSet && same.drive == design.drive && same.filter == design.filter);
+        for (int k = 0; k < kSynthToneKnobs; ++k)
+            CHECK(std::string(synthToneName(sound, k)).size() > 1);
+    }
+    // Every knob of a few sounds of each engine moves the sound; at its ends it stays finite.
+    for (SynthSound sound : { SynthSound::WarmPad, SynthSound::EPiano, SynthSound::Organ, SynthSound::MonkChoir, SynthSound::Koto,
+                              SynthSound::SingingBowl, SynthSound::PhasePad, SynthSound::TrioArp, SynthSound::ChipLead })
+    {
+        auto render = [sound](int knob, float value, int filterChoice) {
+            SoundEngine e;
+            dryEngine(e);
+            SynthParams p;
+            p.sound = sound;
+            p.reverbSend = 0.0f;
+            p.level = 0.3f;
+            if (knob >= 0)
+                p.tone[static_cast<size_t>(knob)] = value;
+            p.filterChoice = filterChoice;
+            e.setSynth(kChordSynth, p);
+            for (int n : { 48, 55, 64 })
+                e.noteOn(kChordSynth, n, static_cast<float>(n), 0.9f);
+            Rendered out;
+            renderInto(e, out, 1.2);
+            return out;
+        };
+        const Rendered design = render(-1, 0.5f, 0);
+        for (int k = 0; k < kSynthToneKnobs; ++k)
+        {
+            double change = 0.0;
+            for (float value : { 0.0f, 1.0f })
+            {
+                const Rendered moved = render(k, value, 0);
+                CHECK_MSG(moved.finite, synthSoundName(sound) << " tone " << k);
+                double d = 0.0;
+                for (size_t i = 0; i < moved.left.size(); ++i)
+                    d += std::abs(static_cast<double>(moved.left[i]) - design.left[i]);
+                change = std::max(change, d / static_cast<double>(moved.left.size()));
+            }
+            CHECK_MSG(change > 1e-4, synthSoundName(sound) << " tone " << k << " (" << synthToneName(sound, k) << ") does nothing");
+        }
+        for (int f = 1; f <= 5; ++f)
+            CHECK(render(-1, 0.5f, f).finite);
+    }
+}
+
+TEST("synth: the sounds are loudness-matched (within 2 dB, K-weighted)")
+{
+    struct Biquad
+    {
+        double b0, b1, b2, a1, a2, z1 = 0.0, z2 = 0.0;
+        double tick(double x)
+        {
+            const double y = b0 * x + z1;
+            z1 = b1 * x - a1 * y + z2;
+            z2 = b2 * x - a2 * y;
+            return y;
+        }
+    };
+    std::vector<double> loudness;
+    for (int s = 0; s < static_cast<int>(SynthSound::Count); ++s)
+    {
+        const auto sound = static_cast<SynthSound>(s);
+        const bool bass = std::string(synthCategoryName(sound)) == "Bass";
+        SoundEngine e;
+        dryEngine(e);
+        CharacterParams c;
+        c.dirt = 0.0f;
+        e.setCharacter(c);
+        SynthParams p;
+        p.sound = sound;
+        p.reverbSend = 0.0f;
+        p.level = 0.15f;
+        const int synth = bass ? 0 : kChordSynth;
+        e.setSynth(synth, p);
+        Rendered out;
+        if (bass)
+            for (int k = 0; k < 8; ++k)
+            {
+                const int line[8] = { 36, 36, 43, 36, 41, 36, 39, 43 };
+                e.noteOn(synth, 10 + k, static_cast<float>(line[k]), k % 2 ? 0.7f : 0.95f);
+                renderInto(e, out, 0.18);
+                e.noteOff(synth, 10 + k);
+                renderInto(e, out, 0.07);
+            }
+        else
+        {
+            for (int n : { 60, 64, 67 })
+                e.noteOn(synth, n, static_cast<float>(n), 0.8f);
+            renderInto(e, out, 2.0);
+        }
+        // The loudest 400 ms, K-weighted (ITU BS.1770 at 48 kHz).
+        Biquad shelf[2] { { 1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585 },
+                          { 1.53512485958697, -2.69169618940638, 1.19839281085285, -1.69065929318241, 0.73248077421585 } };
+        Biquad hp[2] { { 1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621 }, { 1.0, -2.0, 1.0, -1.99004745483398, 0.99007225036621 } };
+        std::vector<double> energy(out.left.size());
+        for (size_t i = 0; i < energy.size(); ++i)
+        {
+            const double l = hp[0].tick(shelf[0].tick(out.left[i])), r = hp[1].tick(shelf[1].tick(out.right[i]));
+            energy[i] = l * l + r * r;
+        }
+        const size_t window = static_cast<size_t>(0.4 * kRate), hop = static_cast<size_t>(0.1 * kRate);
+        double best = 1e-12;
+        for (size_t from = 0; from + window <= energy.size(); from += hop)
+        {
+            double sum = 0.0;
+            for (size_t i = from; i < from + window; ++i)
+                sum += energy[i];
+            best = std::max(best, sum / static_cast<double>(window));
+        }
+        loudness.push_back(-0.691 + 10.0 * std::log10(best));
+    }
+    std::vector<double> sorted = loudness;
+    std::sort(sorted.begin(), sorted.end());
+    const double median = sorted[sorted.size() / 2];
+    for (int s = 0; s < static_cast<int>(SynthSound::Count); ++s)
+        CHECK_MSG(std::abs(loudness[static_cast<size_t>(s)] - median) < 2.0,
+                  synthSoundName(static_cast<SynthSound>(s)) << " at " << loudness[static_cast<size_t>(s)] << " LUFS, the median " << median);
 }

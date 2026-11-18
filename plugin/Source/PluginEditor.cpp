@@ -1010,6 +1010,8 @@ void GristoView::showSizeMenu()
 
 void GristoView::timerCallback()
 {
+    for (int s = 0; s < gristo::sound::kNumSynths; ++s)
+        updateToneLabels(s);
     const gristo::EngineParams params = p::readEngineParams(processor_.state, processor_.modPoints, &processor_.stepEdits);
     previewEngine_.setParams(params);
     mapPad_.refreshHeat(params);
@@ -1281,6 +1283,22 @@ void GristoView::setupSoundPage()
                                                    "Metal: a struck plate. Glass: a bar or a glass, bright and long. Tube: a pipe (harmonic).");
         setupSmallKnob(row.duck, p::laneId(p::synthDuck, a), "Duck");
         setHelp(row.duck, name + "Duck", "Sidechain pumping: every kick pushes this sound down and it swells back.");
+        for (int k = 0; k < gristo::sound::kSynthToneKnobs; ++k)
+        {
+            setupSmallKnob(row.tone[k], p::slotId(p::synthTone, a, k), "Tone");
+            row.tone[k].slider.setDoubleClickReturnValue(true, 0.5);
+            row.tone[k].slider.getProperties().set("centred", true);
+        }
+        setupChoice(row.filter, p::laneId(p::synthFilter, a), "Filter");
+        row.filter.label.setFont(juce::FontOptions(10.5f));
+        setHelp(row.filter.box, name + "Filter", "The filter the sound plays through. As designed: the sound's own. Ladder: the transistor ladder, "
+                                                 "fat, squelchy, self-oscillates. OTA: the integrated 24 dB filter of the classic polysynths, rounder. "
+                                                 "SEM: a 12 dB state-variable filter, open and vocal, as low-, band- or high-pass.");
+        setupChoice(row.algo, p::laneId(p::synthAlgo, a), "FM algorithm");
+        row.algo.label.setFont(juce::FontOptions(10.5f));
+        setHelp(row.algo.box, name + "FM algorithm", "For the FM sounds: how the four operators C, A, B1 and B2 modulate each other "
+                                                     "(one of them feeds back on itself: the Feedback knob). Mix blends the algorithm's X and Y outputs. "
+                                                     "As designed: the sound's own.");
         if (arp >= 0)
         {
             makeTarget(row.cutoff.slider, row.cutoff.slider, mod::arpCutoffTarget(arp));
@@ -2419,14 +2437,71 @@ std::vector<juce::Component*> GristoView::masterPageComponents()
 std::vector<juce::Component*> GristoView::synthComponents(int synth)
 {
     auto& row = synthRows_[synth];
-    std::vector<juce::Component*> list { &row.sound, row.octave.get(), &row.bodyType.box };
+    std::vector<juce::Component*> list { &row.sound, row.octave.get(), &row.bodyType.box, &row.filter.box, &row.filter.label, &row.algo.box, &row.algo.label };
     for (Knob* k : { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.reverb, &row.delay, &row.duck, &row.body,
                      &row.bodyTune, &row.bodyDecay })
     {
         list.push_back(&k->slider);
         list.push_back(&k->label);
     }
+    for (auto& k : row.tone)
+    {
+        list.push_back(&k.slider);
+        list.push_back(&k.label);
+    }
     return list;
+}
+
+void GristoView::updateToneLabels(int synth)
+{
+    auto& row = synthRows_[synth];
+    const int sound = row.sound.getSelectedId() - 1;
+    if (sound < 0 || sound == row.toneSound)
+        return;
+    row.toneSound = sound;
+    namespace snd = gristo::sound;
+    const auto s = static_cast<snd::SynthSound>(sound);
+    const bool fm = juce::String(snd::synthToneName(s, 0)) == "Ratio A";
+    const int arp = mod::arpOfSynth(synth);
+    const juce::String part = arp < 0 ? juce::String("Chords ") : "Arp " + juce::String(arp + 1) + " ";
+    // What some of the knobs do, where the name alone doesn't say.
+    static const std::pair<const char*, const char*> hints[] = {
+        { "Wave", "Morphs the oscillator: sine, triangle, saw, square." },
+        { "Osc 2", "The second oscillator's level (detuned, or at its interval)." },
+        { "Detune", "Spreads the oscillators apart: slow beating, then a wide chorus." },
+        { "PWM", "Pulse-width modulation: a slow sweep of the square wave's width (turn Wave towards square to hear it)." },
+        { "PW", "Pulse width of the pulse waves (the sets with pulses)." },
+        { "Analog", "How much the oscillators drift and each voice differs, as on an old polysynth." },
+        { "Drive", "Saturates the filter (or the output): warmth, then grit." },
+        { "Ratio A", "Operator A's frequency ratio, in the Digitone's steps." },
+        { "Ratio B", "B1's and B2's frequency ratios, in steps." },
+        { "Harm", "Grows harmonics on the operators: left on C and A (hollow, odd), right on B1 and B2 (towards a saw)." },
+        { "Feedback", "Feedback on the algorithm's top operator: from sine towards saw and noise." },
+        { "Mix", "From the algorithm's X output to its Y output." },
+        { "Level A", "How hard A modulates (or how loud it is, where it is heard)." },
+        { "Level B", "How hard B1 and B2 modulate (or how loud they are, where heard)." },
+        { "Set", "TRIO's oscillator set: saws, pulses, triangles, the combined waves, noise, sync and ring." },
+        { "Chip", "LOFI's chip: 4-bit, 4-bit at half rate, 8-bit, 1-bit." },
+        { "Crush", "Drops the chip's sample rate." },
+        { "Depth", "How far the phase is bent (the brightness); Cutoff moves it too." },
+        { "Fold", "A wavefolder after the phase distortion." },
+        { "Ring", "Turn right: the two lines ring-modulate; left: they mix." },
+    };
+    for (int k = 0; k < snd::kSynthToneKnobs; ++k)
+    {
+        const juce::String knob = snd::synthToneName(s, k);
+        juce::String hint;
+        for (const auto& [name, text] : hints)
+            if (knob == name)
+                hint = juce::String(text) + " ";
+        row.tone[k].label.setText(knob, juce::dontSendNotification);
+        setHelp(row.tone[k], part + knob, juce::String(snd::synthSoundName(s)) + ": " + knob + ". " + hint
+                                              + "One of the sound's own controls (they follow its engine). "
+                                                "50% is the sound as designed; double-click to go back there.");
+    }
+    row.algo.box.setEnabled(fm);
+    row.algo.box.setAlpha(fm ? 1.0f : 0.35f);
+    row.algo.label.setAlpha(fm ? 1.0f : 0.35f);
 }
 
 void GristoView::showPage(int page)
@@ -3126,9 +3201,16 @@ void GristoView::resized()
         row.bodyTune.label.setBounds(px + 136, py + 415, 50, 12);
         row.bodyDecay.slider.setBounds(px + 186, py + 388, 38, 28);
         row.bodyDecay.label.setBounds(px + 180, py + 415, 50, 12);
+        // Two rows: the macros (and the sends), then the sound's own controls.
         Knob* knobs[] = { &row.cutoff, &row.resonance, &row.env, &row.attack, &row.release, &row.glide, &row.level, &row.body, &row.reverb, &row.delay, &row.duck };
         for (int i = 0; i < 11; ++i)
-            placeLabeled(*knobs[i], { px + 228 + i * 75 + (i >= 8 ? 12 : 0), py + 332, 72, 142 });
+            placeLabeled(*knobs[i], { px + 240 + i * 74 + (i >= 8 ? 14 : 0), py + 318, 68, 80 });
+        for (int k = 0; k < gristo::sound::kSynthToneKnobs; ++k)
+            placeLabeled(row.tone[k], { px + 240 + k * 74, py + 410, 68, 80 });
+        row.filter.label.setBounds(px + 848, py + 414, 200, 14);
+        row.filter.box.setBounds(px + 848, py + 430, 200, 24);
+        row.algo.label.setBounds(px + 848, py + 456, 200, 14);
+        row.algo.box.setBounds(px + 848, py + 470, 200, 24);
     }
 
     // Timeline: lanes, the pattern, routing
