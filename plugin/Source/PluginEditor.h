@@ -80,6 +80,7 @@ private:
     void mouseUp(const juce::MouseEvent& e) override;
     int morphing_ = -1; // the scene being morphed to by a sideways drag on its button
     void showHelpFor(juce::Component* component);
+    void showMessage(const juce::String& title, const juce::String& text); // in the help line
     static void setHelp(juce::Component& component, const juce::String& title, const juce::String& text);
     static void setHelp(Knob& knob, const juce::String& title, const juce::String& text);
 
@@ -221,6 +222,10 @@ private:
     juce::Label chordOutLabel_, chordNowLabel_;
     juce::Label reverbNote_;
     HarmonyPad harmonyPad_;
+    ProgressionStrip progression_;
+    juce::TextButton useWalk_ { "Use walk" }, clearProgression_ { "Clear" };
+    void placeInProgression(int cellCode);
+    void setProgression(const std::array<int, gristo::kMaxProgression>& slots);
 
     // Play screen: the two pads and the big knobs. Edit shows the selected part's page instead.
     static constexpr int kPlayPage = kMasterPage + 1;

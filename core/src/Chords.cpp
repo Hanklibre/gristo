@@ -80,9 +80,59 @@ int Chords::phraseSteps(const ChordParams& p) { return std::clamp(p.phraseBars, 
 
 std::int64_t Chords::phraseAt(const ChordParams& p, std::int64_t step) { return floorDiv(step, phraseSteps(p)); }
 
+HarmonyCell Chords::cellFromCode(int code)
+{
+    HarmonyCell cell;
+    cell.column = std::clamp(code / 8 - kHalfColumns, -kHalfColumns, kHalfColumns);
+    cell.row = std::clamp(code % 8, 0, kHarmonyRows - 1);
+    return cell;
+}
+
+int Chords::progressionLength(const ChordParams& p)
+{
+    int n = 0;
+    while (n < kMaxProgression && p.progression[static_cast<size_t>(n)] >= 0)
+        ++n;
+    return n;
+}
+
+int Chords::progressionSlotAt(const ChordParams& p, std::int64_t step)
+{
+    const int n = progressionLength(p);
+    if (n == 0)
+        return -1;
+    return floorMod(floorDiv(step, std::clamp(p.chordSteps, 1, 64)), n);
+}
+
+std::array<int, kMaxProgression> Chords::walkOf(const ChordParams& p, std::int64_t step)
+{
+    std::array<int, kMaxProgression> walk;
+    walk.fill(-1);
+    ChordParams wander = p;
+    wander.mode = HarmonyMode::Wander;
+    const int length = std::clamp(p.chordSteps, 1, 64);
+    const std::int64_t start = phraseAt(p, step) * phraseSteps(p);
+    const int count = std::clamp(phraseSteps(p) / length, 1, kMaxProgression);
+    for (int i = 0; i < count; ++i)
+    {
+        const HarmonyCell cell = positionAt(wander, start + static_cast<std::int64_t>(i) * length).cell;
+        walk[static_cast<size_t>(i)] = cellCode(cell.column, cell.row);
+    }
+    return walk;
+}
+
 ChordPosition Chords::positionAt(const ChordParams& p, std::int64_t step)
 {
     const int length = std::clamp(p.chordSteps, 1, 64);
+    if (p.mode == HarmonyMode::Progression)
+    {
+        ChordPosition pos;
+        pos.valid = true;
+        const int slot = progressionSlotAt(p, step);
+        pos.cell = slot >= 0 ? cellFromCode(p.progression[static_cast<size_t>(slot)]) : homeCell(p);
+        pos.serial = floorDiv(step, length); // every chord a new start, even the same one again
+        return pos;
+    }
     const std::int64_t phrase = phraseAt(p, step);
     const int index = floorMod(step, phraseSteps(p)) / length;
     const std::int64_t walk = p.frozen ? p.frozenPhrase : phrase;

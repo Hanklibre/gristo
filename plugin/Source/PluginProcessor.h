@@ -156,9 +156,17 @@ public:
     std::array<std::atomic<int>, gristo::kNumArps> displayArpInputCount {};
     // The harmony cell sounding now: (column + 5) * 8 + row, -1 = none / stopped.
     std::atomic<int> displayChordCell { -1 };
+    std::atomic<int> displayProgressionSlot { -1 }; // Progression: the slot playing, -1 none
+    // Plays a chord (a cell code) on the chords' sound for a moment, to try it (message thread).
+    void auditionChord(int cellCode);
     std::array<std::atomic<float>, gristo::kNumParts> displayActivity {}; // velocity of the latest note-on; the editor clears it
 
 private:
+    // Audition: the cell asked for (and a counter, so the same one again plays again),
+    // and the notes sounding with how many samples are left.
+    std::atomic<int> auditionCell_ { -1 }, auditionRequest_ { 0 };
+    int auditionHandled_ = 0, auditionLeft_ = 0;
+    std::vector<int> auditionNotes_;
     gristo::BlockInfo transportFor(int numSamples);
 
     // Everything the audio thread needs from the parameters, re-read only after a change.

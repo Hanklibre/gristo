@@ -303,7 +303,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordMinor), "Chord Mode", juce::StringArray { "Major", "Minor" }, 1));
             layout.add(floatParam(chordHomeX, "Harmony X", { 0.0f, 1.0f }, 0.5f));
             layout.add(floatParam(chordHomeY, "Harmony Y", { 0.0f, 1.0f }, 0.0f));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordMode), "Chords Played By", juce::StringArray { "Wander", "Keys" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordMode), "Chords Played By", juce::StringArray { "Wander", "Keys", "Progression" }, 0));
             layout.add(percentParam(chordWander, "Wander", 0.3f));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordRate), "Chord Length", juce::StringArray { "1/2 bar", "1 bar", "2 bars" }, 1));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordPhrase), "Harmony Phrase", juce::StringArray { "2 bars", "4 bars", "8 bars" }, 1));
@@ -455,6 +455,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add(percentParam(chordStabChance, "Chord Stab Chance", 1.0f));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordPush, kVersion }, "Chord Push",
         juce::StringArray { "Change on the 1", "Early 1/16", "Early 1/8", "Early 1/4", "Late 1/16", "Late 1/8" }, 0));
+    for (int slot = 0; slot < kMaxProgression; ++slot)
+        layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { laneId(chordProgression, slot), kVersion },
+                                                             "Progression Chord " + juce::String(slot + 1), -1, cellCode((kHarmonyColumns - 1) / 2, kHarmonyRows - 1), -1));
     for (int synth = 0; synth < sound::kNumSynths; ++synth)
     {
         const juce::String name = synth < kNumArps ? "Synth " + juce::String(synth + 1) + " " : juce::String("Chord Synth ");
@@ -582,7 +585,9 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
     c.minor = load(s, chordMinor) > 0.5f;
     c.homeX = load(s, chordHomeX);
     c.homeY = load(s, chordHomeY);
-    c.mode = load(s, chordMode) > 0.5f ? HarmonyMode::Keys : HarmonyMode::Wander;
+    c.mode = static_cast<HarmonyMode>(juce::jlimit(0, 2, static_cast<int>(load(s, chordMode))));
+    for (int slot = 0; slot < kMaxProgression; ++slot)
+        c.progression[static_cast<size_t>(slot)] = juce::roundToInt(load(s, laneId(chordProgression, slot)));
     c.wander = load(s, chordWander);
     c.chordSteps = kChordRateSteps[juce::jlimit(0, 2, static_cast<int>(load(s, chordRate)))];
     c.phraseBars = kChordPhraseBars[juce::jlimit(0, 2, static_cast<int>(load(s, chordPhrase)))];

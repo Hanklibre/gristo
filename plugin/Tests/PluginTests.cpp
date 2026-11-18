@@ -974,3 +974,33 @@ TEST("plugin: clock dividers, stab Every / Chance, Push, Re-strike and the synth
     const Run run = play(*proc, 600);
     CHECK(run.nonFinite == 0 && run.unpaired == 0 && run.peak > 0.01f && run.peak <= 1.0f);
 }
+
+TEST("plugin: a progression's slots reach the engine and play; a clicked chord can be heard while stopped")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::chordOn, 1.0f);
+    setParam(*proc, p::chordMode, 2.0f);
+    const int cells[3] = { gristo::cellCode(0, 0), gristo::cellCode(2, 2), gristo::cellCode(-1, 1) };
+    for (int k = 0; k < 3; ++k)
+        setParam(*proc, p::laneId(p::chordProgression, k), static_cast<float>(cells[k]));
+    const auto c = p::readEngineParams(proc->state, proc->modPoints).chords;
+    CHECK(c.mode == gristo::HarmonyMode::Progression && gristo::Chords::progressionLength(c) == 3);
+    CHECK(c.progression[1] == cells[1] && c.progression[3] == -1);
+    proc->pump(2);
+    const Run run = play(*proc, 800);
+    const int channel = static_cast<int>(getParam(*proc, p::chordChannel));
+    CHECK(run.nonFinite == 0 && run.unpaired == 0 && run.noteOns[static_cast<size_t>(channel)] > 6);
+
+    // Stopped, nothing playing: an audition still sounds, and stops by itself.
+    auto quiet = makeProcessor();
+    setParam(*quiet, p::freeRun, 0.0f);
+    for (int part = 0; part < gristo::kNumParts; ++part)
+        setParam(*quiet, p::voiceId(p::partMute, part), part == gristo::kChordVoice ? 0.0f : 1.0f);
+    quiet->pump(2);
+    quiet->auditionChord(gristo::cellCode(0, 2));
+    const Run heard = play(*quiet, 60);
+    CHECK(heard.peak > 0.01f && heard.noteOns[static_cast<size_t>(channel)] == 0); // sound only, no MIDI
+    play(*quiet, 400);
+    const Run after = play(*quiet, 200);
+    CHECK(after.peak < heard.peak * 0.5f);
+}

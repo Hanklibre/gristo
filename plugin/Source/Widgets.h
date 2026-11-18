@@ -198,6 +198,8 @@ public:
     // playing: (column + 5) * 8 + row of the cell sounding now, -1 = none.
     void update(const gristo::ChordParams& params, int playing);
     std::function<void()> onTouched; // a press on the pad (to switch the chords on)
+    // A press on a cell; return true to take it (the home cell then stays where it is).
+    std::function<bool(gristo::HarmonyCell)> onCellPressed;
     juce::String playingName() const; // "Am9", or the home chord while nothing sounds
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
@@ -211,6 +213,30 @@ private:
     gristo::ChordParams params_;
     int playing_ = -1;
     std::array<int, 3> trail_ { -1, -1, -1 }; // the cells before the current one
+    bool taken_ = false; // this press was taken by onCellPressed
+};
+
+// The chord progression: up to eight slots, the one playing lit. In Progression mode
+// they are the chords you picked (click one to select it, so the next chord you click
+// on the harmony map replaces it; right-click to remove it); in Wander mode they show,
+// dimmed, the walk being played, ready for Use walk.
+class ProgressionStrip : public juce::Component
+{
+public:
+    void update(const gristo::ChordParams& params, const std::array<int, gristo::kMaxProgression>& slots, bool editable, int playing);
+    int selected() const { return selected_; }
+    void clearSelection();
+    std::function<void(int slot)> onRemove;
+    std::function<void(int slot)> onSelect; // -1: none
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+
+private:
+    juce::Rectangle<float> slotArea(int slot) const;
+    gristo::ChordParams params_;
+    std::array<int, gristo::kMaxProgression> slots_ {};
+    bool editable_ = false;
+    int playing_ = -1, selected_ = -1;
 };
 
 // Two-handle MIDI velocity range (1..127) for one voice. Accepts lanes (Velocity target).

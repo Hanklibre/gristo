@@ -9,6 +9,7 @@
 namespace p = gristo::params;
 
 namespace {
+constexpr int kAuditionId = 4096; // audition notes: ids apart from the MIDI notes the chords play
 // Version 2 renumbered the parts, synths and modulation targets: older projects open
 // with the default patch instead of a scrambled one.
 constexpr int kStateVersion = 3; // 3: harmony map instead of chord slots, big knobs
@@ -330,6 +331,33 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     if (kitOn && !soundWasOn_)
         sound_.reset(); // nothing stale from while the sound was off
     soundWasOn_ = kitOn;
+    // Audition: a chord clicked to try it sounds for a moment on the chords' synth.
+    {
+        auto stopAudition = [this] {
+            for (const int n : auditionNotes_)
+                sound_.noteOff(gristo::sound::kChordSynth, kAuditionId + n);
+            auditionNotes_.clear();
+        };
+        if (const int request = auditionRequest_.load(); request != auditionHandled_)
+        {
+            auditionHandled_ = request;
+            stopAudition();
+            if (kitOn)
+            {
+                const auto chord = gristo::Chords::build(settings_.engine.chords, gristo::Chords::cellFromCode(auditionCell_.load()));
+                for (int k = 0; k < chord.count; ++k)
+                {
+                    const int n = chord.notes[static_cast<size_t>(k)];
+                    sound_.noteOn(gristo::sound::kChordSynth, kAuditionId + n,
+                                  static_cast<float>(n + 12 * settings_.octaves[gristo::sound::kChordSynth]), 0.7f);
+                    auditionNotes_.push_back(n);
+                }
+                auditionLeft_ = static_cast<int>(sampleRate_ * 1.1);
+            }
+        }
+        else if (!auditionNotes_.empty() && (auditionLeft_ -= numSamples) <= 0)
+            stopAudition();
+    }
     if (block.playing)
         lastBpm_ = block.bpm;
     // Lanes on the sounds follow the 16th grid inside the block: the settings are
@@ -459,6 +487,10 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     {
         const auto pos = engine_.chordPositionAt(static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat)));
         displayChordCell.store(block.playing && pos.valid ? (pos.cell.column + 5) * 8 + pos.cell.row : -1);
+        displayProgressionSlot.store(block.playing && settings_.engine.chords.mode == gristo::HarmonyMode::Progression
+                                         ? gristo::Chords::progressionSlotAt(settings_.engine.chords,
+                                                                             static_cast<std::int64_t>(std::floor(block.ppqStart * gristo::kStepsPerBeat)))
+                                         : -1);
     }
     if (block.playing)
     {
@@ -1272,6 +1304,12 @@ void GristoProcessor::clearScene(int scene)
 namespace {
 bool isRouteParameter(const juce::String& id) { return id.startsWith(p::modTarget) || id.startsWith(p::macroTarget); }
 } // namespace
+
+void GristoProcessor::auditionChord(int cellCode)
+{
+    auditionCell_.store(cellCode);
+    auditionRequest_.fetch_add(1);
+}
 
 void GristoProcessor::writeRoutes(juce::ValueTree& parent) const
 {

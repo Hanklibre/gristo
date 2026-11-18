@@ -120,6 +120,20 @@ source) and the Perkons inspired the choice of engines, not code.
   (-3 .. +3 octaves); the MIDI it sends is unchanged.
 * **Beads** has its own plugin output (with Separate outputs on; the eighth bus).
 
+### Building a chord progression
+
+* **Played by: Progression.** Click chords on the harmony map: each one sounds right
+  away (even when stopped) and goes into the next of eight slots in the strip under
+  the map. The progression plays in order, one chord per Chord length, looping.
+  Click a slot to select it (you hear it): the next chord you click replaces it.
+  Right-click a slot to remove it. The map shows each chord's slot numbers.
+* **Use walk:** in Wander, the strip shows the walk you are hearing. When you like
+  it (Catch it first to keep it looping), Use walk turns it into a progression you can
+  change chord by chord.
+* In Wander, a click on the map while stopped also lets you hear the chord.
+* Push, Re-strike, Stabs, Chance, voicings and arps following the chords all work on
+  a progression too; it is saved with the song, presets and scenes.
+
 ### A new look
 
 * A calmer, quieter design: Inter as the typeface, a warm near-black palette with

@@ -877,3 +877,38 @@ TEST("chords: stabs on every Nth hit, with a chance; held chords pushed off the 
     CHECK(pushed >= 2);
     CHECK(struck.size() >= 14); // every beat for four bars
 }
+
+TEST("harmony: a progression plays its chords in order and loops; Use walk takes the chords Wander plays")
+{
+    ChordParams p = cMajor();
+    p.mode = HarmonyMode::Progression;
+    p.chordSteps = 16;
+    p.progression = { cellCode(0, 0), cellCode(1, 2), cellCode(-1, 0), -1, -1, -1, -1, -1 };
+    CHECK(Chords::progressionLength(p) == 3);
+    for (int chord = 0; chord < 9; ++chord)
+        for (int s = 0; s < 16; s += 5)
+        {
+            const auto pos = Chords::positionAt(p, chord * 16 + s);
+            const HarmonyCell expected = Chords::cellFromCode(p.progression[static_cast<size_t>(chord % 3)]);
+            CHECK(pos.valid && pos.cell == expected);
+            CHECK(pos.serial == chord);
+        }
+    // Empty: the home chord.
+    p.progression.fill(-1);
+    CHECK(Chords::positionAt(p, 40).cell == Chords::homeCell(p));
+
+    ChordParams w = cMajor();
+    w.wander = 0.9f;
+    w.chordSteps = 16;
+    w.phraseBars = 4;
+    w.seed = 7;
+    const std::int64_t at = 3 * Chords::phraseSteps(w) + 21; // somewhere in the 4th phrase
+    const auto walk = Chords::walkOf(w, at);
+    ChordParams q = w;
+    q.mode = HarmonyMode::Progression;
+    q.progression = walk;
+    CHECK(Chords::progressionLength(q) == 4);
+    const std::int64_t start = 3 * Chords::phraseSteps(w);
+    for (int i = 0; i < 4; ++i)
+        CHECK(Chords::positionAt(q, i * 16).cell == Chords::positionAt(w, start + i * 16).cell);
+}

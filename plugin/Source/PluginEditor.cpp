@@ -388,6 +388,13 @@ void GristoView::setHelp(Knob& knob, const juce::String& title, const juce::Stri
     setHelp(knob.label, title, text);
 }
 
+void GristoView::showMessage(const juce::String& title, const juce::String& text)
+{
+    helpTitle_ = title;
+    helpText_ = text;
+    repaint(524, 44, 748, 28);
+}
+
 void GristoView::showHelpFor(juce::Component* component)
 {
     for (auto* c = component; c != nullptr && c != this; c = c->getParentComponent())
@@ -1384,6 +1391,55 @@ void GristoView::setupChordPage()
     chordNowLabel_.setFont(juce::FontOptions(13.0f, juce::Font::bold));
     chordNowLabel_.setColour(juce::Label::textColourId, colours::text);
     harmonyPad_.onTouched = [this] { setParameter(p::chordOn, 1.0f); }; // touching the map switches the chords on
+    // Progression: a chord clicked on the map sounds and goes into the progression.
+    // In Wander, a click moves home as before (and, while stopped, lets you hear it).
+    harmonyPad_.onCellPressed = [this](gristo::HarmonyCell cell) {
+        const int code = gristo::cellCode(cell.column, cell.row);
+        const auto mode = static_cast<gristo::HarmonyMode>(juce::roundToInt(processor_.state.getRawParameterValue(p::chordMode)->load()));
+        if (mode == gristo::HarmonyMode::Progression)
+        {
+            processor_.auditionChord(code);
+            placeInProgression(code);
+            return true;
+        }
+        if (!processor_.displayPlaying.load())
+            processor_.auditionChord(code);
+        return false;
+    };
+    progression_.onRemove = [this](int slot) {
+        std::array<int, gristo::kMaxProgression> slots {};
+        for (int k = 0; k < gristo::kMaxProgression; ++k)
+            slots[static_cast<size_t>(k)] = juce::roundToInt(processor_.state.getRawParameterValue(p::laneId(p::chordProgression, k))->load());
+        for (int k = slot; k < gristo::kMaxProgression - 1; ++k) // the later chords move up
+            slots[static_cast<size_t>(k)] = slots[static_cast<size_t>(k + 1)];
+        slots.back() = -1;
+        setProgression(slots);
+    };
+    progression_.onSelect = [this](int slot) {
+        if (slot >= 0)
+        {
+            processor_.auditionChord(juce::roundToInt(processor_.state.getRawParameterValue(p::laneId(p::chordProgression, slot))->load()));
+            showMessage("Progression", "Slot " + juce::String(slot + 1) + " selected: click a chord on the map to put it here.");
+        }
+    };
+    useWalk_.onClick = [this] {
+        const auto c = p::readEngineParams(processor_.state, processor_.modPoints).chords;
+        const auto step = static_cast<std::int64_t>(std::floor(processor_.displayPpq.load() * gristo::kStepsPerBeat));
+        setProgression(gristo::Chords::walkOf(c, c.frozen ? static_cast<std::int64_t>(c.frozenPhrase) * gristo::Chords::phraseSteps(c) : step));
+        setParameter(p::chordMode, static_cast<float>(gristo::HarmonyMode::Progression));
+    };
+    clearProgression_.onClick = [this] {
+        std::array<int, gristo::kMaxProgression> empty;
+        empty.fill(-1);
+        setProgression(empty);
+        progression_.clearSelection();
+    };
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &progression_, &useWalk_, &clearProgression_ })
+        addAndMakeVisible(c);
+    setHelp(progression_, "Progression", "Played by Progression: the chords you picked, in order, one per chord length. Click a chord on the map to hear it and add it; "
+                                         "click a slot to select it (the next chord replaces it); right-click to remove. In Wander, it shows the walk you hear.");
+    setHelp(useWalk_, "Use walk", "Turns the walk Wander is playing (the caught one, if you caught it) into a progression you can edit chord by chord.");
+    setHelp(clearProgression_, "Clear", "Empties the progression.");
     catchButton_.setClickingTogglesState(false);
     catchButton_.setColour(juce::TextButton::buttonOnColourId, colours::accent);
     catchButton_.setColour(juce::TextButton::textColourOnId, colours::background);
@@ -1393,7 +1449,7 @@ void GristoView::setupChordPage()
     setHelp(chordOn_.button, "Chords on", "Switches the chord part on. Arps set to Chords follow it.");
     setHelp(chordKey_.box, "Key", "The key: its tonic chord sits in the middle column of the map.");
     setHelp(chordMinor_.box, "Major / minor", "Whether the middle of the map is the major or the minor tonic.");
-    setHelp(chordMode_.box, "Played by", "Wander: the harmony moves by itself around home. Keys: you play it, the white keys from C1 are the seven chords around home (the next octave is one row richer).");
+    setHelp(chordMode_.box, "Played by", "Wander: the harmony moves by itself around home. Keys: you play it, the white keys from C1 are the seven chords around home (the next octave is one row richer). Progression: the chords you click on the map, in order (the strip under it).");
     setHelp(chordWander_, "Wander", "How far the harmony walks from home by itself. 0 = it stays where you put it. It returns home at the start of every phrase.");
     setHelp(catchButton_, "Catch", "Heard a phrase you like? Catch makes it loop. Press again to let the harmony wander on. Moving home moves the whole loop.");
     setHelp(chordRate_.box, "Chord length", "How long each chord lasts.");
@@ -1415,7 +1471,7 @@ std::vector<juce::Component*> GristoView::chordPageComponents()
 {
     std::vector<juce::Component*> list { &chordOn_.button, &chordKey_.box, &chordMinor_.box, &chordMode_.box, &chordRate_.box, &chordPhrase_.box,
                                          &chordPlay_.box, &chordOctave_.box, chordChannel_.get(), chordShift_.get(), chordVelocity_.get(),
-                                         &chordOutLabel_, &chordNowLabel_, &harmonyPad_, &catchButton_,
+                                         &chordOutLabel_, &chordNowLabel_, &harmonyPad_, &catchButton_, &progression_, &useWalk_, &clearProgression_,
                                          &chordWander_.slider, &chordWander_.label, &chordGate_.slider, &chordGate_.label,
                                          &chordStrum_.slider, &chordStrum_.label, &chordChance_.slider, &chordChance_.label, &chordStabChance_.slider, &chordStabChance_.label,
                                          &chordPush_.box, &chordRestrike_.box, &chordStabEvery_.box, &chordVoicing_.box, &chordVoicing_.label,
@@ -1425,10 +1481,50 @@ std::vector<juce::Component*> GristoView::chordPageComponents()
     return list;
 }
 
+void GristoView::setProgression(const std::array<int, gristo::kMaxProgression>& slots)
+{
+    for (int k = 0; k < gristo::kMaxProgression; ++k)
+        setParameter(p::laneId(p::chordProgression, k), static_cast<float>(slots[static_cast<size_t>(k)]));
+}
+
+void GristoView::placeInProgression(int cellCode)
+{
+    std::array<int, gristo::kMaxProgression> slots {};
+    for (int k = 0; k < gristo::kMaxProgression; ++k)
+        slots[static_cast<size_t>(k)] = juce::roundToInt(processor_.state.getRawParameterValue(p::laneId(p::chordProgression, k))->load());
+    int target = progression_.selected();
+    if (target < 0) // the next free slot
+    {
+        for (int k = 0; k < gristo::kMaxProgression && target < 0; ++k)
+            if (slots[static_cast<size_t>(k)] < 0)
+                target = k;
+    }
+    if (target < 0)
+    {
+        showMessage("Progression", "All eight slots are full: click a slot to select it, then a chord to replace it (right-click a slot to remove it).");
+        return;
+    }
+    slots[static_cast<size_t>(target)] = cellCode;
+    setProgression(slots);
+    progression_.clearSelection();
+}
+
 void GristoView::updateChordPage(const gristo::EngineParams& params)
 {
     const auto& c = params.chords;
     harmonyPad_.update(c, processor_.displayChordCell.load());
+    {
+        const bool editable = c.mode == gristo::HarmonyMode::Progression;
+        const bool playing = processor_.displayPlaying.load();
+        const auto step = static_cast<std::int64_t>(std::floor(processor_.displayPpq.load() * gristo::kStepsPerBeat));
+        const auto walkStep = c.frozen ? static_cast<std::int64_t>(c.frozenPhrase) * gristo::Chords::phraseSteps(c) : step;
+        const int length = std::clamp(c.chordSteps, 1, 64);
+        const int walkSlot = playing ? gristo::floorMod(step, gristo::Chords::phraseSteps(c)) / length : -1;
+        progression_.update(c, editable ? c.progression : gristo::Chords::walkOf(c, walkStep), editable,
+                            editable ? processor_.displayProgressionSlot.load() : (walkSlot < gristo::kMaxProgression ? walkSlot : -1));
+        useWalk_.setEnabled(c.mode == gristo::HarmonyMode::Wander);
+        clearProgression_.setEnabled(editable && gristo::Chords::progressionLength(c) > 0);
+    }
     chordNowLabel_.setText((c.enabled ? juce::String() : juce::String("Off  -  ")) + harmonyPad_.playingName(), juce::dontSendNotification);
     const bool caught = c.frozen;
     if (catchButton_.getToggleState() != caught)
@@ -1437,7 +1533,8 @@ void GristoView::updateChordPage(const gristo::EngineParams& params)
         catchButton_.setButtonText(caught ? "Caught" : "Catch");
     }
     const bool wander = c.mode == gristo::HarmonyMode::Wander;
-    for (juce::Component* comp : std::initializer_list<juce::Component*> { &chordWander_.slider, &catchButton_, &chordRate_.box, &chordPhrase_.box })
+    chordRate_.box.setAlpha(c.mode != gristo::HarmonyMode::Keys ? 1.0f : 0.35f); // a progression's chords last one chord length too
+    for (juce::Component* comp : std::initializer_list<juce::Component*> { &chordWander_.slider, &catchButton_, &chordPhrase_.box })
         comp->setAlpha(wander ? 1.0f : 0.35f);
     const bool stabs = c.play == gristo::ChordPlay::Stabs;
     for (auto& t : chordStabs_)
@@ -2347,7 +2444,8 @@ void GristoView::showPage(int page)
                                                                             &feeling_.box, &feeling_.label, &linear_.button,
                                                                             &harmonyPad_, &chordNowLabel_, &chordOn_.button, &chordKey_.box,
                                                                             &chordMinor_.box, &chordMode_.box, &chordWander_.slider,
-                                                                            &chordWander_.label, &catchButton_ })
+                                                                            &chordWander_.label, &catchButton_, &progression_, &useWalk_,
+                                                                            &clearProgression_ })
             c->setVisible(true);
     // Lanes, routing, MIDI drag and the macro knobs belong to Edit.
     for (auto* c : modulationPageComponents())
@@ -3049,7 +3147,10 @@ void GristoView::resized()
         catchButton_.setBounds(518, y, 80, 26);
         chordPlay_.box.setBounds(640, y, 80, 26);
         chordOctave_.box.setBounds(726, y, 58, 26);
-        harmonyPad_.setBounds(24, y + 34, 600, 158);
+        harmonyPad_.setBounds(24, y + 34, 600, 128);
+        progression_.setBounds(22, y + 167, 452, 26);
+        useWalk_.setBounds(480, y + 167, 74, 26);
+        clearProgression_.setBounds(558, y + 167, 66, 26);
         chordNowLabel_.setBounds(796, y, 180, 26);
         placeKnob(chordWander_, { 640, y + 38, 84, 104 });
         placeSmallKnob(chordStrum_, 740, y + 48);
@@ -3093,7 +3194,10 @@ void GristoView::resized()
         feeling_.box.setBounds(px + 414, py + 148, 106, 26);
         linear_.button.setBounds(px + 414, py + 190, 106, 28);
         // Harmony: the map, Wander and Catch.
-        harmonyPad_.setBounds(px + 552, py + 26, 400, kPadPanelH - 56);
+        harmonyPad_.setBounds(px + 552, py + 26, 400, kPadPanelH - 90);
+        progression_.setBounds(px + 550, py + kPadPanelH - 60, 260, 26);
+        useWalk_.setBounds(px + 814, py + kPadPanelH - 60, 72, 26);
+        clearProgression_.setBounds(px + 890, py + kPadPanelH - 60, 62, 26);
         chordNowLabel_.setBounds(px + 552, py + kPadPanelH - 26, 400, 18);
         chordOn_.button.setBounds(px + 962, py + 26, 98, 28);
         chordKey_.box.setBounds(px + 962, py + 78, 98, 26);

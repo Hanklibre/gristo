@@ -26,7 +26,12 @@ constexpr int kNumChordKeys = 14; // Keys mode: two octaves of white keys
 
 enum class ChordPlay : int { Off = 0, Held, Stabs };
 // Wander: the harmony moves by itself around home. Keys: you play it, one key per chord.
-enum class HarmonyMode : int { Wander = 0, Keys };
+// Progression: the chords you picked, in order, one per chord length, looping.
+enum class HarmonyMode : int { Wander = 0, Keys, Progression };
+constexpr int kMaxProgression = 8;
+
+// A cell as one number (for parameters and the display): (column + 5) * 8 + row.
+inline int cellCode(int column, int row) { return (column + (kHarmonyColumns - 1) / 2) * 8 + row; }
 // Close: root position. Smooth folds every chord into one octave so the notes move as
 // little as possible from chord to chord; SmoothBass adds the root underneath. The rest
 // start from the smooth chord too: Drop2 drops its second note from the top an octave;
@@ -64,6 +69,10 @@ struct ChordParams
     bool frozen = false; // every phrase repeats the walk of phrase `frozenPhrase`
     int frozenPhrase = 0;
     std::uint32_t seed = 1;
+
+    // Progression mode: cell codes (see cellCode), -1 = empty; the slots before the first
+    // empty one play.
+    std::array<int, kMaxProgression> progression { -1, -1, -1, -1, -1, -1, -1, -1 };
 
     ChordPlay play = ChordPlay::Held;
     std::array<bool, kNumVoices> stabTriggers { false, true, false, false, false, false };
@@ -104,6 +113,13 @@ class Chords
 {
 public:
     static HarmonyCell homeCell(const ChordParams& p);
+    static HarmonyCell cellFromCode(int code);
+    static int progressionLength(const ChordParams& p); // the slots that play
+    // Progression mode: which slot plays at a step (-1: none, the progression is empty).
+    static int progressionSlotAt(const ChordParams& p, std::int64_t step);
+    // Wander: the chords of the walk of the phrase a step is in (Catch: the caught one),
+    // at most kMaxProgression, as cell codes. What "Use walk" turns into a progression.
+    static std::array<int, kMaxProgression> walkOf(const ChordParams& p, std::int64_t step);
     // Pad coordinates of a cell's centre (the inverse of homeCell).
     static float columnToX(int column);
     static float rowToY(int row);

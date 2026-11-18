@@ -1237,6 +1237,19 @@ void HarmonyPad::paint(juce::Graphics& g)
                     g.fillEllipse(area.getCentreX() - 2.0f, area.getBottom() - 8.0f, 4.0f, 4.0f);
                 }
             }
+            if (params_.mode == HarmonyMode::Progression) // the slots this chord fills, as small numbers
+            {
+                juce::String slots;
+                for (int k = 0; k < kMaxProgression; ++k)
+                    if (params_.progression[static_cast<size_t>(k)] == code)
+                        slots << (slots.isEmpty() ? "" : " ") << (k + 1);
+                if (slots.isNotEmpty())
+                {
+                    g.setColour(colours::accent);
+                    g.setFont(juce::FontOptions(9.5f, juce::Font::bold));
+                    g.drawText(slots, area.reduced(4.0f, 2.0f).toNearestInt(), juce::Justification::topRight);
+                }
+            }
             g.setColour(glow > 0.6f ? colours::background : juce::Colours::white.withAlpha(on ? 0.86f : 0.5f));
             g.setFont(juce::FontOptions(area.getWidth() < 34.0f ? 9.5f : 11.0f, juce::Font::bold));
             g.drawFittedText(Chords::name(params_, cell), area.reduced(1.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.55f);
@@ -1267,17 +1280,108 @@ void HarmonyPad::mouseDown(const juce::MouseEvent& e)
 {
     if (onTouched)
         onTouched();
+    if (onCellPressed)
+    {
+        const int column = juce::jlimit(0, gristo::kHarmonyColumns - 1, static_cast<int>(e.position.x / (static_cast<float>(getWidth()) / gristo::kHarmonyColumns)));
+        const int row = gristo::kHarmonyRows - 1
+                        - juce::jlimit(0, gristo::kHarmonyRows - 1, static_cast<int>(e.position.y / (static_cast<float>(getHeight()) / gristo::kHarmonyRows)));
+        if (onCellPressed({ column - kHalfColumns, row }))
+        {
+            taken_ = true;
+            return;
+        }
+    }
+    taken_ = false;
     state_.getParameter(p::chordHomeX)->beginChangeGesture();
     state_.getParameter(p::chordHomeY)->beginChangeGesture();
     setFromMouse(e.position);
 }
 
-void HarmonyPad::mouseDrag(const juce::MouseEvent& e) { setFromMouse(e.position); }
+void HarmonyPad::mouseDrag(const juce::MouseEvent& e)
+{
+    if (!taken_)
+        setFromMouse(e.position);
+}
 
 void HarmonyPad::mouseUp(const juce::MouseEvent&)
 {
+    if (taken_)
+        return;
     state_.getParameter(p::chordHomeX)->endChangeGesture();
     state_.getParameter(p::chordHomeY)->endChangeGesture();
+}
+
+// ---------------------------------------------------------------------------------
+// Progression strip
+
+void ProgressionStrip::update(const gristo::ChordParams& params, const std::array<int, gristo::kMaxProgression>& slots, bool editable, int playing)
+{
+    if (slots == slots_ && editable == editable_ && playing == playing_ && params.key == params_.key && params.minor == params_.minor)
+        return;
+    params_ = params;
+    slots_ = slots;
+    editable_ = editable;
+    playing_ = playing;
+    if (!editable_)
+        selected_ = -1;
+    repaint();
+}
+
+void ProgressionStrip::clearSelection()
+{
+    selected_ = -1;
+    repaint();
+}
+
+juce::Rectangle<float> ProgressionStrip::slotArea(int slot) const
+{
+    const float w = static_cast<float>(getWidth()) / gristo::kMaxProgression;
+    return { w * static_cast<float>(slot), 0.0f, w, static_cast<float>(getHeight()) };
+}
+
+void ProgressionStrip::paint(juce::Graphics& g)
+{
+    for (int k = 0; k < gristo::kMaxProgression; ++k)
+    {
+        const auto area = slotArea(k).reduced(2.0f, 0.0f);
+        const int code = slots_[static_cast<size_t>(k)];
+        const bool filled = code >= 0;
+        const bool lit = k == playing_;
+        g.setColour(lit ? colours::accent.withAlpha(0.22f) : filled ? colours::surface : colours::background);
+        g.fillRoundedRectangle(area, 6.0f);
+        g.setColour(k == selected_ ? colours::accent : lit ? colours::accent.withAlpha(0.6f) : juce::Colours::white.withAlpha(0.06f));
+        g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, k == selected_ ? 1.6f : 1.0f);
+        g.setFont(juce::FontOptions(12.0f, juce::Font::bold));
+        if (filled)
+        {
+            g.setColour(editable_ ? colours::text : colours::dim);
+            g.drawFittedText(gristo::Chords::name(params_, gristo::Chords::cellFromCode(code)), area.toNearestInt().reduced(4, 0),
+                             juce::Justification::centred, 1, 0.6f);
+        }
+        else if (editable_ && (k == 0 || slots_[static_cast<size_t>(k - 1)] >= 0)) // where the next chord goes
+        {
+            g.setColour(colours::faint);
+            g.drawText("+", area, juce::Justification::centred);
+        }
+    }
+}
+
+void ProgressionStrip::mouseDown(const juce::MouseEvent& e)
+{
+    if (!editable_)
+        return;
+    const int slot = juce::jlimit(0, gristo::kMaxProgression - 1, static_cast<int>(e.position.x / (static_cast<float>(getWidth()) / gristo::kMaxProgression)));
+    if (e.mods.isPopupMenu())
+    {
+        if (slots_[static_cast<size_t>(slot)] >= 0 && onRemove)
+            onRemove(slot);
+        selected_ = -1;
+    }
+    else
+        selected_ = selected_ == slot || slots_[static_cast<size_t>(slot)] < 0 ? -1 : slot;
+    if (onSelect)
+        onSelect(selected_);
+    repaint();
 }
 
 void DragOutHandle::paint(juce::Graphics& g)
