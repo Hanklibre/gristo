@@ -454,7 +454,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         juce::StringArray { "Stab every hit", "Every 2nd hit", "Every 3rd hit", "Every 4th hit", "Every 6th hit", "Every 8th hit" }, 0));
     layout.add(percentParam(chordStabChance, "Chord Stab Chance", 1.0f));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordPush, kVersion }, "Chord Push",
-        juce::StringArray { "Change on the 1", "Early 1/16", "Early 1/8", "Early 1/4", "Late 1/16", "Late 1/8" }, 0));
+        juce::StringArray { "Change on the 1", "Early 1/16", "Early 1/8", "Early 1/4", "Late 1/16", "Late 1/8", "Late 1/4" }, 0));
     for (int slot = 0; slot < kMaxProgression; ++slot)
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { laneId(chordProgression, slot), kVersion },
                                                              "Progression Chord " + juce::String(slot + 1), -1, cellCode((kHarmonyColumns - 1) / 2, kHarmonyRows - 1), -1));
@@ -608,7 +608,7 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
         c.stabEvery = every[juce::jlimit(0, 5, static_cast<int>(load(s, chordStabEvery)))];
     }
     c.stabChance = load(s, chordStabChance);
-    c.heldPush = kChordPushSteps[juce::jlimit(0, 5, static_cast<int>(load(s, chordPush)))];
+    c.heldPush = kChordPushSteps[juce::jlimit(0, 6, static_cast<int>(load(s, chordPush)))];
     c.restrikeSteps = kRestrikeSteps[juce::jlimit(0, 6, static_cast<int>(load(s, chordRestrike)))];
     {
         const float lo = load(s, chordVelMin) / 127.0f, hi = load(s, chordVelMax) / 127.0f;

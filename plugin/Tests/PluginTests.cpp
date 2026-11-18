@@ -966,6 +966,8 @@ TEST("plugin: clock dividers, stab Every / Chance, Push, Re-strike and the synth
     CHECK(e.pattern.divide[gristo::HiHat1] == 3 && e.pattern.divide[gristo::Kick] == 1);
     CHECK(e.chords.stabEvery == 2 && std::abs(e.chords.stabChance - 0.5f) < 1e-4f);
     CHECK(e.chords.heldPush == 2 && e.chords.restrikeSteps == 4);
+    setParam(*proc, p::chordPush, 6.0f);
+    CHECK(p::readEngineParams(proc->state, proc->modPoints).chords.heldPush == -4); // late 1/4
     const auto synth = p::readSynthParams(proc->state, 1);
     CHECK(synth.bodyType == 5 && std::abs(synth.bodyTune - 7.0f) < 1e-3f);
     CHECK(p::readKitParams(proc->state).voice[gristo::Snare].bodyType == 4);

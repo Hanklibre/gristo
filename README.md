@@ -153,7 +153,7 @@ source) and the Perkons inspired the choice of engines, not code.
 * **Chord stabs:** **Every** (every hit, or every 2nd, 3rd, 4th, 6th, 8th hit of the
   stab drums, counted from each bar) and **Stab %** (the chance of each stab).
 * **Held chords:** **Push**: the chords change on the 1, or early (a 16th, an 8th
-  or a beat ahead, anticipating the bar) or late (laid back). **Re-strike**: the
+  or a beat ahead, anticipating the bar) or late (laid back: a 16th, an 8th or a beat). **Re-strike**: the
   chord plays again on a pulse (every 8th, dotted 8th, beat, dotted beat, half bar or
   bar, from its own pushed start), each strike rolling Chance anew.
 * **Body on the synths:** a material (Wood, the default: an instrument's body;

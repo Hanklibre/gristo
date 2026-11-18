@@ -1373,7 +1373,7 @@ void GristoView::setupChordPage()
     setupSmallKnob(chordStabChance_, p::chordStabChance, "Stab %");
     setHelp(chordStabChance_, "Stab chance", "Stabs: the chance of each stab to play at all (the notes of the ones that play still roll Chance).");
     setupChoice(chordPush_, p::chordPush, "Push");
-    setHelp(chordPush_.box, "Push", "Held: when the chords change. On the 1, or early (pushed, anticipating the bar: a 16th, an 8th, a beat ahead) or late (laid back).");
+    setHelp(chordPush_.box, "Push", "Held: when the chords change. On the 1, or early (pushed, anticipating the bar: a 16th, an 8th, a beat ahead) or late (laid back: a 16th, an 8th or a beat behind).");
     setupChoice(chordRestrike_, p::chordRestrike, "Strike");
     setHelp(chordRestrike_.box, "Re-strike", "Held: the chord plays again on this pulse (counted from the chord's own, pushed start), instead of being held until the next chord. Each strike rolls Chance anew.");
     setupChoice(chordStabEvery_, p::chordStabEvery, "Every");

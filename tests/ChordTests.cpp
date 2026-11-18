@@ -876,6 +876,11 @@ TEST("chords: stabs on every Nth hit, with a chance; held chords pushed off the 
         pushed += std::abs(static_cast<double>((t + eighth) % kBar)) < 200 ? 1 : 0; // an 8th before the bar line
     CHECK(pushed >= 2);
     CHECK(struck.size() >= 14); // every beat for four bars
+    const auto late = held(-4, 0);
+    int laid = 0;
+    for (const auto t : late)
+        laid += std::abs(static_cast<double>(t % kBar) - kBar / 4.0) < 200 ? 1 : 0; // a beat after the bar line
+    CHECK(laid >= 2);
 }
 
 TEST("harmony: a progression plays its chords in order and loops; Use walk takes the chords Wander plays")
