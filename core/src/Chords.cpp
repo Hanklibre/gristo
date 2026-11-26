@@ -96,12 +96,41 @@ int Chords::progressionLength(const ChordParams& p)
     return n;
 }
 
+int Chords::slotSteps(const ChordParams& p, int slot)
+{
+    const int beats = p.progressionBeats[static_cast<size_t>(std::clamp(slot, 0, kMaxProgression - 1))];
+    return beats > 0 ? std::min(beats, kMaxSlotBeats) * 4 : std::clamp(p.chordSteps, 1, 64);
+}
+
+int Chords::progressionSteps(const ChordParams& p)
+{
+    int total = 0;
+    for (int k = 0; k < progressionLength(p); ++k)
+        total += slotSteps(p, k);
+    return total;
+}
+
+int Chords::progressionSlotStart(const ChordParams& p, int slot)
+{
+    int start = 0;
+    for (int k = 0; k < slot && k < progressionLength(p); ++k)
+        start += slotSteps(p, k);
+    return start;
+}
+
 int Chords::progressionSlotAt(const ChordParams& p, std::int64_t step)
 {
     const int n = progressionLength(p);
     if (n == 0)
         return -1;
-    return floorMod(floorDiv(step, std::clamp(p.chordSteps, 1, 64)), n);
+    int at = static_cast<int>(floorMod(step, static_cast<std::int64_t>(progressionSteps(p))));
+    for (int k = 0; k < n; ++k)
+    {
+        at -= slotSteps(p, k);
+        if (at < 0)
+            return k;
+    }
+    return n - 1;
 }
 
 std::array<int, kMaxProgression> Chords::walkOf(const ChordParams& p, std::int64_t step)
@@ -130,7 +159,8 @@ ChordPosition Chords::positionAt(const ChordParams& p, std::int64_t step)
         pos.valid = true;
         const int slot = progressionSlotAt(p, step);
         pos.cell = slot >= 0 ? cellFromCode(p.progression[static_cast<size_t>(slot)]) : homeCell(p);
-        pos.serial = floorDiv(step, length); // every chord a new start, even the same one again
+        // Every chord a new start, even the same one again.
+        pos.serial = slot >= 0 ? floorDiv(step, static_cast<std::int64_t>(progressionSteps(p))) * kMaxProgression + slot : floorDiv(step, length);
         return pos;
     }
     const std::int64_t phrase = phraseAt(p, step);

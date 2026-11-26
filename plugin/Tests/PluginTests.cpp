@@ -988,6 +988,14 @@ TEST("plugin: a progression's slots reach the engine and play; a clicked chord c
     const auto c = p::readEngineParams(proc->state, proc->modPoints).chords;
     CHECK(c.mode == gristo::HarmonyMode::Progression && gristo::Chords::progressionLength(c) == 3);
     CHECK(c.progression[1] == cells[1] && c.progression[3] == -1);
+    // Slots of their own lengths, and the slots past the first eight.
+    setParam(*proc, p::laneId(p::chordProgBeats, 0), 1.0f);
+    setParam(*proc, p::laneId(p::chordProgBeats, 1), 6.0f);
+    for (int k = 3; k < gristo::kMaxProgression; ++k)
+        setParam(*proc, p::laneId(p::chordProgression, k), static_cast<float>(cells[k % 3]));
+    const auto c16 = p::readEngineParams(proc->state, proc->modPoints).chords;
+    CHECK(gristo::Chords::progressionLength(c16) == gristo::kMaxProgression);
+    CHECK(gristo::Chords::slotSteps(c16, 0) == 4 && gristo::Chords::slotSteps(c16, 1) == 24 && gristo::Chords::slotSteps(c16, 15) == c16.chordSteps);
     proc->pump(2);
     const Run run = play(*proc, 800);
     const int channel = static_cast<int>(getParam(*proc, p::chordChannel));

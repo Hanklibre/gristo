@@ -1369,14 +1369,17 @@ void HarmonyPad::mouseDoubleClick(const juce::MouseEvent& e)
 // ---------------------------------------------------------------------------------
 // Progression strip
 
-void ProgressionStrip::update(const gristo::ChordParams& params, const std::array<int, gristo::kMaxProgression>& slots, bool editable, int playing)
+void ProgressionStrip::update(const gristo::ChordParams& params, const Slots& slots, const Slots& beats, bool editable, int playing, float playFraction)
 {
-    if (slots == slots_ && editable == editable_ && playing == playing_ && params.key == params_.key && params.minor == params_.minor)
+    if (slots == slots_ && beats == beats_ && editable == editable_ && playing == playing_ && std::abs(playFraction - playFraction_) < 0.004f
+        && params.key == params_.key && params.minor == params_.minor)
         return;
     params_ = params;
     slots_ = slots;
+    beats_ = beats;
     editable_ = editable;
     playing_ = playing;
+    playFraction_ = playFraction;
     if (!editable_)
         selected_ = -1;
     repaint();
@@ -1388,42 +1391,132 @@ void ProgressionStrip::clearSelection()
     repaint();
 }
 
+juce::String ProgressionStrip::lengthName(int beats)
+{
+    if (beats % 4 == 0)
+        return juce::String(beats / 4) + (beats == 4 ? " bar" : " bars");
+    return juce::String(beats) + "/4";
+}
+
+int ProgressionStrip::count() const
+{
+    int n = 0;
+    while (n < gristo::kMaxProgression && slots_[static_cast<size_t>(n)] >= 0)
+        ++n;
+    return n;
+}
+
+float ProgressionStrip::beatWidth() const
+{
+    // Every slot at least kMinSlot wide, the rest shared by their beats; at most a
+    // four-bar strip's scale, so short progressions don't stretch.
+    const int n = count();
+    int total = 0;
+    for (int k = 0; k < n; ++k)
+        total += beats_[static_cast<size_t>(k)];
+    const float plus = editable_ && n < gristo::kMaxProgression ? kPlusSlot : 0.0f;
+    const float free = static_cast<float>(getWidth()) - plus - kMinSlot * static_cast<float>(n);
+    const float cap = (static_cast<float>(getWidth()) - plus) / 16.0f - kMinSlot / 4.0f;
+    return total > 0 ? juce::jlimit(0.0f, std::max(0.0f, cap), free / static_cast<float>(total)) : 0.0f;
+}
+
 juce::Rectangle<float> ProgressionStrip::slotArea(int slot) const
 {
-    const float w = static_cast<float>(getWidth()) / gristo::kMaxProgression;
-    return { w * static_cast<float>(slot), 0.0f, w, static_cast<float>(getHeight()) };
+    const float scale = beatWidth();
+    float x = 0.0f;
+    for (int k = 0; k < slot; ++k)
+        x += kMinSlot + scale * static_cast<float>(beats_[static_cast<size_t>(k)]);
+    const float w = slot < count() ? kMinSlot + scale * static_cast<float>(beats_[static_cast<size_t>(slot)]) : kPlusSlot;
+    return { x, 0.0f, w, static_cast<float>(getHeight()) };
 }
 
 void ProgressionStrip::paint(juce::Graphics& g)
 {
-    for (int k = 0; k < gristo::kMaxProgression; ++k)
+    const int n = count();
+    const float scale = beatWidth();
+    if (n == 0 && !editable_)
     {
-        const auto area = slotArea(k).reduced(2.0f, 0.0f);
+        g.setColour(colours::faint);
+        g.setFont(juce::FontOptions(12.0f));
+        g.drawText("No chords yet", getLocalBounds(), juce::Justification::centredLeft);
+        return;
+    }
+    for (int k = 0; k < n; ++k)
+    {
+        const auto area = slotArea(k).reduced(1.5f, 0.0f);
         const int code = slots_[static_cast<size_t>(k)];
-        const bool filled = code >= 0;
         const bool lit = k == playing_;
-        g.setColour(lit ? colours::accent.withAlpha(0.22f) : filled ? colours::surface : colours::background);
-        g.fillRoundedRectangle(area, 6.0f);
-        g.setColour(k == selected_ || k == dropSlot_ ? colours::accent : lit ? colours::accent.withAlpha(0.6f) : juce::Colours::white.withAlpha(0.06f));
-        g.drawRoundedRectangle(area.reduced(0.5f), 6.0f, k == selected_ || k == dropSlot_ ? 1.6f : 1.0f);
-        g.setFont(juce::FontOptions(std::clamp(area.getHeight() * 0.42f, 11.0f, 18.0f), juce::Font::bold));
-        if (filled)
+        const bool chosen = k == selected_ || k == dropSlot_ || k == resizing_;
+        g.setColour(lit ? colours::accent.withAlpha(0.2f) : colours::surface);
+        g.fillRoundedRectangle(area, 5.0f);
+        if (lit) // the playhead
         {
-            g.setColour(editable_ ? colours::text : colours::dim);
-            g.drawFittedText(gristo::Chords::name(params_, gristo::Chords::cellFromCode(code)), area.toNearestInt().reduced(4, 0),
-                             juce::Justification::centred, 1, 0.6f);
+            const float px = area.getX() + area.getWidth() * juce::jlimit(0.0f, 1.0f, playFraction_);
+            g.setColour(colours::accent.withAlpha(0.18f));
+            g.fillRoundedRectangle(area.withRight(px), 5.0f);
+            g.setColour(colours::accent);
+            g.fillRect(px - 0.75f, area.getY() + 3.0f, 1.5f, area.getHeight() - 6.0f);
         }
-        else if (editable_ && (k == 0 || slots_[static_cast<size_t>(k - 1)] >= 0)) // where the next chord goes
+        g.setColour(chosen ? colours::accent : lit ? colours::accent.withAlpha(0.55f) : juce::Colours::white.withAlpha(0.06f));
+        g.drawRoundedRectangle(area.reduced(0.5f), 5.0f, chosen ? 1.6f : 1.0f);
+        // Beat ticks along the bottom: the quarter-note grid.
+        const int beats = beats_[static_cast<size_t>(k)];
+        const float beatW = (area.getWidth() - 2.0f) / static_cast<float>(std::max(1, beats));
+        if (beatW >= 5.0f)
+            for (int b = 1; b < beats; ++b)
+            {
+                g.setColour(juce::Colours::white.withAlpha(b % 4 == 0 ? 0.3f : 0.16f));
+                const float tx = area.getX() + 1.0f + beatW * static_cast<float>(b);
+                g.fillRect(tx - 0.5f, area.getBottom() - (b % 4 == 0 ? 9.0f : 6.0f), 1.0f, b % 4 == 0 ? 7.0f : 4.0f);
+            }
+        const auto text = area.toNearestInt().reduced(5, 2);
+        g.setColour(editable_ ? colours::text : colours::dim);
+        g.setFont(juce::FontOptions(std::clamp(area.getHeight() * 0.36f, 10.5f, 16.0f), juce::Font::bold));
+        g.drawFittedText(gristo::Chords::name(params_, gristo::Chords::cellFromCode(code)), text.withTrimmedBottom(text.getHeight() / 3),
+                         juce::Justification::centred, 1, 0.55f);
+        if (area.getWidth() > 40.0f && area.getHeight() > 30.0f)
         {
-            g.setColour(colours::faint);
-            g.drawText("+", area, juce::Justification::centred);
+            g.setColour(colours::dim);
+            g.setFont(juce::FontOptions(10.0f));
+            g.drawText(lengthName(beats), text.withTop(text.getBottom() - 14).translated(0, -4), juce::Justification::centred);
         }
+        if (editable_ && (chosen || area.getWidth() > 44.0f)) // the handle to drag the length
+        {
+            g.setColour(chosen ? colours::accent : juce::Colours::white.withAlpha(0.18f));
+            g.fillRoundedRectangle(area.getRight() - 4.0f, area.getCentreY() - 7.0f, 2.0f, 14.0f, 1.0f);
+        }
+    }
+    juce::ignoreUnused(scale);
+    if (editable_ && n < gristo::kMaxProgression) // where the next chord goes
+    {
+        const auto area = slotArea(n).reduced(1.5f, 0.0f);
+        g.setColour(n == dropSlot_ ? colours::accent.withAlpha(0.2f) : colours::background);
+        g.fillRoundedRectangle(area, 5.0f);
+        g.setColour(n == dropSlot_ ? colours::accent : juce::Colours::white.withAlpha(0.08f));
+        g.drawRoundedRectangle(area.reduced(0.5f), 5.0f, 1.0f);
+        g.setColour(colours::faint);
+        g.setFont(juce::FontOptions(16.0f));
+        g.drawText("+", area, juce::Justification::centred);
     }
 }
 
 int ProgressionStrip::slotAt(float x) const
 {
-    return juce::jlimit(0, gristo::kMaxProgression - 1, static_cast<int>(x / (static_cast<float>(getWidth()) / gristo::kMaxProgression)));
+    const int n = count();
+    for (int k = 0; k < n; ++k)
+        if (x < slotArea(k).getRight())
+            return k;
+    return std::min(n, gristo::kMaxProgression - 1);
+}
+
+int ProgressionStrip::edgeAt(float x) const
+{
+    if (!editable_)
+        return -1;
+    for (int k = 0; k < count(); ++k)
+        if (std::abs(x - slotArea(k).getRight()) < 6.0f)
+            return k;
+    return -1;
 }
 
 bool ProgressionStrip::isInterestedInDragSource(const SourceDetails& details)
@@ -1457,22 +1550,82 @@ void ProgressionStrip::itemDropped(const SourceDetails& details)
         onDrop(slot, code);
 }
 
+void ProgressionStrip::mouseMove(const juce::MouseEvent& e)
+{
+    setMouseCursor(edgeAt(e.position.x) >= 0 ? juce::MouseCursor::LeftRightResizeCursor : juce::MouseCursor::NormalCursor);
+}
+
 void ProgressionStrip::mouseDown(const juce::MouseEvent& e)
 {
     if (!editable_)
         return;
-    const int slot = juce::jlimit(0, gristo::kMaxProgression - 1, static_cast<int>(e.position.x / (static_cast<float>(getWidth()) / gristo::kMaxProgression)));
+    const int n = count();
+    if (!e.mods.isPopupMenu())
+        if (const int edge = edgeAt(e.position.x); edge >= 0)
+        {
+            resizing_ = edge;
+            resizeStartBeats_ = beats_[static_cast<size_t>(edge)];
+            resizeScale_ = std::max(4.0f, beatWidth());
+            repaint();
+            return;
+        }
+    const int slot = slotAt(e.position.x);
     if (e.mods.isPopupMenu())
     {
-        if (slots_[static_cast<size_t>(slot)] >= 0 && onRemove)
-            onRemove(slot);
-        selected_ = -1;
+        if (slot >= n)
+            return;
+        selected_ = slot;
+        repaint();
+        juce::PopupMenu lengths;
+        const int current = beats_[static_cast<size_t>(slot)];
+        for (int b : { 1, 2, 3, 4, 5, 6, 7, 8, 12, 16 })
+            lengths.addItem(100 + b, lengthName(b) + (b < 4 ? "  (" + juce::String(b) + (b == 1 ? " beat)" : " beats)") : juce::String()), true, b == current);
+        juce::PopupMenu menu;
+        menu.addSectionHeader(gristo::Chords::name(params_, gristo::Chords::cellFromCode(slots_[static_cast<size_t>(slot)])));
+        menu.addSubMenu("Length", lengths);
+        menu.addItem(2, "Duplicate", n < gristo::kMaxProgression);
+        menu.addItem(3, "Remove");
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withMousePosition(), [this, slot](int result) {
+            if (result >= 100 && onLength)
+                onLength(slot, result - 100);
+            else if (result == 2 && onDuplicate)
+                onDuplicate(slot);
+            else if (result == 3 && onRemove)
+            {
+                onRemove(slot);
+                selected_ = -1;
+            }
+            repaint();
+        });
+        return;
     }
-    else
-        selected_ = selected_ == slot || slots_[static_cast<size_t>(slot)] < 0 ? -1 : slot;
+    selected_ = selected_ == slot || slot >= n ? -1 : slot;
     if (onSelect)
         onSelect(selected_);
     repaint();
+}
+
+void ProgressionStrip::mouseDrag(const juce::MouseEvent& e)
+{
+    if (resizing_ < 0)
+        return;
+    const int beats = juce::jlimit(1, gristo::kMaxSlotBeats,
+                                   resizeStartBeats_ + juce::roundToInt(static_cast<float>(e.getDistanceFromDragStartX()) / resizeScale_));
+    if (beats != beats_[static_cast<size_t>(resizing_)] && onLength)
+    {
+        beats_[static_cast<size_t>(resizing_)] = beats; // at once, before the parameter comes back
+        onLength(resizing_, beats);
+        repaint();
+    }
+}
+
+void ProgressionStrip::mouseUp(const juce::MouseEvent&)
+{
+    if (resizing_ >= 0)
+    {
+        resizing_ = -1;
+        repaint();
+    }
 }
 
 void DragOutHandle::paint(juce::Graphics& g)

@@ -232,9 +232,15 @@ private:
     // The chord chart: the map and the progression, big. The candidate is the chord last
     // heard; Add (or a double-click, or a drag onto a slot) puts it in.
     juce::TextButton chartButton_ { "Chart" }, addChord_ { "Add" }, backFromChart_ { "Back" };
+    juce::Slider wanderBar_; // the chords page's compact Wander (the Play page has the knob)
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> wanderBarAttachment_;
+    void updateChordPageLayout(const gristo::ChordParams& c); // what shows depends on the mode
     int candidate_ = -1, chartReturnPage_ = 0;
     void placeInProgression(int cellCode);
-    void setProgression(const std::array<int, gristo::kMaxProgression>& slots);
+    using Slots = std::array<int, gristo::kMaxProgression>;
+    void readProgression(Slots& slots, Slots& beats) const;
+    void setProgression(const Slots& slots, const Slots& beats);
+    int newSlotBeats() const; // a new chord's length: the chord length, in quarters
 
     // Play screen: the two pads and the big knobs. Edit shows the selected part's page instead.
     static constexpr int kPlayPage = kMasterPage + 1;

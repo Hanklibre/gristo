@@ -108,6 +108,7 @@ public:
     bool active() const { return amp_.active(); }
     bool gated() const { return amp_.gated(); }
     int id() const { return id_; }
+    std::uint64_t order = 0; // when it was started (the synth's count): the newest are stolen last
     float level() const { return amp_.value(); }
     float tick(const SynthParams& macros, float glideCoef);
 
@@ -166,7 +167,7 @@ private:
 class Synth
 {
 public:
-    static constexpr int kVoices = 12;
+    static constexpr int kVoices = 16;
     void prepare(float sampleRate);
     // Poly: every note gets its own voice (chords). Otherwise a note that starts while
     // another is held is a slide (arps).
@@ -184,6 +185,7 @@ public:
     float tick(); // one host-rate sample, before the level: see level()
     float level() const { return live_.level; } // the part's fader, glided
     int activeVoices() const;
+    int heldVoices() const; // gated: notes still held
 
 private:
     SynthVoice voices_[kVoices];
@@ -194,6 +196,7 @@ private:
     float sampleRate_ = 48000.0f;
     float smoothCoef_ = 0.0017f, glideCoef_ = 0.0f, chorus_ = 0.0f;
     bool poly_ = false, started_ = false;
+    std::uint64_t starts_ = 0;
 };
 
 } // namespace gristo::sound

@@ -222,7 +222,9 @@ inline const juce::String chordStabEvery = "chStabEvery";
 inline const juce::String chordStabChance = "chStabChance";
 inline const juce::String chordPush = "chPush";
 inline const juce::String chordRestrike = "chRestrike";
-inline const juce::String chordProgression = "chProg"; // per slot (0..7): a cell code, -1 = empty
+inline const juce::String chordProgression = "chProg"; // per slot (0..15): a cell code, -1 = empty
+inline const juce::String chordProgBeats = "chProgBeats"; // per slot: its length in quarters, 0 = the chord length
+constexpr int kLegacyProgressionSlots = 8; // the first eight slots sit where they always did in the layout
 inline const int kChordPushSteps[] = { 0, 1, 2, 4, -1, -2, -4 }; // On the 1, early 1/16, 1/8, 1/4, late 1/16, 1/8, 1/4
 inline const int kRestrikeSteps[] = { 0, 2, 3, 4, 6, 8, 16 }; // off, 1/8, dotted 1/8, 1/4, dotted 1/4, 1/2, 1 bar
 

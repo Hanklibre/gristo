@@ -1544,14 +1544,21 @@ void Synth::noteOn(int id, float pitch, float velocity)
     for (auto& v : voices_)
         if (target == nullptr && !v.active())
             target = &v;
-    if (target == nullptr) // all busy releasing: steal the quietest
+    if (target == nullptr)
     {
-        target = &voices_[0];
+        // All busy: steal the quietest of the released voices; if every voice is held,
+        // the oldest. Never a voice just started (a chord's own notes would steal
+        // each other: it starts silent, so it looks the quietest).
         for (auto& v : voices_)
-            if (v.level() < target->level())
+            if (!v.gated() && (target == nullptr || v.level() < target->level()))
                 target = &v;
+        if (target == nullptr)
+            for (auto& v : voices_)
+                if (target == nullptr || v.order < target->order)
+                    target = &v;
     }
     target->start(patch_, live_, id, pitch, velocity);
+    target->order = ++starts_;
     last_ = target;
 }
 
@@ -1595,4 +1602,14 @@ int Synth::activeVoices() const
     return n;
 }
 
+} // namespace gristo::sound
+
+namespace gristo::sound {
+int Synth::heldVoices() const
+{
+    int n = 0;
+    for (const auto& v : voices_)
+        n += v.gated() ? 1 : 0;
+    return n;
+}
 } // namespace gristo::sound

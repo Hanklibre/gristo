@@ -1673,3 +1673,29 @@ TEST("synth: the sounds are loudness-matched (within 2 dB, K-weighted)")
         CHECK_MSG(std::abs(loudness[static_cast<size_t>(s)] - median) < 2.0,
                   synthSoundName(static_cast<SynthSound>(s)) << " at " << loudness[static_cast<size_t>(s)] << " LUFS, the median " << median);
 }
+
+TEST("synth: chords clicked in quick succession keep all their notes, however long the tails")
+{
+    for (SynthSound sound : { SynthSound::WarmPad, SynthSound::FmBells, SynthSound::FeltPiano })
+    {
+        Synth synth;
+        synth.prepare(static_cast<float>(kRate));
+        synth.setPoly(true);
+        SynthParams p;
+        p.sound = sound;
+        p.release = 1.0f; // the longest tails
+        synth.setParams(p);
+        int base = 0;
+        for (int chord = 0; chord < 10; ++chord)
+        {
+            for (int n = 0; n < 6; ++n)
+                synth.noteOff(base + n);
+            base = 100 * (chord + 1);
+            for (int n = 0; n < 6; ++n)
+                synth.noteOn(base + n, static_cast<float>(48 + 3 * n + chord % 3), 0.8f);
+            for (int i = 0; i < 2400; ++i)
+                synth.tick();
+            CHECK_MSG(synth.heldVoices() == 6, synthSoundName(sound) << " chord " << chord << ": " << synth.heldVoices() << " notes");
+        }
+    }
+}

@@ -888,15 +888,20 @@ TEST("harmony: a progression plays its chords in order and loops; Use walk takes
     ChordParams p = cMajor();
     p.mode = HarmonyMode::Progression;
     p.chordSteps = 16;
-    p.progression = { cellCode(0, 0), cellCode(1, 2), cellCode(-1, 0), -1, -1, -1, -1, -1 };
+    p.progression.fill(-1);
+    p.progression[0] = cellCode(0, 0);
+    p.progression[1] = cellCode(1, 2);
+    p.progression[2] = cellCode(-1, 0);
     CHECK(Chords::progressionLength(p) == 3);
+    std::int64_t lastSerial = -1;
     for (int chord = 0; chord < 9; ++chord)
         for (int s = 0; s < 16; s += 5)
         {
             const auto pos = Chords::positionAt(p, chord * 16 + s);
             const HarmonyCell expected = Chords::cellFromCode(p.progression[static_cast<size_t>(chord % 3)]);
             CHECK(pos.valid && pos.cell == expected);
-            CHECK(pos.serial == chord);
+            CHECK(s == 0 ? pos.serial != lastSerial : pos.serial == lastSerial); // a new start per chord
+            lastSerial = pos.serial;
         }
     // Empty: the home chord.
     p.progression.fill(-1);
@@ -916,4 +921,31 @@ TEST("harmony: a progression plays its chords in order and loops; Use walk takes
     const std::int64_t start = 3 * Chords::phraseSteps(w);
     for (int i = 0; i < 4; ++i)
         CHECK(Chords::positionAt(q, i * 16).cell == Chords::positionAt(w, start + i * 16).cell);
+}
+
+TEST("harmony: progression slots last their own number of quarter notes")
+{
+    ChordParams p = cMajor();
+    p.mode = HarmonyMode::Progression;
+    p.chordSteps = 16;
+    p.progression.fill(-1);
+    for (int k = 0; k < 12; ++k)
+        p.progression[static_cast<size_t>(k)] = cellCode(k % 5 - 2, k % 3);
+    // 1, 2, 3 beats, then the chord length (a bar) for the rest.
+    p.progressionBeats[0] = 1;
+    p.progressionBeats[1] = 2;
+    p.progressionBeats[2] = 3;
+    CHECK(Chords::progressionLength(p) == 12);
+    CHECK(Chords::progressionSteps(p) == 4 + 8 + 12 + 9 * 16);
+    CHECK(Chords::progressionSlotAt(p, 0) == 0 && Chords::progressionSlotAt(p, 3) == 0);
+    CHECK(Chords::progressionSlotAt(p, 4) == 1 && Chords::progressionSlotAt(p, 11) == 1);
+    CHECK(Chords::progressionSlotAt(p, 12) == 2 && Chords::progressionSlotAt(p, 23) == 2);
+    CHECK(Chords::progressionSlotAt(p, 24) == 3 && Chords::progressionSlotAt(p, 40) == 4);
+    CHECK(Chords::progressionSlotStart(p, 3) == 24);
+    const std::int64_t loop = Chords::progressionSteps(p);
+    CHECK(Chords::progressionSlotAt(p, loop + 5) == 1 && Chords::progressionSlotAt(p, -1) == 11);
+    // A chord repeated in the next slot still starts again.
+    p.progression[1] = p.progression[0];
+    CHECK(Chords::positionAt(p, 3).serial != Chords::positionAt(p, 4).serial);
+    CHECK(Chords::positionAt(p, 3).serial != Chords::positionAt(p, loop + 3).serial);
 }

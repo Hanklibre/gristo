@@ -26,9 +26,10 @@ constexpr int kNumChordKeys = 14; // Keys mode: two octaves of white keys
 
 enum class ChordPlay : int { Off = 0, Held, Stabs };
 // Wander: the harmony moves by itself around home. Keys: you play it, one key per chord.
-// Progression: the chords you picked, in order, one per chord length, looping.
+// Progression: the chords you picked, in order, each for its own length, looping.
 enum class HarmonyMode : int { Wander = 0, Keys, Progression };
-constexpr int kMaxProgression = 8;
+constexpr int kMaxProgression = 16;
+constexpr int kMaxSlotBeats = 16; // a progression slot lasts 1..16 quarter notes
 
 // A cell as one number (for parameters and the display): (column + 5) * 8 + row.
 inline int cellCode(int column, int row) { return (column + (kHarmonyColumns - 1) / 2) * 8 + row; }
@@ -72,7 +73,9 @@ struct ChordParams
 
     // Progression mode: cell codes (see cellCode), -1 = empty; the slots before the first
     // empty one play.
-    std::array<int, kMaxProgression> progression { -1, -1, -1, -1, -1, -1, -1, -1 };
+    std::array<int, kMaxProgression> progression { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+    // Each slot's length in quarter notes (1..kMaxSlotBeats); 0 = the chord length.
+    std::array<int, kMaxProgression> progressionBeats {};
 
     ChordPlay play = ChordPlay::Held;
     std::array<bool, kNumVoices> stabTriggers { false, true, false, false, false, false };
@@ -117,6 +120,10 @@ public:
     static int progressionLength(const ChordParams& p); // the slots that play
     // Progression mode: which slot plays at a step (-1: none, the progression is empty).
     static int progressionSlotAt(const ChordParams& p, std::int64_t step);
+    static int slotSteps(const ChordParams& p, int slot); // a slot's length in 16ths
+    static int progressionSteps(const ChordParams& p);     // the whole loop, in 16ths
+    // Where in its slot a step is: the slot's first step (relative to the loop) in `start`.
+    static int progressionSlotStart(const ChordParams& p, int slot);
     // Wander: the chords of the walk of the phrase a step is in (Catch: the caught one),
     // at most kMaxProgression, as cell codes. What "Use walk" turns into a progression.
     static std::array<int, kMaxProgression> walkOf(const ChordParams& p, std::int64_t step);

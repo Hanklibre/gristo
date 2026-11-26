@@ -225,34 +225,50 @@ private:
     gristo::HarmonyCell cellAt(juce::Point<float> pos) const;
 };
 
-// The chord progression: up to eight slots, the one playing lit. In Progression mode
-// they are the chords you picked (click one to select it, so the next chord you click
-// on the harmony map replaces it; right-click to remove it); in Wander mode they show,
-// dimmed, the walk being played, ready for Use walk.
+// The chord progression as a little timeline: up to sixteen slots, each as wide as it
+// lasts (in quarter notes), the one playing lit with a playhead. In Progression mode
+// they are the chords you picked: click one to select it (and hear it), drag its right
+// edge to make it longer or shorter in quarter notes, right-click for its length,
+// Duplicate and Remove. In Wander mode they show, dimmed, the walk being played.
 class ProgressionStrip : public juce::Component, public juce::DragAndDropTarget
 {
 public:
+    using Slots = std::array<int, gristo::kMaxProgression>;
     // A chord dragged from the map onto a slot (the slot after the last chord: appended).
     std::function<void(int slot, int cellCode)> onDrop;
     bool isInterestedInDragSource(const SourceDetails&) override;
     void itemDragMove(const SourceDetails&) override;
     void itemDragExit(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
-    void update(const gristo::ChordParams& params, const std::array<int, gristo::kMaxProgression>& slots, bool editable, int playing);
+    // beats: each slot's length in quarter notes (already resolved, never 0).
+    void update(const gristo::ChordParams& params, const Slots& slots, const Slots& beats, bool editable, int playing, float playFraction);
     int selected() const { return selected_; }
     void clearSelection();
     std::function<void(int slot)> onRemove;
+    std::function<void(int slot)> onDuplicate;
+    std::function<void(int slot, int beats)> onLength;
     std::function<void(int slot)> onSelect; // -1: none
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    static juce::String lengthName(int beats); // "1/4", "3/4", "1 bar", "2 bars"...
 
 private:
-    juce::Rectangle<float> slotArea(int slot) const;
+    int count() const;                         // the slots that play
+    float beatWidth() const;                   // pixels per quarter note
+    juce::Rectangle<float> slotArea(int slot) const; // slot == count(): the "+" slot
+    int slotAt(float x) const;
+    int edgeAt(float x) const; // the slot whose right edge is under x, or -1
     gristo::ChordParams params_;
-    std::array<int, gristo::kMaxProgression> slots_ {};
+    Slots slots_ {}, beats_ {};
     bool editable_ = false;
     int playing_ = -1, selected_ = -1, dropSlot_ = -1;
-    int slotAt(float x) const;
+    float playFraction_ = 0.0f;
+    int resizing_ = -1, resizeStartBeats_ = 0;
+    float resizeScale_ = 1.0f;
+    static constexpr float kMinSlot = 30.0f, kPlusSlot = 36.0f;
 };
 
 // Two-handle MIDI velocity range (1..127) for one voice. Accepts lanes (Velocity target).

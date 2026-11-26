@@ -317,7 +317,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
             layout.add(floatParam(chordGate, "Chord Stab Gate", { 0.25f, 8.0f, 0.25f }, 2.0f, "16ths"));
             layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordVoicing), "Chord Voicing", juce::StringArray { "Close", "Smooth", "Smooth + bass", "Drop 2", "Open", "Rootless", "Shell", "Upper + bass" }, 2));
             layout.add(floatParam(chordStrum, "Chord Strum", { 0.0f, 80.0f, 1.0f }, 0.0f, "ms"));
-            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordStrumDir), "Chord Strum Direction", juce::StringArray { "Up", "Down", "Alternate" }, 0));
+            layout.add(std::make_unique<juce::AudioParameterChoice>(pid(chordStrumDir), "Chord Strum Direction", juce::StringArray { "Strum up", "Strum down", "Up and down" }, 0));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordVelMin), "Chord Velocity Min", 1, 127, 50));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordVelMax), "Chord Velocity Max", 1, 127, 100));
             layout.add(std::make_unique<juce::AudioParameterInt>(pid(chordChannel), "Chord MIDI Channel", 1, 16, 3));
@@ -455,7 +455,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     layout.add(percentParam(chordStabChance, "Chord Stab Chance", 1.0f));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordPush, kVersion }, "Chord Push",
         juce::StringArray { "Change on the 1", "Early 1/16", "Early 1/8", "Early 1/4", "Late 1/16", "Late 1/8", "Late 1/4" }, 0));
-    for (int slot = 0; slot < kMaxProgression; ++slot)
+    for (int slot = 0; slot < kLegacyProgressionSlots; ++slot)
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { laneId(chordProgression, slot), kVersion },
                                                              "Progression Chord " + juce::String(slot + 1), -1, cellCode((kHarmonyColumns - 1) / 2, kHarmonyRows - 1), -1));
     for (int synth = 0; synth < sound::kNumSynths; ++synth)
@@ -467,7 +467,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(percentParam(laneId(synthBodyDecay, synth), name + "Body Decay", 0.4f));
     }
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordRestrike, kVersion }, "Chord Re-strike",
-        juce::StringArray { "Held", "Strike 1/8", "Strike dotted 1/8", "Strike 1/4", "Strike dotted 1/4", "Strike 1/2", "Strike every bar" }, 0));
+        juce::StringArray { "No re-strike", "Strike 1/8", "Strike dotted 1/8", "Strike 1/4", "Strike dotted 1/4", "Strike 1/2", "Strike every bar" }, 0));
     // The synths' own controls: eight Tone knobs (what each does depends on the sound's
     // engine), the filter model and the FM algorithm.
     for (int synth = 0; synth < sound::kNumSynths; ++synth)
@@ -480,6 +480,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
         layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { laneId(synthAlgo, synth), kVersion }, name + "FM Algorithm",
             juce::StringArray { "As designed", "1 Stack", "2 Two pairs", "3 Y", "4 Branch", "5 Fan", "6 Three into C", "7 Two into A", "8 Two carriers" }, 0));
     }
+    // Sixteen progression slots, each with its own length in quarter notes.
+    for (int slot = kLegacyProgressionSlots; slot < kMaxProgression; ++slot)
+        layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { laneId(chordProgression, slot), kVersion },
+                                                             "Progression Chord " + juce::String(slot + 1), -1, cellCode((kHarmonyColumns - 1) / 2, kHarmonyRows - 1), -1));
+    for (int slot = 0; slot < kMaxProgression; ++slot)
+        layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { laneId(chordProgBeats, slot), kVersion },
+                                                             "Progression Length " + juce::String(slot + 1), 0, kMaxSlotBeats, 0));
     return layout;
 }
 
@@ -599,7 +606,10 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
     c.homeY = load(s, chordHomeY);
     c.mode = static_cast<HarmonyMode>(juce::jlimit(0, 2, static_cast<int>(load(s, chordMode))));
     for (int slot = 0; slot < kMaxProgression; ++slot)
+    {
         c.progression[static_cast<size_t>(slot)] = juce::roundToInt(load(s, laneId(chordProgression, slot)));
+        c.progressionBeats[static_cast<size_t>(slot)] = juce::roundToInt(load(s, laneId(chordProgBeats, slot)));
+    }
     c.wander = load(s, chordWander);
     c.chordSteps = kChordRateSteps[juce::jlimit(0, 2, static_cast<int>(load(s, chordRate)))];
     c.phraseBars = kChordPhraseBars[juce::jlimit(0, 2, static_cast<int>(load(s, chordPhrase)))];
