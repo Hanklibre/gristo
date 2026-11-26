@@ -118,19 +118,52 @@ int Chords::progressionSlotStart(const ChordParams& p, int slot)
     return start;
 }
 
-int Chords::progressionSlotAt(const ChordParams& p, std::int64_t step)
+Chords::ProgressionPlace Chords::progressionPlace(const ChordParams& p, double step)
 {
+    ProgressionPlace place;
     const int n = progressionLength(p);
     if (n == 0)
-        return -1;
-    int at = static_cast<int>(floorMod(step, static_cast<std::int64_t>(progressionSteps(p))));
+        return place;
+    const double total = progressionSteps(p);
+    // The window the reset makes, and where in one pass of the progression we are.
+    double window = total, at = 0.0;
+    std::int64_t pass = 0;
+    if (p.progressionReset > 0)
+    {
+        window = std::clamp(p.progressionReset, 1, 64) * static_cast<double>(kStepsPerBar);
+        const double inWindow = step - std::floor(step / window) * window;
+        pass = static_cast<std::int64_t>(std::floor(step / window)) * 4096 + static_cast<std::int64_t>(std::floor(inWindow / total));
+        at = inWindow - std::floor(inWindow / total) * total;
+    }
+    else
+    {
+        if (p.progressionReset < 0) // whole bars: the last chord holds to the bar line
+            window = std::ceil(total / kStepsPerBar) * kStepsPerBar;
+        pass = static_cast<std::int64_t>(std::floor(step / window));
+        at = step - std::floor(step / window) * window;
+    }
+    double start = 0.0;
     for (int k = 0; k < n; ++k)
     {
-        at -= slotSteps(p, k);
-        if (at < 0)
-            return k;
+        const double length = slotSteps(p, k);
+        const bool last = k == n - 1;
+        const double end = last && p.progressionReset < 0 ? window : start + length;
+        if (at < end || last)
+        {
+            place.slot = k;
+            const double span = std::max(1.0, (last ? std::max(end, start + length) : end) - start);
+            place.fraction = static_cast<float>(std::clamp((at - start) / span, 0.0, 1.0));
+            break;
+        }
+        start = end;
     }
-    return n - 1;
+    place.serial = pass * kMaxProgression + place.slot;
+    return place;
+}
+
+int Chords::progressionSlotAt(const ChordParams& p, std::int64_t step)
+{
+    return progressionPlace(p, static_cast<double>(step)).slot;
 }
 
 std::array<int, kMaxProgression> Chords::walkOf(const ChordParams& p, std::int64_t step)
@@ -157,10 +190,10 @@ ChordPosition Chords::positionAt(const ChordParams& p, std::int64_t step)
     {
         ChordPosition pos;
         pos.valid = true;
-        const int slot = progressionSlotAt(p, step);
-        pos.cell = slot >= 0 ? cellFromCode(p.progression[static_cast<size_t>(slot)]) : homeCell(p);
+        const auto place = progressionPlace(p, static_cast<double>(step));
+        pos.cell = place.slot >= 0 ? cellFromCode(p.progression[static_cast<size_t>(place.slot)]) : homeCell(p);
         // Every chord a new start, even the same one again.
-        pos.serial = slot >= 0 ? floorDiv(step, static_cast<std::int64_t>(progressionSteps(p))) * kMaxProgression + slot : floorDiv(step, length);
+        pos.serial = place.slot >= 0 ? place.serial : floorDiv(step, length);
         return pos;
     }
     const std::int64_t phrase = phraseAt(p, step);

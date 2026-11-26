@@ -340,9 +340,46 @@ void GristoProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
                 sound_.noteOff(gristo::sound::kChordSynth, kAuditionId + n);
             auditionNotes_.clear();
         };
-        if (const int request = auditionRequest_.load(); request != auditionHandled_)
+        auto startChord = [this](int cell) {
+            const auto chord = gristo::Chords::build(settings_.engine.chords, gristo::Chords::cellFromCode(cell));
+            for (int k = 0; k < chord.count; ++k)
+            {
+                const int n = chord.notes[static_cast<size_t>(k)];
+                sound_.noteOn(gristo::sound::kChordSynth, kAuditionId + n,
+                              static_cast<float>(n + 12 * settings_.octaves[gristo::sound::kChordSynth]), 0.7f);
+                auditionNotes_.push_back(n);
+            }
+        };
+        // A progression: each chord for its beats at the tempo.
+        auto beatsToSamples = [this](int beats) {
+            const double bpm = std::max(30.0, static_cast<double>(state.getRawParameterValue(p::freeTempo)->load()));
+            return static_cast<int>(sampleRate_ * 60.0 / bpm * beats);
+        };
+        if (const int request = auditionRequest_.load(); request != auditionHandled_ && sequenceCount_.load() > 0)
         {
             auditionHandled_ = request;
+            stopAudition();
+            sequenceLength_ = sequenceCount_.load();
+            sequenceIndex_ = 0;
+            if (kitOn)
+            {
+                startChord(sequenceCells_[0].load());
+                auditionLeft_ = beatsToSamples(sequenceBeats_[0].load());
+                auditionPlayed_ = 0;
+                auditionReleased_ = true;
+            }
+        }
+        else if (sequenceIndex_ >= 0 && !auditionNotes_.empty() && auditionLeft_ - numSamples <= 0 && sequenceIndex_ + 1 < sequenceLength_)
+        {
+            stopAudition(); // the next chord of the progression
+            ++sequenceIndex_;
+            startChord(sequenceCells_[static_cast<size_t>(sequenceIndex_)].load());
+            auditionLeft_ = beatsToSamples(sequenceBeats_[static_cast<size_t>(sequenceIndex_)].load());
+        }
+        else if (const int request = auditionRequest_.load(); request != auditionHandled_)
+        {
+            auditionHandled_ = request;
+            sequenceIndex_ = -1;
             stopAudition();
             if (kitOn)
             {
@@ -1345,11 +1382,27 @@ bool isRouteParameter(const juce::String& id) { return id.startsWith(p::modTarge
 
 void GristoProcessor::auditionChord(int cellCode)
 {
+    sequenceCount_.store(0);
     auditionCell_.store(cellCode);
     auditionRequest_.fetch_add(1);
 }
 
 void GristoProcessor::auditionRelease() { auditionReleasedFor_.store(auditionRequest_.load()); }
+
+void GristoProcessor::auditionSequence(const std::vector<std::pair<int, int>>& chords)
+{
+    const int n = std::min(static_cast<int>(chords.size()), gristo::kMaxProgression);
+    if (n == 0)
+        return;
+    for (int k = 0; k < n; ++k)
+    {
+        sequenceCells_[static_cast<size_t>(k)].store(chords[static_cast<size_t>(k)].first);
+        sequenceBeats_[static_cast<size_t>(k)].store(std::max(1, chords[static_cast<size_t>(k)].second));
+    }
+    sequenceCount_.store(n);
+    auditionCell_.store(chords.front().first);
+    auditionRequest_.fetch_add(1);
+}
 
 void GristoProcessor::writeRoutes(juce::ValueTree& parent) const
 {

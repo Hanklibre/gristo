@@ -76,6 +76,10 @@ struct ChordParams
     std::array<int, kMaxProgression> progression { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
     // Each slot's length in quarter notes (1..kMaxSlotBeats); 0 = the chord length.
     std::array<int, kMaxProgression> progressionBeats {};
+    // Back to the 1 (like a reset into a sequencer): 0 = loop as long as it is; -1 =
+    // hold the last chord to the next bar line, so the loop is whole bars; N > 0 =
+    // restart from the first chord every N bars (it loops inside).
+    int progressionReset = -1;
 
     ChordPlay play = ChordPlay::Held;
     std::array<bool, kNumVoices> stabTriggers { false, true, false, false, false, false };
@@ -124,6 +128,16 @@ public:
     static int progressionSteps(const ChordParams& p);     // the whole loop, in 16ths
     // Where in its slot a step is: the slot's first step (relative to the loop) in `start`.
     static int progressionSlotStart(const ChordParams& p, int slot);
+    // Progression mode, with the reset: the slot at a (fractional) step, how far into it
+    // (0..1, a held last chord counts its hold), and a number that changes with every
+    // chord start. slot -1: the progression is empty.
+    struct ProgressionPlace
+    {
+        int slot = -1;
+        float fraction = 0.0f;
+        std::int64_t serial = 0;
+    };
+    static ProgressionPlace progressionPlace(const ChordParams& p, double step);
     // Wander: the chords of the walk of the phrase a step is in (Catch: the caught one),
     // at most kMaxProgression, as cell codes. What "Use walk" turns into a progression.
     static std::array<int, kMaxProgression> walkOf(const ChordParams& p, std::int64_t step);

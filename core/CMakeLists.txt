@@ -3,6 +3,7 @@
 add_library(gristo_core STATIC
     src/Arp.cpp
     src/Chords.cpp
+    src/ChordStyles.cpp
     src/DrumMap.cpp
     src/Engine.cpp
     src/Groove.cpp

@@ -164,6 +164,8 @@ public:
     // sounds until auditionRelease(), and at least about a second.
     void auditionChord(int cellCode);
     void auditionRelease();
+    // A whole progression, chord after chord at the tempo, while stopped (cell, beats).
+    void auditionSequence(const std::vector<std::pair<int, int>>& chords);
     std::array<std::atomic<float>, gristo::kNumParts> displayActivity {}; // velocity of the latest note-on; the editor clears it
 
 private:
@@ -173,6 +175,9 @@ private:
     int auditionHandled_ = 0, auditionLeft_ = 0, auditionPlayed_ = 0;
     bool auditionReleased_ = false;
     std::vector<int> auditionNotes_;
+    std::array<std::atomic<int>, gristo::kMaxProgression> sequenceCells_ {}, sequenceBeats_ {};
+    std::atomic<int> sequenceCount_ { 0 }; // 0: a single chord (auditionChord)
+    int sequenceIndex_ = -1, sequenceLength_ = 0;
     gristo::BlockInfo transportFor(int numSamples);
 
     // Everything the audio thread needs from the parameters, re-read only after a change.

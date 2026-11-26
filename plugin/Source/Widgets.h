@@ -152,10 +152,13 @@ public:
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
     void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    // The values most used, listed first; the rest under "Other".
+    void setPreferred(std::vector<int> values) { preferred_ = std::move(values); }
 
 private:
     void setValue(int value);
     juce::String text(int value) const;
+    std::vector<int> preferred_;
 
     juce::ParameterAttachment attachment_;
     juce::String prefix_, suffix_;
@@ -204,6 +207,8 @@ public:
     std::function<void()> onCellReleased;
     std::function<void(gristo::HarmonyCell)> onCellDoubleClicked;
     void setCandidate(int cellCode); // the chord last heard, marked on the map (-1 none)
+    // Where a style tends to go next, per cell code (0..1): a soft ring on those chords.
+    void setSuggestions(const std::vector<float>& weights);
     void mouseDoubleClick(const juce::MouseEvent&) override;
     static constexpr const char* kChordDragPrefix = "gristo-chord:";
     juce::String playingName() const; // "Am9", or the home chord while nothing sounds
@@ -222,6 +227,7 @@ private:
     bool taken_ = false; // this press was taken by onCellPressed
     bool dragged_ = false;
     int pressedCode_ = -1, candidate_ = -1;
+    std::vector<float> suggestions_;
     gristo::HarmonyCell cellAt(juce::Point<float> pos) const;
 };
 
@@ -241,12 +247,15 @@ public:
     void itemDragExit(const SourceDetails&) override;
     void itemDropped(const SourceDetails&) override;
     // beats: each slot's length in quarter notes (already resolved, never 0).
-    void update(const gristo::ChordParams& params, const Slots& slots, const Slots& beats, bool editable, int playing, float playFraction);
+    // holdBeats: how long the last chord is held to the bar line (drawn after it).
+    void update(const gristo::ChordParams& params, const Slots& slots, const Slots& beats, bool editable, int playing, float playFraction,
+                int holdBeats = 0);
     int selected() const { return selected_; }
     void clearSelection();
     std::function<void(int slot)> onRemove;
     std::function<void(int slot)> onDuplicate;
     std::function<void(int slot, int beats)> onLength;
+    std::function<void(int from, int to)> onMove; // a slot dragged to another place
     std::function<void(int slot)> onSelect; // -1: none
     void paint(juce::Graphics&) override;
     void mouseDown(const juce::MouseEvent&) override;
@@ -266,9 +275,44 @@ private:
     bool editable_ = false;
     int playing_ = -1, selected_ = -1, dropSlot_ = -1;
     float playFraction_ = 0.0f;
-    int resizing_ = -1, resizeStartBeats_ = 0;
+    int resizing_ = -1, resizeStartBeats_ = 0, holdBeats_ = 0;
+    int pressedSlot_ = -1, moveTo_ = -1; // dragging a slot: where it would go (an index between slots)
+    bool moving_ = false;
+    int insertionAt(float x) const;
     float resizeScale_ = 1.0f;
     static constexpr float kMinSlot = 30.0f, kPlusSlot = 36.0f;
+};
+
+// A row of choices as chips (Steps 5 6 8 12 16 24 32, Rate /1 /2 /3 /4): the one in
+// effect lit; a value between them lights none.
+class ChipRow : public juce::Component
+{
+public:
+    ChipRow(std::vector<int> values, std::function<juce::String(int)> label) : values_(std::move(values)), label_(std::move(label)) {}
+    void setCurrent(int value);
+    std::function<void(int)> onPick;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+
+private:
+    std::vector<int> values_;
+    std::function<juce::String(int)> label_;
+    int current_ = -1;
+};
+
+// "-  Hits 5  +": a small stepper (the halves step down and up).
+class Stepper : public juce::Component
+{
+public:
+    explicit Stepper(juce::String name) : name_(std::move(name)) {}
+    void setValue(int value);
+    std::function<void(int delta)> onStep;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+
+private:
+    juce::String name_;
+    int value_ = 0;
 };
 
 // Circles (after Patterning): one ring of steps per drum, the kick outermost, each
@@ -288,6 +332,7 @@ public:
     };
     using Rings = std::array<Ring, gristo::kNumVoices>;
     void update(const Rings& rings, const std::array<int, gristo::kNumVoices>& playing, int selected);
+    void setDragEdits(bool drag) { dragEdits_ = drag; } // drag on a step edits its value (off: a click only toggles)
     void setEdit(Edit edit);
     Edit edit() const { return edit_; }
     std::function<void(int voice, int step, int code)> onStep;
@@ -311,7 +356,69 @@ private:
     Edit edit_ = Edit::Velocity;
     Hit pressed_;
     gristo::CircleStep pressedStep_;
-    bool dragged_ = false, wasOn_ = false;
+    bool dragged_ = false, wasOn_ = false, dragEdits_ = true;
+};
+
+// The Circles page's list of rings: each drum with its ring unrolled (the steps, how
+// hard, the one playing). Click a row to pick that ring.
+class RingList : public juce::Component
+{
+public:
+    void update(const CircleView::Rings& rings, const std::array<int, gristo::kNumVoices>& playing, int selected);
+    std::function<void(int voice)> onSelect;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+
+private:
+    CircleView::Rings rings_ {};
+    std::array<int, gristo::kNumVoices> playing_ {};
+    int selected_ = 0;
+};
+
+// One ring's steps in a line, to edit them: the top row sets and clears steps (drag to
+// paint), the bars below draw the edit mode's value (velocity, chance, nudge, repeats).
+class StepLane : public juce::Component
+{
+public:
+    void update(const CircleView::Ring& ring, int playing, CircleView::Edit edit, juce::Colour colour);
+    std::function<void(int step, int code)> onStep;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+
+private:
+    void apply(juce::Point<float> p, bool first);
+    int stepAt(float x) const;
+    CircleView::Ring ring_;
+    int playing_ = -1;
+    CircleView::Edit edit_ = CircleView::Edit::Velocity;
+    juce::Colour colour_;
+    bool toggleRow_ = false, paintOn_ = true;
+    static constexpr float kToggleH = 20.0f;
+};
+
+// A list of chord progressions to start from (the chart's style browser): each row
+// its name and its chords. Click one to hear it and use it.
+class StyleList : public juce::Component
+{
+public:
+    struct Item
+    {
+        juce::String name, chords;
+    };
+    void setItems(std::vector<Item> items);
+    std::function<void(int index)> onPick;
+    void paint(juce::Graphics&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void setPicked(int index);
+
+private:
+    int rowAt(float y) const;
+    std::vector<Item> items_;
+    int hover_ = -1, picked_ = -1;
+    static constexpr float kRowH = 44.0f;
 };
 
 // Two-handle MIDI velocity range (1..127) for one voice. Accepts lanes (Velocity target).
@@ -355,8 +462,11 @@ public:
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override;
 
     void refreshHeat(const gristo::EngineParams& params);
+    static juce::String grooveName(const char* nodeName); // "boombap_a" -> "Boom bap"
     juce::String nearestNodeName() const;
 
     // Called with (lane, mod::kMapX or mod::kMapY) after the user picks an axis.
@@ -367,10 +477,13 @@ protected:
 
 private:
     void setFromMouse(juce::Point<float> pos);
+    juce::Rectangle<float> field() const; // the map itself, between the direction labels
 
     juce::AudioProcessorValueTreeState& state_;
     const gristo::DrumMap& map_;
     juce::Image heat_;
+    gristo::PatternParams pattern_; // for the hover preview
+    std::optional<juce::Point<float>> hover_;
     juce::String heatKey_;
     juce::uint32 heatTime_ = 0;
     float randomRadius_ = 0.0f;

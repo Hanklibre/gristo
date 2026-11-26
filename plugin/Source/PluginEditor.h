@@ -226,9 +226,12 @@ private:
     juce::TextButton circlesButton_ { "Edit circles" }, backFromCircles_ { "Back" };
     juce::TextButton circleEdit_[4];
     juce::TextButton ringTools_[7];
-    juce::Slider euclidHits_, euclidRotate_;
+    RingList ringList_;
+    StepLane stepLane_;
+    ChipRow stepsChips_ { { 5, 6, 8, 12, 16, 24, 32 }, [](int v) { return juce::String(v); } };
+    ChipRow rateChips_ { { 1, 2, 3, 4, 6, 8 }, [](int v) { return "/" + juce::String(v); } };
+    Stepper euclidHits_ { "Euclid hits" };
     std::unique_ptr<NumberSelector> ringLength_[gristo::kNumVoices], ringDivide_[gristo::kNumVoices];
-    juce::Label circlesNote_;
     int selectedRing_ = 0, circlesReturnPage_ = 0;
     bool circlesShown_ = false;
     int lastRingPart_ = -1;
@@ -240,7 +243,13 @@ private:
     std::unique_ptr<NumberSelector> chordChannel_, chordShift_;
     std::unique_ptr<VelocityRange> chordVelocity_;
     Knob chordWander_, chordGate_, chordStrum_, chordChance_, chordStabChance_;
-    Choice chordPush_, chordRestrike_, chordStabEvery_;
+    Choice chordPush_, chordRestrike_, chordStabEvery_, chordReset_;
+    // The chart's style browser: progressions to start from, and where a style goes next.
+    juce::ComboBox styleBox_;
+    StyleList styleList_;
+    int styleListKey_ = -1, stylePicked_ = -1, stylePickedFrom_ = -1;
+    void refreshStyleList(const gristo::ChordParams& c);
+    void loadStyleProgression(int index);
     juce::TextButton catchButton_ { "Catch" };
     juce::Label chordOutLabel_, chordNowLabel_;
     juce::Label reverbNote_;

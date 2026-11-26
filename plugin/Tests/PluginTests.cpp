@@ -1092,3 +1092,25 @@ TEST("plugin: Circles mode plays the rings; they travel with snapshots and survi
     CHECK(decodeCircleStep(other.circleStep(Kick, 8)).on && decodeCircleStep(other.circleStep(Snare, 4)).chance == 0);
     CHECK(getParam(other, p::patternMode) > 0.5f);
 }
+
+TEST("plugin: a style progression plays through while stopped; the progression's reset reaches the engine")
+{
+    auto proc = makeProcessor();
+    setParam(*proc, p::chordReset, 3.0f); // restart every 2 bars
+    CHECK(p::readEngineParams(proc->state, proc->modPoints).chords.progressionReset == 2);
+    setParam(*proc, p::chordReset, 1.0f);
+    CHECK(p::readEngineParams(proc->state, proc->modPoints).chords.progressionReset == -1);
+
+    setParam(*proc, p::freeRun, 0.0f);
+    setParam(*proc, p::freeTempo, 120.0f);
+    for (int part = 0; part < gristo::kNumParts; ++part)
+        setParam(*proc, p::voiceId(p::partMute, part), part == gristo::kChordVoice ? 0.0f : 1.0f);
+    proc->pump(2);
+    // Two chords of a beat each at 120: half a second each (94 blocks of 256 at 48 kHz).
+    proc->auditionSequence({ { gristo::cellCode(0, 2), 1 }, { gristo::cellCode(2, 2), 1 } });
+    const Run first = play(*proc, 80);
+    const Run second = play(*proc, 80);
+    CHECK(first.peak > 0.01f && second.peak > 0.01f);
+    play(*proc, 400); // both done, the tail gone
+    CHECK(play(*proc, 200).peak < first.peak * 0.5f);
+}

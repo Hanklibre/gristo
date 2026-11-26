@@ -407,9 +407,20 @@ void NumberSelector::paint(juce::Graphics& g)
 void NumberSelector::mouseDown(const juce::MouseEvent&)
 {
     juce::PopupMenu menu;
-    for (int v = min_; v <= max_; ++v)
-        if ((v - min_) % menuStep_ == 0 || v == value_)
-            menu.addItem(v - min_ + 1, text(v), true, v == value_);
+    if (!preferred_.empty())
+    {
+        juce::PopupMenu other;
+        for (int v = min_; v <= max_; ++v)
+            if (std::find(preferred_.begin(), preferred_.end(), v) != preferred_.end())
+                menu.addItem(v - min_ + 1, text(v), true, v == value_);
+            else
+                other.addItem(v - min_ + 1, text(v), true, v == value_);
+        menu.addSubMenu("Other", other);
+    }
+    else
+        for (int v = min_; v <= max_; ++v)
+            if ((v - min_) % menuStep_ == 0 || v == value_)
+                menu.addItem(v - min_ + 1, text(v), true, v == value_);
     juce::Component::SafePointer<NumberSelector> safe(this);
     const int base = min_;
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this), [safe, base](int result) {
@@ -677,6 +688,8 @@ void MapPad::refreshHeat(const gristo::EngineParams& params)
 {
     // Only recompute when something that changes density changed.
     juce::String key;
+    pattern_ = params.pattern;
+    pattern_.mode = gristo::PatternMode::Map;
     for (int v = 0; v < gristo::kNumVoices; ++v)
         key << juce::String(params.pattern.fill[static_cast<size_t>(v)], 3) << ",";
     key << (params.pattern.linear ? "L" : "");
@@ -697,6 +710,7 @@ void MapPad::refreshHeat(const gristo::EngineParams& params)
 #endif
     gristo::PatternGenerator gen(map_);
     gristo::PatternParams pp = params.pattern;
+    pp.mode = gristo::PatternMode::Map; // the map's own terrain, whichever mode plays
     pp.chaos = 0.0f;
     pp.mapRandom = 0.0f;
     pp.fillRandom = {};
@@ -797,22 +811,41 @@ juce::String MapPad::nearestNodeName() const
     return juce::String(map_.nodeName(nx, ny)).replace("_", " ");
 }
 
+juce::Rectangle<float> MapPad::field() const { return getLocalBounds().toFloat().withTrimmedTop(14.0f).withTrimmedBottom(14.0f); }
+
 void MapPad::paint(juce::Graphics& g)
 {
-    const auto area = getLocalBounds().toFloat();
+    const auto area = field();
     if (heat_.isValid())
     {
         g.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
         g.drawImage(heat_, area);
     }
 
-    g.setColour(colours::text.withAlpha(0.22f));
+    // The grooves the map is made of, as landmarks: a dot and its name (the one the puck
+    // is nearest to brighter).
+    const int nearX = juce::roundToInt(state_.getRawParameterValue(p::mapX)->load() * float(map_.width() - 1));
+    const int nearY = juce::roundToInt(state_.getRawParameterValue(p::mapY)->load() * float(map_.height() - 1));
+    const bool roomy = area.getWidth() >= 240.0f;
+    g.setFont(juce::FontOptions(area.getWidth() >= 360.0f ? 10.5f : 9.0f));
     for (int ny = 0; ny < map_.height(); ++ny)
         for (int nx = 0; nx < map_.width(); ++nx)
         {
             const float px = area.getX() + area.getWidth() * nx / float(map_.width() - 1);
             const float py = area.getY() + area.getHeight() * ny / float(map_.height() - 1);
+            const bool near = nx == nearX && ny == nearY;
+            g.setColour(colours::text.withAlpha(near ? 0.8f : 0.3f));
             g.fillEllipse(px - 1.5f, py - 1.5f, 3.0f, 3.0f);
+            const auto label = grooveName(map_.nodeName(nx, ny));
+            if (roomy && (near || nx == 0 || label != grooveName(map_.nodeName(nx - 1, ny)))) // a run of one groove: named once
+            {
+                const float w = area.getWidth() / float(map_.width() - 1) - 4.0f;
+                auto box = juce::Rectangle<float>(w, 12.0f).withCentre({ px, ny == map_.height() - 1 ? py - 9.0f : py + 9.0f });
+                box = box.withX(juce::jlimit(area.getX() + 2.0f, area.getRight() - w - 2.0f, box.getX()))
+                          .withY(juce::jlimit(area.getY() + 2.0f, area.getBottom() - 14.0f, box.getY()));
+                g.setColour(colours::text.withAlpha(near ? 0.85f : 0.34f));
+                g.drawFittedText(label, box.toNearestInt(), juce::Justification::centred, 1, 0.65f);
+            }
         }
 
     const float x = state_.getRawParameterValue(p::mapX)->load();
@@ -847,17 +880,89 @@ void MapPad::paint(juce::Graphics& g)
 
     g.setColour(dropHover_ ? colours::text : juce::Colours::white.withAlpha(0.06f));
     g.drawRect(area, dropHover_ ? 2.0f : 1.0f);
+    // The four directions, in the bands above and below the map.
     g.setColour(colours::dim);
-    g.setFont(juce::FontOptions(10.0f));
-    g.drawText("straight", area.reduced(6).removeFromBottom(12), juce::Justification::bottomLeft);
-    g.drawText("syncopated", area.reduced(6).removeFromBottom(12), juce::Justification::bottomRight);
-    g.drawText("four on the floor", area.reduced(6).removeFromTop(12), juce::Justification::topRight);
+    g.setFont(juce::FontOptions(9.5f, juce::Font::bold));
+    {
+        const auto top = getLocalBounds().toFloat().removeFromTop(13.0f), bottom = getLocalBounds().toFloat().removeFromBottom(13.0f);
+        g.drawText(juce::String::fromUTF8("\xe2\x86\x91 four on the floor"), top, juce::Justification::centred);
+        g.drawText(juce::String::fromUTF8("\xe2\x86\x90 straight"), bottom, juce::Justification::centredLeft);
+        g.drawText(juce::String::fromUTF8("broken \xe2\x86\x93"), bottom, juce::Justification::centred);
+        g.drawText(juce::String::fromUTF8("syncopated \xe2\x86\x92"), bottom, juce::Justification::centredRight);
+    }
+    if (hover_.has_value()) // what plays there: a card with the groove's name and its first bar
+    {
+        const auto h = *hover_;
+        const int hx = juce::roundToInt(juce::jlimit(0.0f, 1.0f, h.x) * float(map_.width() - 1));
+        const int hy = juce::roundToInt(juce::jlimit(0.0f, 1.0f, h.y) * float(map_.height() - 1));
+        gristo::PatternParams pp = pattern_;
+        pp.mapX = juce::jlimit(0.0f, 1.0f, h.x);
+        pp.mapY = juce::jlimit(0.0f, 1.0f, h.y);
+        pp.chaos = 0.0f;
+        pp.mapRandom = 0.0f;
+        pp.probability.fill(1.0f);
+        const gristo::PatternGenerator gen(map_);
+        const float cell = 5.0f, w = 16.0f * cell + 16.0f, hgt = gristo::kNumVoices * cell + 30.0f;
+        const juce::Point<float> at { area.getX() + h.x * area.getWidth(), area.getY() + h.y * area.getHeight() };
+        auto card = juce::Rectangle<float>(w, hgt).withPosition(at.x + 12.0f, at.y + 12.0f);
+        if (card.getRight() > area.getRight()) card.setX(at.x - 12.0f - w);
+        if (card.getBottom() > area.getBottom()) card.setY(at.y - 12.0f - hgt);
+        g.setColour(colours::panel.withAlpha(0.94f));
+        g.fillRoundedRectangle(card, 5.0f);
+        g.setColour(juce::Colours::white.withAlpha(0.12f));
+        g.drawRoundedRectangle(card, 5.0f, 1.0f);
+        g.setColour(colours::text);
+        g.setFont(juce::FontOptions(11.0f, juce::Font::bold));
+        g.drawText(grooveName(map_.nodeName(hx, hy)), card.reduced(8.0f, 4.0f).removeFromTop(16.0f), juce::Justification::centredLeft);
+        for (int s = 0; s < 16; ++s)
+        {
+            const auto hits = gen.evaluate(pp, s);
+            for (int v = 0; v < gristo::kNumVoices; ++v)
+            {
+                const auto r = juce::Rectangle<float>(cell - 1.0f, cell - 1.0f)
+                                   .withPosition(card.getX() + 8.0f + s * cell, card.getY() + 22.0f + v * cell);
+                g.setColour(hits[static_cast<size_t>(v)].on ? voiceColours[v] : juce::Colours::white.withAlpha(s % 4 == 0 ? 0.1f : 0.05f));
+                g.fillRect(r);
+            }
+        }
+    }
+}
+
+juce::String MapPad::grooveName(const char* nodeName)
+{
+    // "boombap_a" -> "Boom bap": the family, readable; the a / b / c variants share it.
+    static const std::pair<const char*, const char*> names[] = {
+        { "boombap", "Boom bap" }, { "garage_2step", "2-step" }, { "afrobeat", "Afrobeat" }, { "newjack", "New jack" },
+        { "lofi", "Lo-fi" }, { "one_drop", "One drop" }, { "rock_half", "Half-time" }, { "dembow", "Dembow" },
+        { "footwork", "Footwork" }, { "motorik", "Motorik" }, { "minimal", "Minimal" }, { "electro", "Electro" },
+        { "techno", "Techno" }, { "house", "House" }, { "funk", "Funk" }, { "break", "Breaks" }, { "jungle", "Jungle" },
+        { "trap", "Trap" }, { "samba", "Samba" }, { "bossa", "Bossa" },
+    };
+    const juce::String raw(nodeName);
+    for (const auto& [prefix, name] : names)
+        if (raw.startsWith(prefix))
+            return name;
+    return raw.replace("_", " ");
+}
+
+void MapPad::mouseMove(const juce::MouseEvent& e)
+{
+    const auto f = field();
+    hover_ = juce::Point<float>((e.position.x - f.getX()) / f.getWidth(), (e.position.y - f.getY()) / f.getHeight());
+    repaint();
+}
+
+void MapPad::mouseExit(const juce::MouseEvent&)
+{
+    hover_.reset();
+    repaint();
 }
 
 void MapPad::setFromMouse(juce::Point<float> pos)
 {
-    const float x = juce::jlimit(0.0f, 1.0f, pos.x / float(getWidth()));
-    const float y = juce::jlimit(0.0f, 1.0f, pos.y / float(getHeight()));
+    const auto f = field();
+    const float x = juce::jlimit(0.0f, 1.0f, (pos.x - f.getX()) / f.getWidth());
+    const float y = juce::jlimit(0.0f, 1.0f, (pos.y - f.getY()) / f.getHeight());
     state_.getParameter(p::mapX)->setValueNotifyingHost(x);
     state_.getParameter(p::mapY)->setValueNotifyingHost(y);
     repaint();
@@ -865,12 +970,17 @@ void MapPad::setFromMouse(juce::Point<float> pos)
 
 void MapPad::mouseDown(const juce::MouseEvent& e)
 {
+    hover_.reset();
     state_.getParameter(p::mapX)->beginChangeGesture();
     state_.getParameter(p::mapY)->beginChangeGesture();
     setFromMouse(e.position);
 }
 
-void MapPad::mouseDrag(const juce::MouseEvent& e) { setFromMouse(e.position); }
+void MapPad::mouseDrag(const juce::MouseEvent& e)
+{
+    hover_.reset();
+    setFromMouse(e.position);
+}
 
 void MapPad::mouseUp(const juce::MouseEvent&)
 {
@@ -1171,6 +1281,15 @@ gristo::HarmonyCell decodeCell(int code) { return { code / 8 - kHalfColumns, cod
 
 HarmonyPad::HarmonyPad(juce::AudioProcessorValueTreeState& state) : state_(state) {}
 
+void HarmonyPad::setSuggestions(const std::vector<float>& weights)
+{
+    if (weights != suggestions_)
+    {
+        suggestions_ = weights;
+        repaint();
+    }
+}
+
 void HarmonyPad::update(const gristo::ChordParams& params, int playing)
 {
     params_ = params;
@@ -1236,6 +1355,12 @@ void HarmonyPad::paint(juce::Graphics& g)
             {
                 g.setColour(colours::text);
                 g.drawRoundedRectangle(area.reduced(1.0f), 6.0f, 2.0f);
+            }
+            if (static_cast<size_t>(code) < suggestions_.size() && suggestions_[static_cast<size_t>(code)] > 0.05f) // where the style goes next
+            {
+                const float w = suggestions_[static_cast<size_t>(code)];
+                g.setColour(colours::random.withAlpha(0.25f + 0.6f * w));
+                g.drawRoundedRectangle(area.reduced(2.5f), 5.0f, 1.0f + 1.5f * w);
             }
             if (code == candidate_ && params_.mode == HarmonyMode::Progression) // the chord last heard
             {
@@ -1369,11 +1494,13 @@ void HarmonyPad::mouseDoubleClick(const juce::MouseEvent& e)
 // ---------------------------------------------------------------------------------
 // Progression strip
 
-void ProgressionStrip::update(const gristo::ChordParams& params, const Slots& slots, const Slots& beats, bool editable, int playing, float playFraction)
+void ProgressionStrip::update(const gristo::ChordParams& params, const Slots& slots, const Slots& beats, bool editable, int playing, float playFraction,
+                              int holdBeats)
 {
     if (slots == slots_ && beats == beats_ && editable == editable_ && playing == playing_ && std::abs(playFraction - playFraction_) < 0.004f
-        && params.key == params_.key && params.minor == params_.minor)
+        && params.key == params_.key && params.minor == params_.minor && holdBeats == holdBeats_)
         return;
+    holdBeats_ = holdBeats;
     params_ = params;
     slots_ = slots;
     beats_ = beats;
@@ -1411,7 +1538,7 @@ float ProgressionStrip::beatWidth() const
     // Every slot at least kMinSlot wide, the rest shared by their beats; at most a
     // four-bar strip's scale, so short progressions don't stretch.
     const int n = count();
-    int total = 0;
+    int total = holdBeats_;
     for (int k = 0; k < n; ++k)
         total += beats_[static_cast<size_t>(k)];
     const float plus = editable_ && n < gristo::kMaxProgression ? kPlusSlot : 0.0f;
@@ -1426,6 +1553,8 @@ juce::Rectangle<float> ProgressionStrip::slotArea(int slot) const
     float x = 0.0f;
     for (int k = 0; k < slot; ++k)
         x += kMinSlot + scale * static_cast<float>(beats_[static_cast<size_t>(k)]);
+    if (slot >= count()) // the "+" slot comes after the hold
+        x += scale * static_cast<float>(holdBeats_);
     const float w = slot < count() ? kMinSlot + scale * static_cast<float>(beats_[static_cast<size_t>(slot)]) : kPlusSlot;
     return { x, 0.0f, w, static_cast<float>(getHeight()) };
 }
@@ -1485,6 +1614,25 @@ void ProgressionStrip::paint(juce::Graphics& g)
             g.setColour(chosen ? colours::accent : juce::Colours::white.withAlpha(0.18f));
             g.fillRoundedRectangle(area.getRight() - 4.0f, area.getCentreY() - 7.0f, 2.0f, 14.0f, 1.0f);
         }
+    }
+    if (n > 0 && holdBeats_ > 0) // the last chord held to the bar line
+    {
+        const auto last = slotArea(n - 1);
+        const auto hold = juce::Rectangle<float>(last.getRight(), last.getY() + 6.0f, scale * static_cast<float>(holdBeats_), last.getHeight() - 12.0f);
+        g.setColour(colours::surface.withAlpha(0.5f));
+        g.fillRoundedRectangle(hold.reduced(1.5f, 0.0f), 4.0f);
+        if (hold.getWidth() > 34.0f)
+        {
+            g.setColour(colours::faint);
+            g.setFont(juce::FontOptions(9.5f));
+            g.drawText("hold", hold, juce::Justification::centred);
+        }
+    }
+    if (moving_ && moveTo_ >= 0) // where the dragged chord would land
+    {
+        const float x = moveTo_ < n ? slotArea(moveTo_).getX() : slotArea(n - 1).getRight();
+        g.setColour(colours::accent);
+        g.fillRoundedRectangle(x - 1.5f, 0.0f, 3.0f, static_cast<float>(getHeight()), 1.5f);
     }
     juce::ignoreUnused(scale);
     if (editable_ && n < gristo::kMaxProgression) // where the next chord goes
@@ -1599,14 +1747,43 @@ void ProgressionStrip::mouseDown(const juce::MouseEvent& e)
         });
         return;
     }
-    selected_ = selected_ == slot || slot >= n ? -1 : slot;
-    if (onSelect)
-        onSelect(selected_);
-    repaint();
+    pressedSlot_ = slot < n ? slot : -1;
+    moving_ = false;
+    moveTo_ = -1;
+    if (slot >= n) // the "+" slot: nothing to pick
+    {
+        selected_ = -1;
+        if (onSelect)
+            onSelect(-1);
+        repaint();
+    }
+}
+
+int ProgressionStrip::insertionAt(float x) const
+{
+    const int n = count();
+    for (int k = 0; k < n; ++k)
+        if (x < slotArea(k).getCentreX())
+            return k;
+    return n;
 }
 
 void ProgressionStrip::mouseDrag(const juce::MouseEvent& e)
 {
+    if (resizing_ < 0 && pressedSlot_ >= 0)
+    {
+        // Dragging a chord: it moves to where it is dropped.
+        if (!moving_ && std::abs(e.getDistanceFromDragStartX()) < 6)
+            return;
+        moving_ = true;
+        const int to = insertionAt(e.position.x);
+        if (to != moveTo_)
+        {
+            moveTo_ = to;
+            repaint();
+        }
+        return;
+    }
     if (resizing_ < 0)
         return;
     const int beats = juce::jlimit(1, gristo::kMaxSlotBeats,
@@ -1625,7 +1802,29 @@ void ProgressionStrip::mouseUp(const juce::MouseEvent&)
     {
         resizing_ = -1;
         repaint();
+        return;
     }
+    if (pressedSlot_ < 0)
+        return;
+    if (moving_)
+    {
+        // An insertion point: the chord goes before the slot there (after removing it from its place).
+        int to = moveTo_ > pressedSlot_ ? moveTo_ - 1 : moveTo_;
+        to = juce::jlimit(0, count() - 1, to);
+        if (to != pressedSlot_ && onMove)
+            onMove(pressedSlot_, to);
+        selected_ = -1;
+    }
+    else
+    {
+        selected_ = selected_ == pressedSlot_ ? -1 : pressedSlot_;
+        if (onSelect)
+            onSelect(selected_);
+    }
+    pressedSlot_ = -1;
+    moving_ = false;
+    moveTo_ = -1;
+    repaint();
 }
 
 // ---------------------------------------------------------------------------------
@@ -1696,30 +1895,39 @@ void CircleView::paint(juce::Graphics& g)
             g.fillPath(segment(inner, outer));
             if (step.on)
             {
-                // The step, its value (in the edit mode) as how far it is filled outwards.
-                const float value = juce::jlimit(0.06f, 1.0f, editValue(step, edit_));
-                const float alpha = 0.35f + 0.65f * static_cast<float>(step.chance) / 100.0f;
-                g.setColour(colour.withMultipliedAlpha(0.28f * alpha));
-                g.fillPath(segment(inner, outer));
-                g.setColour(colour.withMultipliedAlpha(alpha));
-                if (edit_ == Edit::Nudge) // a bar off the centre line, early or late
+                // A set step: the drum's colour, as bright as it is loud; a step that may
+                // not play is hollow in proportion; in the other edit modes, its value
+                // as a band along the inner edge.
+                const float loud = 0.45f + 0.55f * static_cast<float>(step.velocity) / 127.0f;
+                const float sure = static_cast<float>(step.chance) / 100.0f;
+                g.setColour(colour.withMultipliedAlpha(loud));
+                g.fillPath(segment(inner + (outer - inner) * 0.5f * (1.0f - sure), outer));
+                if (sure < 1.0f)
                 {
-                    const float mid = (a0 + a1) * 0.5f, offset = (value - 0.5f) * (a1 - a0);
-                    juce::Path bar;
-                    bar.addPieSegment(centre.x - outer, centre.y - outer, outer * 2.0f, outer * 2.0f, mid + std::min(0.0f, offset) - 0.02f,
-                                      mid + std::max(0.0f, offset) + 0.02f, inner / outer);
-                    g.fillPath(bar);
+                    g.setColour(colour.withMultipliedAlpha(0.5f));
+                    g.strokePath(segment(inner, outer), juce::PathStrokeType(1.0f));
                 }
-                else
-                    g.fillPath(segment(inner, inner + (outer - inner) * value));
+                if (edit_ == Edit::Nudge && step.nudge != 0) // a white tick off the centre: early or late
+                {
+                    const float mid = (a0 + a1) * 0.5f + (a1 - a0) * 0.5f * static_cast<float>(step.nudge) / static_cast<float>(gristo::kMaxNudge);
+                    juce::Path tick;
+                    tick.addPieSegment(centre.x - outer, centre.y - outer, outer * 2.0f, outer * 2.0f, mid - 0.015f, mid + 0.015f, inner / outer);
+                    g.setColour(juce::Colours::white.withAlpha(0.9f));
+                    g.fillPath(tick);
+                }
                 if (step.repeat > 1) // repeats: small dots
                     for (int r = 0; r < step.repeat; ++r)
                     {
                         const float a = a0 + (a1 - a0) * (static_cast<float>(r) + 0.5f) / static_cast<float>(step.repeat) - juce::MathConstants<float>::halfPi;
-                        const float rr = outer - 3.5f;
-                        g.setColour(colours::background.withAlpha(0.8f));
+                        const float rr = inner + 3.5f;
+                        g.setColour(colours::background.withAlpha(0.85f));
                         g.fillEllipse(centre.x + rr * std::cos(a) - 1.5f, centre.y + rr * std::sin(a) - 1.5f, 3.0f, 3.0f);
                     }
+            }
+            if (k == 0) // where the ring starts: a notch
+            {
+                g.setColour(colours::text.withAlpha(0.5f));
+                g.fillRect(centre.x - 0.75f, centre.y - outer - 3.0f, 1.5f, 3.0f);
             }
             if (playing)
             {
@@ -1793,7 +2001,7 @@ void CircleView::mouseDown(const juce::MouseEvent& e)
 
 void CircleView::mouseDrag(const juce::MouseEvent& e)
 {
-    if (pressed_.voice < 0 || (!dragged_ && std::abs(e.getDistanceFromDragStartY()) < 3))
+    if (!dragEdits_ || pressed_.voice < 0 || (!dragged_ && std::abs(e.getDistanceFromDragStartY()) < 3))
         return;
     dragged_ = true;
     const float delta = -static_cast<float>(e.getDistanceFromDragStartY()) / 120.0f; // up: more
@@ -1834,6 +2042,314 @@ void CircleView::mouseUp(const juce::MouseEvent&)
         repaint();
     }
     pressed_ = {};
+}
+
+// ---------------------------------------------------------------------------------
+// Chips, steppers, the ring list and the step lane
+
+void ChipRow::setCurrent(int value)
+{
+    if (value != current_)
+    {
+        current_ = value;
+        repaint();
+    }
+}
+
+void ChipRow::paint(juce::Graphics& g)
+{
+    const float w = static_cast<float>(getWidth()) / static_cast<float>(values_.size());
+    for (size_t i = 0; i < values_.size(); ++i)
+    {
+        const auto r = juce::Rectangle<float>(w * static_cast<float>(i), 0.0f, w, static_cast<float>(getHeight())).reduced(2.0f, 0.0f);
+        const bool on = values_[i] == current_;
+        g.setColour(on ? colours::accent : colours::surface);
+        g.fillRoundedRectangle(r, 5.0f);
+        g.setColour(on ? colours::background : colours::text);
+        g.setFont(juce::FontOptions(12.0f, on ? juce::Font::bold : juce::Font::plain));
+        g.drawText(label_(values_[i]), r, juce::Justification::centred);
+    }
+}
+
+void ChipRow::mouseDown(const juce::MouseEvent& e)
+{
+    const int i = juce::jlimit(0, static_cast<int>(values_.size()) - 1, static_cast<int>(e.position.x / (static_cast<float>(getWidth()) / static_cast<float>(values_.size()))));
+    if (onPick)
+        onPick(values_[static_cast<size_t>(i)]);
+}
+
+void Stepper::setValue(int value)
+{
+    if (value != value_)
+    {
+        value_ = value;
+        repaint();
+    }
+}
+
+void Stepper::paint(juce::Graphics& g)
+{
+    const auto r = getLocalBounds().toFloat().reduced(1.0f);
+    g.setColour(colours::surface);
+    g.fillRoundedRectangle(r, 5.0f);
+    g.setColour(colours::dim);
+    g.setFont(juce::FontOptions(15.0f));
+    g.drawText(juce::String::fromUTF8("\xe2\x88\x92"), r.withWidth(26.0f), juce::Justification::centred);
+    g.drawText("+", r.withTrimmedLeft(r.getWidth() - 26.0f), juce::Justification::centred);
+    g.setColour(colours::text);
+    g.setFont(juce::FontOptions(12.0f));
+    g.drawText(name_ + "  " + juce::String(value_), r.reduced(26.0f, 0.0f), juce::Justification::centred);
+}
+
+void Stepper::mouseDown(const juce::MouseEvent& e)
+{
+    if (onStep)
+        onStep(e.position.x < static_cast<float>(getWidth()) * 0.5f ? -1 : 1);
+}
+
+void RingList::update(const CircleView::Rings& rings, const std::array<int, gristo::kNumVoices>& playing, int selected)
+{
+    if (rings == rings_ && playing == playing_ && selected == selected_)
+        return;
+    rings_ = rings;
+    playing_ = playing;
+    selected_ = selected;
+    repaint();
+}
+
+void RingList::paint(juce::Graphics& g)
+{
+    const float rowH = static_cast<float>(getHeight()) / gristo::kNumVoices;
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        const auto row = juce::Rectangle<float>(0.0f, rowH * static_cast<float>(v), static_cast<float>(getWidth()), rowH).reduced(0.0f, 1.5f);
+        const auto& ring = rings_[static_cast<size_t>(v)];
+        const bool selected = v == selected_;
+        g.setColour(selected ? colours::surface.brighter(0.1f) : colours::surface.withAlpha(0.5f));
+        g.fillRoundedRectangle(row, 5.0f);
+        if (selected)
+        {
+            g.setColour(voiceColours[v]);
+            g.drawRoundedRectangle(row.reduced(0.5f), 5.0f, 1.2f);
+        }
+        g.setColour(voiceColours[v].withMultipliedAlpha(ring.muted ? 0.4f : 1.0f));
+        g.fillRoundedRectangle(row.withWidth(4.0f).reduced(0.0f, 4.0f), 2.0f);
+        g.setFont(juce::FontOptions(12.0f, selected ? juce::Font::bold : juce::Font::plain));
+        g.setColour(selected ? colours::text : colours::dim);
+        g.drawText(gristo::voiceName(v), row.withX(row.getX() + 12.0f).withWidth(70.0f), juce::Justification::centredLeft);
+        g.setFont(juce::FontOptions(10.5f));
+        g.drawText(juce::String(ring.length), row.withX(row.getRight() - 30.0f).withWidth(24.0f), juce::Justification::centredRight);
+        // The ring unrolled.
+        const int n = std::clamp(ring.length, 1, gristo::kPatternSteps);
+        const auto strip = row.withTrimmedLeft(86.0f).withTrimmedRight(36.0f).reduced(0.0f, 6.0f);
+        const float w = strip.getWidth() / gristo::kPatternSteps; // the same scale for every ring
+        for (int k = 0; k < n; ++k)
+        {
+            const auto cell = juce::Rectangle<float>(strip.getX() + w * static_cast<float>(k), strip.getY(), w, strip.getHeight()).reduced(0.6f, 0.0f);
+            const auto s = gristo::decodeCircleStep(ring.steps[static_cast<size_t>(k)]);
+            if (s.on)
+                g.setColour(voiceColours[v].withMultipliedAlpha((0.35f + 0.65f * static_cast<float>(s.velocity) / 127.0f) * (ring.muted ? 0.4f : 1.0f)));
+            else
+                g.setColour(juce::Colours::white.withAlpha(k % 4 == 0 ? 0.11f : 0.05f));
+            g.fillRect(cell);
+            if (k == playing_[static_cast<size_t>(v)])
+            {
+                g.setColour(juce::Colours::white.withAlpha(0.8f));
+                g.drawRect(cell, 1.0f);
+            }
+        }
+    }
+}
+
+void RingList::mouseDown(const juce::MouseEvent& e)
+{
+    const int v = juce::jlimit(0, gristo::kNumVoices - 1, static_cast<int>(e.position.y / (static_cast<float>(getHeight()) / gristo::kNumVoices)));
+    selected_ = v;
+    if (onSelect)
+        onSelect(v);
+    repaint();
+}
+
+void StepLane::update(const CircleView::Ring& ring, int playing, CircleView::Edit edit, juce::Colour colour)
+{
+    if (ring == ring_ && playing == playing_ && edit == edit_ && colour == colour_)
+        return;
+    ring_ = ring;
+    playing_ = playing;
+    edit_ = edit;
+    colour_ = colour;
+    repaint();
+}
+
+int StepLane::stepAt(float x) const
+{
+    const int n = std::clamp(ring_.length, 1, gristo::kPatternSteps);
+    return juce::jlimit(0, n - 1, static_cast<int>(x / (static_cast<float>(getWidth()) / static_cast<float>(n))));
+}
+
+void StepLane::paint(juce::Graphics& g)
+{
+    const int n = std::clamp(ring_.length, 1, gristo::kPatternSteps);
+    const float w = static_cast<float>(getWidth()) / static_cast<float>(n);
+    const auto bars = getLocalBounds().toFloat().withTrimmedTop(kToggleH + 4.0f);
+    g.setColour(colours::background);
+    g.fillRoundedRectangle(bars, 4.0f);
+    if (edit_ == CircleView::Edit::Nudge) // the centre line: on the step
+    {
+        g.setColour(juce::Colours::white.withAlpha(0.12f));
+        g.drawHorizontalLine(juce::roundToInt(bars.getCentreY()), bars.getX(), bars.getRight());
+    }
+    for (int k = 0; k < n; ++k)
+    {
+        const auto s = gristo::decodeCircleStep(ring_.steps[static_cast<size_t>(k)]);
+        const auto toggle = juce::Rectangle<float>(w * static_cast<float>(k), 0.0f, w, kToggleH).reduced(1.0f, 0.0f);
+        g.setColour(s.on ? colour_ : juce::Colours::white.withAlpha(k % 4 == 0 ? 0.13f : 0.06f));
+        g.fillRoundedRectangle(toggle, 3.0f);
+        if (k == playing_)
+        {
+            g.setColour(juce::Colours::white);
+            g.drawRoundedRectangle(toggle, 3.0f, 1.4f);
+        }
+        const auto column = juce::Rectangle<float>(w * static_cast<float>(k), bars.getY(), w, bars.getHeight()).reduced(1.5f, 3.0f);
+        if (k % 4 == 0 && k > 0)
+        {
+            g.setColour(juce::Colours::white.withAlpha(0.07f));
+            g.drawVerticalLine(juce::roundToInt(column.getX() - 1.5f), bars.getY() + 2.0f, bars.getBottom() - 2.0f);
+        }
+        const float value = CircleView::editValue(s, edit_);
+        g.setColour(s.on ? colour_.withMultipliedAlpha(0.85f) : juce::Colours::white.withAlpha(0.08f));
+        if (edit_ == CircleView::Edit::Nudge)
+        {
+            const float y = column.getBottom() - column.getHeight() * value, mid = column.getCentreY();
+            g.fillRect(column.withY(std::min(y, mid)).withHeight(std::max(1.5f, std::abs(y - mid))));
+        }
+        else
+            g.fillRect(column.withTrimmedTop(column.getHeight() * (1.0f - value)));
+        if (s.on && column.getWidth() > 14.0f) // the value, in words, on wide bars
+        {
+            juce::String text = edit_ == CircleView::Edit::Velocity ? juce::String(s.velocity)
+                              : edit_ == CircleView::Edit::Chance  ? juce::String(s.chance) + "%"
+                              : edit_ == CircleView::Edit::Nudge   ? (s.nudge > 0 ? "+" : "") + juce::String(s.nudge)
+                                                                   : "x" + juce::String(s.repeat);
+            g.setColour(colours::text.withAlpha(0.8f));
+            g.setFont(juce::FontOptions(9.0f));
+            g.drawText(text, column.withHeight(12.0f), juce::Justification::centred);
+        }
+    }
+}
+
+void StepLane::apply(juce::Point<float> p, bool first)
+{
+    const int k = stepAt(p.x);
+    gristo::CircleStep s = gristo::decodeCircleStep(ring_.steps[static_cast<size_t>(k)]);
+    if (toggleRow_)
+    {
+        if (first)
+            paintOn_ = !s.on; // the first click decides: set or clear, then paint that
+        s.on = paintOn_;
+    }
+    else
+    {
+        const auto bars = getLocalBounds().toFloat().withTrimmedTop(kToggleH + 4.0f).reduced(0.0f, 3.0f);
+        const float value = juce::jlimit(0.0f, 1.0f, (bars.getBottom() - p.y) / bars.getHeight());
+        s.on = true; // drawing a value sets the step
+        switch (edit_)
+        {
+            case CircleView::Edit::Velocity: s.velocity = juce::jlimit(1, 127, juce::roundToInt(value * 127.0f)); break;
+            case CircleView::Edit::Chance: s.chance = juce::roundToInt(value * 100.0f); break;
+            case CircleView::Edit::Nudge: s.nudge = juce::roundToInt((value - 0.5f) * 2.0f * gristo::kMaxNudge); break;
+            case CircleView::Edit::Repeat: s.repeat = juce::jlimit(1, gristo::kMaxRepeat, 1 + static_cast<int>(value * gristo::kMaxRepeat * 0.999f)); break;
+        }
+    }
+    const int code = gristo::encodeCircleStep(s);
+    if (code != ring_.steps[static_cast<size_t>(k)])
+    {
+        ring_.steps[static_cast<size_t>(k)] = code;
+        if (onStep)
+            onStep(k, code);
+        repaint();
+    }
+}
+
+void StepLane::mouseDown(const juce::MouseEvent& e)
+{
+    toggleRow_ = e.position.y < kToggleH + 2.0f;
+    apply(e.position, true);
+}
+
+void StepLane::mouseDrag(const juce::MouseEvent& e) { apply(e.position, false); }
+
+// ---------------------------------------------------------------------------------
+// Style list
+
+void StyleList::setItems(std::vector<Item> items)
+{
+    items_ = std::move(items);
+    picked_ = hover_ = -1;
+    repaint();
+}
+
+void StyleList::setPicked(int index)
+{
+    picked_ = index;
+    repaint();
+}
+
+int StyleList::rowAt(float y) const
+{
+    const int row = static_cast<int>(y / kRowH);
+    return row >= 0 && row < static_cast<int>(items_.size()) ? row : -1;
+}
+
+void StyleList::paint(juce::Graphics& g)
+{
+    for (int i = 0; i < static_cast<int>(items_.size()); ++i)
+    {
+        const auto r = juce::Rectangle<float>(0.0f, kRowH * static_cast<float>(i), static_cast<float>(getWidth()), kRowH).reduced(0.0f, 2.0f);
+        if (r.getBottom() > static_cast<float>(getHeight()))
+            break;
+        const bool lit = i == picked_, over = i == hover_;
+        g.setColour(lit ? colours::accent.withAlpha(0.2f) : over ? colours::surface.brighter(0.1f) : colours::surface.withAlpha(0.6f));
+        g.fillRoundedRectangle(r, 5.0f);
+        if (lit)
+        {
+            g.setColour(colours::accent);
+            g.drawRoundedRectangle(r.reduced(0.5f), 5.0f, 1.2f);
+        }
+        const auto text = r.reduced(8.0f, 4.0f);
+        g.setColour(colours::text);
+        g.setFont(juce::FontOptions(11.5f, juce::Font::bold));
+        g.drawFittedText(items_[static_cast<size_t>(i)].name, text.withHeight(16.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(10.5f));
+        g.drawFittedText(items_[static_cast<size_t>(i)].chords, text.withTrimmedTop(18.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.6f);
+    }
+}
+
+void StyleList::mouseMove(const juce::MouseEvent& e)
+{
+    if (const int row = rowAt(e.position.y); row != hover_)
+    {
+        hover_ = row;
+        repaint();
+    }
+}
+
+void StyleList::mouseExit(const juce::MouseEvent&)
+{
+    hover_ = -1;
+    repaint();
+}
+
+void StyleList::mouseDown(const juce::MouseEvent& e)
+{
+    if (const int row = rowAt(e.position.y); row >= 0)
+    {
+        picked_ = row;
+        repaint();
+        if (onPick)
+            onPick(row);
+    }
 }
 
 void DragOutHandle::paint(juce::Graphics& g)

@@ -1,5 +1,6 @@
 #include "TestFramework.h"
 
+#include "gristo/ChordStyles.h"
 #include "gristo/Engine.h"
 #include "gristo/Macros.h"
 #include "gristo/sound/Sound.h"
@@ -931,6 +932,7 @@ TEST("harmony: progression slots last their own number of quarter notes")
     p.progression.fill(-1);
     for (int k = 0; k < 12; ++k)
         p.progression[static_cast<size_t>(k)] = cellCode(k % 5 - 2, k % 3);
+    p.progressionReset = 0; // loops as long as it is
     // 1, 2, 3 beats, then the chord length (a bar) for the rest.
     p.progressionBeats[0] = 1;
     p.progressionBeats[1] = 2;
@@ -948,4 +950,81 @@ TEST("harmony: progression slots last their own number of quarter notes")
     p.progression[1] = p.progression[0];
     CHECK(Chords::positionAt(p, 3).serial != Chords::positionAt(p, 4).serial);
     CHECK(Chords::positionAt(p, 3).serial != Chords::positionAt(p, loop + 3).serial);
+}
+
+TEST("harmony: a progression finds its way back to the 1: hold to the bar, or restart every N bars")
+{
+    ChordParams p = cMajor();
+    p.mode = HarmonyMode::Progression;
+    p.progression.fill(-1);
+    p.progression[0] = cellCode(0, 0);
+    p.progression[1] = cellCode(1, 0);
+    p.progression[2] = cellCode(-1, 0);
+    p.progressionBeats[0] = 3; // 3 + 3 + 3 = 9 beats: not whole bars
+    p.progressionBeats[1] = 3;
+    p.progressionBeats[2] = 3;
+    // Free: the loop is 9 beats long, so the first chord comes back off the 1.
+    p.progressionReset = 0;
+    CHECK(Chords::progressionSlotAt(p, 36) == 0 && Chords::progressionSlotAt(p, 48) == 1);
+    // Hold: the last chord rings to the end of bar 3, the first is back on bar 4's 1.
+    p.progressionReset = -1;
+    CHECK(Chords::progressionSlotAt(p, 24) == 2 && Chords::progressionSlotAt(p, 47) == 2);
+    CHECK(Chords::progressionSlotAt(p, 48) == 0 && Chords::progressionSlotAt(p, 60) == 1);
+    CHECK(Chords::progressionPlace(p, 40.0).fraction > 0.5f); // the held chord's fraction counts its hold
+    // Every 2 bars: the 36-step progression is cut at 32 and starts again.
+    p.progressionReset = 2;
+    CHECK(Chords::progressionSlotAt(p, 0) == 0 && Chords::progressionSlotAt(p, 12) == 1 && Chords::progressionSlotAt(p, 24) == 2);
+    CHECK(Chords::progressionSlotAt(p, 31) == 2);
+    CHECK(Chords::progressionSlotAt(p, 32) == 0 && Chords::progressionSlotAt(p, 44) == 1); // the restart
+    CHECK(Chords::positionAt(p, 30).serial != Chords::positionAt(p, 32).serial); // a new start at the reset
+    // Every chord start is a new serial, also when the same chord comes back.
+    std::int64_t last = -1;
+    int changes = 0;
+    for (int s = 0; s < 64; ++s)
+    {
+        const auto serial = Chords::positionAt(p, s).serial;
+        changes += serial != last ? 1 : 0;
+        last = serial;
+    }
+    CHECK(changes == 2 * 3); // per 2-bar window: 0 1 2
+    // Every bar, with a 2-beat progression: it loops inside the bar.
+    p.progressionBeats = {};
+    p.progressionBeats[0] = 1;
+    p.progressionBeats[1] = 1;
+    p.progression[2] = -1;
+    p.progressionReset = 1;
+    CHECK(Chords::progressionSlotAt(p, 0) == 0 && Chords::progressionSlotAt(p, 4) == 1 && Chords::progressionSlotAt(p, 8) == 0);
+}
+
+TEST("harmony: every style progression lands on the map, in every key, and suggests where to go next")
+{
+    for (int key = 0; key < 12; ++key)
+        for (bool minor : { false, true })
+        {
+            ChordParams p = cMajor();
+            p.key = key;
+            p.minor = minor;
+            for (const auto& style : chordStyles())
+                for (const auto& progression : style.progressions)
+                {
+                    if (progression.minorKey != minor)
+                        continue;
+                    const auto cells = styleProgressionCells(p, progression);
+                    CHECK_MSG(cells.size() == progression.chords.size(), style.name << ": " << progression.name << " key " << key);
+                    for (size_t i = 0; i < cells.size(); ++i)
+                    {
+                        const HarmonyCell cell = Chords::cellFromCode(cells[i].first);
+                        const auto& chord = progression.chords[i];
+                        CHECK(floorMod(Chords::rootPitchClass(p, cell.column) - key, 12) == chord.degree);
+                        CHECK(Chords::isMinorChord(p, cell.column) == chord.minor);
+                    }
+                }
+        }
+    // ii9 in C major: the jazz style moves on to the V.
+    ChordParams p = cMajor();
+    const int ii = styleChordCell(p, { 2, true, 3, 4 });
+    const int v = styleChordCell(p, { 7, false, 3, 4 });
+    CHECK(ii >= 0 && v >= 0);
+    const auto next = styleSuggestions(p, 0, ii);
+    CHECK(next[static_cast<size_t>(v)] > 0.99f);
 }

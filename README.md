@@ -80,6 +80,30 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### Styles on the chord chart, back to the 1, a clearer map and Circles
+
+* **Styles on the chart:** pick a style (Jazz, Neo-soul, Lo-fi, Trap, Jungle, House,
+  Melancholic, Ethereal: slow major sevenths and ninths after Harold Budd and Eno)
+  and click one of its progressions: it goes into the progression, in your key (and in
+  its own major or minor), and plays through once while stopped. The map then rings
+  the chords that style tends to go to next, from the chord you last heard or placed.
+* **Back to the 1:** the progression's Reset. *Hold to the bar* (the default) lets
+  the last chord ring on to the next bar line, so a 9-beat progression comes back on
+  the 1 (shown as "hold" in the strip); *Restart every 1 / 2 / 4 / 8 bars* starts it
+  again from its first chord, like a reset into a sequencer; *Loop as it is* lets an
+  odd length drift.
+* **Drag chords** in the progression strip to move them.
+* **The map, clearer:** the grooves it is made of are named on it (Boom bap, House,
+  Jungle, Trap...), the four directions sit around it, and hovering shows a card with
+  the groove there and its first bar, before you move. Switching between Map and
+  Circles no longer loses the map's picture.
+* **Circles, reworked:** the rings set and clear steps; the page beside them lists
+  every ring unrolled (click one to edit it), with **Steps** as chips (5 6 8 12 16 24
+  32, any other length from the box beside them), **Rate** as chips (/1 .. /8), a
+  **step lane** to draw velocity, chance, nudge or repeats as bars, **Euclid hits**
+  (+ / -), Shift, Reverse, Random, Clear and From map. The drums' Length menus list
+  the common lengths first too.
+
 ### Circles, a chord timeline, a tidier chords page
 
 * **Circles** (Pattern mode, at the top of the drums' map panel and on the Play page),

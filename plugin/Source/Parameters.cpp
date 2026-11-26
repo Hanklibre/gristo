@@ -489,6 +489,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
                                                              "Progression Length " + juce::String(slot + 1), 0, kMaxSlotBeats, 0));
     layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { patternMode, kVersion }, "Pattern Mode",
                                                             juce::StringArray { "Map", "Circles" }, 0));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { chordReset, kVersion }, "Chord Progression Reset",
+        juce::StringArray { "Loop as it is", "Hold to the bar", "Restart every bar", "Restart every 2 bars", "Restart every 4 bars", "Restart every 8 bars" }, 1));
     return layout;
 }
 
@@ -611,6 +613,10 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
     {
         c.progression[static_cast<size_t>(slot)] = juce::roundToInt(load(s, laneId(chordProgression, slot)));
         c.progressionBeats[static_cast<size_t>(slot)] = juce::roundToInt(load(s, laneId(chordProgBeats, slot)));
+    }
+    {
+        static constexpr int resets[] = { 0, -1, 1, 2, 4, 8 };
+        c.progressionReset = resets[juce::jlimit(0, 5, static_cast<int>(load(s, chordReset)))];
     }
     c.wander = load(s, chordWander);
     c.chordSteps = kChordRateSteps[juce::jlimit(0, 2, static_cast<int>(load(s, chordRate)))];

@@ -224,6 +224,7 @@ inline const juce::String chordPush = "chPush";
 inline const juce::String chordRestrike = "chRestrike";
 inline const juce::String chordProgression = "chProg"; // per slot (0..15): a cell code, -1 = empty
 inline const juce::String patternMode = "patMode"; // Map or Circles
+inline const juce::String chordReset = "chReset";    // the progression's way back to the 1
 inline const juce::String chordProgBeats = "chProgBeats"; // per slot: its length in quarters, 0 = the chord length
 constexpr int kLegacyProgressionSlots = 8; // the first eight slots sit where they always did in the layout
 inline const int kChordPushSteps[] = { 0, 1, 2, 4, -1, -2, -4 }; // On the 1, early 1/16, 1/8, 1/4, late 1/16, 1/8, 1/4
