@@ -1628,6 +1628,214 @@ void ProgressionStrip::mouseUp(const juce::MouseEvent&)
     }
 }
 
+// ---------------------------------------------------------------------------------
+// Circles
+
+void CircleView::update(const Rings& rings, const std::array<int, gristo::kNumVoices>& playing, int selected)
+{
+    if (rings == rings_ && playing == playing_ && selected == selected_)
+        return;
+    rings_ = rings;
+    playing_ = playing;
+    selected_ = selected;
+    repaint();
+}
+
+void CircleView::setEdit(Edit edit)
+{
+    edit_ = edit;
+    repaint();
+}
+
+float CircleView::editValue(const gristo::CircleStep& s, Edit edit)
+{
+    switch (edit)
+    {
+        case Edit::Chance: return static_cast<float>(s.chance) / 100.0f;
+        case Edit::Nudge: return 0.5f + 0.5f * static_cast<float>(s.nudge) / static_cast<float>(gristo::kMaxNudge);
+        case Edit::Repeat: return static_cast<float>(s.repeat) / static_cast<float>(gristo::kMaxRepeat);
+        case Edit::Velocity: break;
+    }
+    return static_cast<float>(s.velocity) / 127.0f;
+}
+
+void CircleView::ringRadii(int voice, float& inner, float& outer) const
+{
+    const float radius = std::min(getWidth(), getHeight()) * 0.5f - 4.0f;
+    const float hole = radius * 0.2f;
+    const float band = (radius - hole) / static_cast<float>(gristo::kNumVoices);
+    outer = radius - band * static_cast<float>(voice);
+    inner = outer - band + std::max(2.0f, band * 0.12f);
+}
+
+void CircleView::paint(juce::Graphics& g)
+{
+    const auto centre = getLocalBounds().toFloat().getCentre();
+    const float twoPi = juce::MathConstants<float>::twoPi;
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        const Ring& ring = rings_[static_cast<size_t>(v)];
+        float inner = 0.0f, outer = 0.0f;
+        ringRadii(v, inner, outer);
+        const int n = std::clamp(ring.length, 1, gristo::kPatternSteps);
+        const float gap = std::min(0.06f, 0.35f * twoPi / static_cast<float>(n)); // radians between steps
+        const juce::Colour colour = voiceColours[v].withMultipliedAlpha(ring.muted ? 0.35f : 1.0f);
+        const bool selected = v == selected_;
+        for (int k = 0; k < n; ++k)
+        {
+            const float a0 = twoPi * static_cast<float>(k) / static_cast<float>(n) + gap * 0.5f;
+            const float a1 = twoPi * static_cast<float>(k + 1) / static_cast<float>(n) - gap * 0.5f;
+            auto segment = [&](float r0, float r1) {
+                juce::Path path;
+                path.addPieSegment(centre.x - r1, centre.y - r1, r1 * 2.0f, r1 * 2.0f, a0, a1, r0 / r1);
+                return path;
+            };
+            const gristo::CircleStep step = gristo::decodeCircleStep(ring.steps[static_cast<size_t>(k)]);
+            const bool playing = k == playing_[static_cast<size_t>(v)];
+            g.setColour(selected ? colours::surface.brighter(0.12f) : colours::surface.withAlpha(0.6f));
+            g.fillPath(segment(inner, outer));
+            if (step.on)
+            {
+                // The step, its value (in the edit mode) as how far it is filled outwards.
+                const float value = juce::jlimit(0.06f, 1.0f, editValue(step, edit_));
+                const float alpha = 0.35f + 0.65f * static_cast<float>(step.chance) / 100.0f;
+                g.setColour(colour.withMultipliedAlpha(0.28f * alpha));
+                g.fillPath(segment(inner, outer));
+                g.setColour(colour.withMultipliedAlpha(alpha));
+                if (edit_ == Edit::Nudge) // a bar off the centre line, early or late
+                {
+                    const float mid = (a0 + a1) * 0.5f, offset = (value - 0.5f) * (a1 - a0);
+                    juce::Path bar;
+                    bar.addPieSegment(centre.x - outer, centre.y - outer, outer * 2.0f, outer * 2.0f, mid + std::min(0.0f, offset) - 0.02f,
+                                      mid + std::max(0.0f, offset) + 0.02f, inner / outer);
+                    g.fillPath(bar);
+                }
+                else
+                    g.fillPath(segment(inner, inner + (outer - inner) * value));
+                if (step.repeat > 1) // repeats: small dots
+                    for (int r = 0; r < step.repeat; ++r)
+                    {
+                        const float a = a0 + (a1 - a0) * (static_cast<float>(r) + 0.5f) / static_cast<float>(step.repeat) - juce::MathConstants<float>::halfPi;
+                        const float rr = outer - 3.5f;
+                        g.setColour(colours::background.withAlpha(0.8f));
+                        g.fillEllipse(centre.x + rr * std::cos(a) - 1.5f, centre.y + rr * std::sin(a) - 1.5f, 3.0f, 3.0f);
+                    }
+            }
+            if (playing)
+            {
+                g.setColour(step.on ? juce::Colours::white.withAlpha(0.85f) : colour.withAlpha(0.6f));
+                g.strokePath(segment(inner, outer), juce::PathStrokeType(step.on ? 2.0f : 1.2f));
+            }
+        }
+        if (selected) // the selected ring: a thin line just outside it
+        {
+            juce::Path arc;
+            arc.addCentredArc(centre.x, centre.y, outer + 1.5f, outer + 1.5f, 0.0f, 0.0f, twoPi, true);
+            g.setColour(colour.withAlpha(0.7f));
+            g.strokePath(arc, juce::PathStrokeType(1.0f));
+        }
+    }
+    // The centre: what the drag changes.
+    float inner = 0.0f, outer = 0.0f;
+    ringRadii(gristo::kNumVoices - 1, inner, outer);
+    const char* names[] = { "velocity", "chance", "nudge", "repeat" };
+    g.setColour(colours::dim);
+    g.setFont(juce::FontOptions(std::clamp(inner * 0.32f, 9.0f, 13.0f)));
+    g.drawText(names[static_cast<int>(edit_)], juce::Rectangle<float>(inner * 2.0f, 20.0f).withCentre(centre), juce::Justification::centred);
+}
+
+CircleView::Hit CircleView::hitAt(juce::Point<float> p) const
+{
+    const auto centre = getLocalBounds().toFloat().getCentre();
+    const float distance = p.getDistanceFrom(centre);
+    Hit hit;
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        float inner = 0.0f, outer = 0.0f;
+        ringRadii(v, inner, outer);
+        if (distance <= outer + 1.0f && distance >= inner - 2.0f)
+        {
+            const int n = std::clamp(rings_[static_cast<size_t>(v)].length, 1, gristo::kPatternSteps);
+            float angle = std::atan2(p.x - centre.x, centre.y - p.y); // 0 at 12 o'clock, clockwise
+            if (angle < 0.0f)
+                angle += juce::MathConstants<float>::twoPi;
+            hit.voice = v;
+            hit.step = std::clamp(static_cast<int>(angle / juce::MathConstants<float>::twoPi * static_cast<float>(n)), 0, n - 1);
+            return hit;
+        }
+    }
+    return hit;
+}
+
+void CircleView::mouseDown(const juce::MouseEvent& e)
+{
+    pressed_ = hitAt(e.position);
+    dragged_ = false;
+    if (pressed_.voice < 0)
+        return;
+    if (pressed_.voice != selected_)
+    {
+        selected_ = pressed_.voice;
+        if (onSelect)
+            onSelect(selected_);
+    }
+    pressedStep_ = gristo::decodeCircleStep(rings_[static_cast<size_t>(pressed_.voice)].steps[static_cast<size_t>(pressed_.step)]);
+    wasOn_ = pressedStep_.on;
+    if (!wasOn_) // set it at once (clearing waits for the mouse up: a drag edits instead)
+    {
+        pressedStep_.on = true;
+        rings_[static_cast<size_t>(pressed_.voice)].steps[static_cast<size_t>(pressed_.step)] = gristo::encodeCircleStep(pressedStep_);
+        if (onStep)
+            onStep(pressed_.voice, pressed_.step, gristo::encodeCircleStep(pressedStep_));
+    }
+    repaint();
+}
+
+void CircleView::mouseDrag(const juce::MouseEvent& e)
+{
+    if (pressed_.voice < 0 || (!dragged_ && std::abs(e.getDistanceFromDragStartY()) < 3))
+        return;
+    dragged_ = true;
+    const float delta = -static_cast<float>(e.getDistanceFromDragStartY()) / 120.0f; // up: more
+    gristo::CircleStep s = pressedStep_;
+    const gristo::CircleStep from = gristo::decodeCircleStep(rings_[static_cast<size_t>(pressed_.voice)].steps[static_cast<size_t>(pressed_.step)]);
+    s.on = true;
+    s.velocity = from.velocity;
+    s.chance = from.chance;
+    s.nudge = from.nudge;
+    s.repeat = from.repeat;
+    switch (edit_)
+    {
+        case Edit::Velocity: s.velocity = juce::jlimit(1, 127, juce::roundToInt(pressedStep_.velocity + delta * 127.0f)); break;
+        case Edit::Chance: s.chance = juce::jlimit(0, 100, juce::roundToInt(pressedStep_.chance + delta * 100.0f)); break;
+        case Edit::Nudge: s.nudge = juce::jlimit(-gristo::kMaxNudge, gristo::kMaxNudge, juce::roundToInt(pressedStep_.nudge + delta * 2.0f * gristo::kMaxNudge)); break;
+        case Edit::Repeat: s.repeat = juce::jlimit(1, gristo::kMaxRepeat, juce::roundToInt(pressedStep_.repeat + delta * 4.0f)); break;
+    }
+    const int code = gristo::encodeCircleStep(s);
+    if (code != rings_[static_cast<size_t>(pressed_.voice)].steps[static_cast<size_t>(pressed_.step)])
+    {
+        rings_[static_cast<size_t>(pressed_.voice)].steps[static_cast<size_t>(pressed_.step)] = code;
+        if (onStep)
+            onStep(pressed_.voice, pressed_.step, code);
+        repaint();
+    }
+}
+
+void CircleView::mouseUp(const juce::MouseEvent&)
+{
+    if (pressed_.voice >= 0 && wasOn_ && !dragged_) // a click on a set step clears it
+    {
+        gristo::CircleStep s = pressedStep_;
+        s.on = false;
+        const int code = gristo::encodeCircleStep(s);
+        rings_[static_cast<size_t>(pressed_.voice)].steps[static_cast<size_t>(pressed_.step)] = code;
+        if (onStep)
+            onStep(pressed_.voice, pressed_.step, code);
+        repaint();
+    }
+    pressed_ = {};
+}
+
 void DragOutHandle::paint(juce::Graphics& g)
 {
     const auto r = getLocalBounds().toFloat().reduced(0.5f);

@@ -22,8 +22,69 @@ inline int voiceLoopStep(std::int64_t absoluteStep, int length, int divide)
     return floorMod(floorDiv(absoluteStep, divide), length);
 }
 
+// Where the drums come from: the map (Grids-style, with Fill), or Circles: a ring of
+// steps per drum that you set by hand (after Patterning), each step with its own
+// velocity, chance, nudge and repeats.
+enum class PatternMode : int { Map = 0, Circles };
+
+// One step of a circle. Nudge in 24ths of a step (+-12: half a step early or late);
+// repeat 1..4 (a ratchet across the step); velocity 1..127; chance 0..100 %.
+struct CircleStep
+{
+    bool on = false;
+    int velocity = 100;
+    int chance = 100;
+    int nudge = 0;
+    int repeat = 1;
+    bool operator==(const CircleStep& o) const
+    {
+        return on == o.on && velocity == o.velocity && chance == o.chance && nudge == o.nudge && repeat == o.repeat;
+    }
+};
+constexpr int kMaxNudge = 12;
+constexpr int kMaxRepeat = 4;
+// Packed into one int (24 bits, so it also survives a float): parameters can't hold
+// these, so the plugin stores them alongside, as it does the hand edits.
+inline int encodeCircleStep(const CircleStep& s)
+{
+    auto clampi = [](int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; };
+    if (s == CircleStep {})
+        return 0; // an empty step is 0
+    return (s.on ? 1 : 0) | (clampi(s.velocity, 1, 127) << 1) | (clampi(s.chance, 0, 100) << 8)
+           | ((clampi(s.nudge, -kMaxNudge, kMaxNudge) + 64) << 15) | ((clampi(s.repeat, 1, kMaxRepeat) - 1) << 22);
+}
+inline CircleStep decodeCircleStep(int code)
+{
+    CircleStep s;
+    if (code == 0)
+        return s; // empty: off, at the defaults
+    s.on = (code & 1) != 0;
+    s.velocity = (code >> 1) & 127;
+    s.chance = (code >> 8) & 127;
+    s.nudge = ((code >> 15) & 127) - 64;
+    s.repeat = ((code >> 22) & 3) + 1;
+    if (s.velocity < 1) s.velocity = 1;
+    if (s.chance > 100) s.chance = 100;
+    if (s.nudge < -kMaxNudge || s.nudge > kMaxNudge) s.nudge = 0;
+    return s;
+}
+// Euclidean rhythm: `hits` spread as evenly as they go over `steps`, turned by `rotate`.
+inline bool euclidHit(int step, int hits, int steps, int rotate)
+{
+    if (steps <= 0 || hits <= 0)
+        return false;
+    if (hits >= steps)
+        return true;
+    const int k = floorMod(step - rotate, steps);
+    return (k * hits) % steps < hits;
+}
+
 struct PatternParams
 {
+    PatternMode mode = PatternMode::Map;
+    // Circles: per drum, its steps (encodeCircleStep), counted in the drum's own loop
+    // (Length steps, at its clock divider's rate).
+    std::array<std::array<std::int32_t, kPatternSteps>, kNumVoices> circles {};
     float mapX = 0.5f;
     float mapY = 0.5f;
     float chaos = 0.0f; // 0..1, perturbs levels, re-rolled every pattern cycle
@@ -63,6 +124,11 @@ struct VoiceHit
     float level = 0.0f;     // perturbed level, 0..1
     float threshold = 1.0f; // 1 - fill
     bool dropped = false;   // passed Fill but was removed by Probability
+    // Circles: the step's own velocity (0..1; < 0 = from the level), nudge (in steps)
+    // and repeats (0 = the voice's Ratchet).
+    float velocity = -1.0f;
+    float nudgeSteps = 0.0f;
+    int repeat = 0;
 };
 
 using StepHits = std::array<VoiceHit, kNumVoices>;
@@ -79,6 +145,8 @@ public:
     StepHits evaluate(const PatternParams& params, std::int64_t absoluteStep) const;
 
     static void applyLinear(StepHits& hits);
+    // Circles mode: each drum's ring of steps.
+    static StepHits evaluateCircles(const PatternParams& params, std::int64_t absoluteStep);
 
     // Fill in effect for a voice in the bar containing absoluteStep (after Fill Random).
     static float fillAt(const PatternParams& params, int voice, std::int64_t absoluteStep);

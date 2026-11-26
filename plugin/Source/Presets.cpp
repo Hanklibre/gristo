@@ -81,6 +81,8 @@ Snapshot PresetManager::captureSnapshot() const
             s.lanePoints.push_back(p::lanePoint(processor_.modPoints, lane, k).load());
     for (const auto& e : processor_.stepEdits) // the hand-edited drum steps ride along
         s.lanePoints.push_back(static_cast<float>(e.load()));
+    for (const auto& c : processor_.circleSteps) // and the Circles rings (24-bit codes: exact in a float)
+        s.lanePoints.push_back(static_cast<float>(c.load()));
     return s;
 }
 
@@ -104,10 +106,14 @@ void PresetManager::applySnapshot(const Snapshot& s)
         for (int lane = 0; lane < gristo::kNumModLanes; ++lane)
             for (int k = 0; k < gristo::kMaxModPoints; ++k)
                 p::lanePoint(processor_.modPoints, lane, k).store(s.lanePoints[static_cast<size_t>(lane * gristo::kMaxModPoints + k)]);
-    if (s.lanePoints.size() == points + processor_.stepEdits.size())
+    const size_t edits = processor_.stepEdits.size();
+    if (s.lanePoints.size() == points + edits || s.lanePoints.size() == points + edits + processor_.circleSteps.size())
     {
-        for (size_t e = 0; e < processor_.stepEdits.size(); ++e)
+        for (size_t e = 0; e < edits; ++e)
             processor_.stepEdits[e].store(juce::jlimit(0, 2, static_cast<int>(s.lanePoints[points + e])));
+        if (s.lanePoints.size() > points + edits)
+            for (size_t c = 0; c < processor_.circleSteps.size(); ++c)
+                processor_.circleSteps[c].store(gristo::encodeCircleStep(gristo::decodeCircleStep(static_cast<int>(s.lanePoints[points + edits + c]))));
         processor_.stepEditsChanged();
     }
 }

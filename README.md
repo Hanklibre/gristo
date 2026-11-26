@@ -80,6 +80,32 @@ Stolperbeats-style groove engine and adds a groove-aware humanizer.
   arps), the arps on channels 1, 2 and 4 (3 is the chords) with an Out Shift each, plus the built-in
   sounds, so it makes sound straight away.
 
+### Circles, a chord timeline, a tidier chords page
+
+* **Circles** (Pattern mode, at the top of the drums' map panel and on the Play page),
+  after the Patterning app: the drums as rings of steps, the kick outermost. Each ring
+  is as long as its drum's Length (so rings of 16, 12 and 5 steps drift against each
+  other) and runs at its clock divider's rate. Click a step to set or clear it; drag a
+  set step up or down to change, by the edit mode: its **velocity**, its **chance**,
+  its **nudge** (up to half a step early or late) or its **repeats** (1 to 4 hits across
+  the step). **Edit circles** opens the rings big, with each ring's Steps and Rate,
+  **Euclid** (hits spread evenly) and **Rotate**, Shift left / right, Reverse, Random,
+  Clear, and **From map** / **All from map** to start from the groove the map plays
+  (switching to Circles the first time does this for you). Probability, mutes, Swing
+  and Humanize still apply. The rings are saved with songs, presets, scenes and undo.
+* **Chord progressions in quarter notes:** up to 16 slots, each lasting its own
+  number of quarter notes (1/4 to 4 bars). The strip under the map is a little
+  timeline: drag a slot's right edge to make it longer or shorter, right-click it for
+  its length, Duplicate or Remove. A chord you add lasts the chord length.
+* **The chords page, regrouped:** the top row shows only what the mode uses (Wander,
+  chord length, phrase, Catch for Wander; the chord length for Progression); the
+  map and the progression on the left; **Rhythm** (Held's Push and Re-strike, or
+  Stabs' drums, Every, Stab % and gate, as Play is set) and **Voicing** on the right;
+  the MIDI out along the bottom.
+* **No lost notes when you click chords quickly:** a chord started while the last one
+  still rang could steal its own just-started notes. The synths now steal released
+  notes first, and have 16 voices.
+
 ### A new synth engine
 
 Every synth sound is rebuilt on a new engine. The voices run at twice the host's

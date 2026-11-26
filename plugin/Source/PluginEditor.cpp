@@ -181,6 +181,7 @@ GristoView::GristoView(GristoProcessor& proc)
     setupArpPage();
     setupSoundPage();
     setupChordPage();
+    setupCirclesPage();
     for (int pg = 0; pg <= kSoundsPage; ++pg)
     {
         auto& tab = pageTabs_[pg];
@@ -1012,7 +1013,7 @@ void GristoView::timerCallback()
 {
     for (int s = 0; s < gristo::sound::kNumSynths; ++s)
         updateToneLabels(s);
-    const gristo::EngineParams params = p::readEngineParams(processor_.state, processor_.modPoints, &processor_.stepEdits);
+    const gristo::EngineParams params = p::readEngineParams(processor_.state, processor_.modPoints, &processor_.stepEdits, &processor_.circleSteps);
     previewEngine_.setParams(params);
     mapPad_.refreshHeat(params);
     updateModulationDisplay(params);
@@ -1066,6 +1067,7 @@ void GristoView::timerCallback()
         presetName_.setButtonText(presets.currentName() + (presets.isDirty() ? " *" : ""));
     }
     updateChordPage(params);
+    updateCircles(params);
     if (isArpPage())
     {
         const auto& ap = params.arps[static_cast<size_t>(page_ - 1)];
@@ -1357,6 +1359,268 @@ void GristoView::setupSoundPage()
 
 // ---------------------------------------------------------------------------------
 // Chords page
+
+void GristoView::setupCirclesPage()
+{
+    addAndMakeVisible(circleView_);
+    circleView_.onStep = [this](int voice, int step, int code) {
+        processor_.setCircleStep(voice, step, code);
+        selectedRing_ = voice;
+    };
+    circleView_.onSelect = [this](int voice) {
+        selectedRing_ = voice;
+        applyPatternMode();
+        repaint();
+    };
+    setHelp(circleView_, "Circles", "A ring of steps per drum, the kick outermost, each as long as the drum's Length. Click a step to set or clear it; "
+                                    "drag up or down on a set step to change its velocity, chance, nudge or repeats (the edit mode, under the rings on the Circles page).");
+    setupChoice(patternMode_, p::patternMode, "Pattern");
+    patternMode_.label.setVisible(false);
+    setHelp(patternMode_.box, "Pattern mode", "Map: the drums come from the map, Fill and Chaos. Circles: from a ring of steps per drum that you set by hand, "
+                                              "each step with its own velocity, chance, nudge and repeats (after the Patterning app). Switching to Circles the first time "
+                                              "starts the rings from what the map plays.");
+    patternMode_.box.onChange = [this] {
+        // The first time: the rings start from what the map plays.
+        if (patternMode_.box.getSelectedItemIndex() == 1)
+        {
+            bool empty = true;
+            for (const auto& c : processor_.circleSteps)
+                empty = empty && gristo::decodeCircleStep(c.load()).on == false;
+            if (empty)
+                for (int v = 0; v < gristo::kNumVoices; ++v)
+                    ringFromMap(v);
+        }
+        applyPatternMode();
+    };
+    circlesButton_.onClick = [this] {
+        circlesReturnPage_ = page_;
+        showPage(kCirclesPage);
+    };
+    backFromCircles_.onClick = [this] { showPage(circlesReturnPage_ == kCirclesPage ? 0 : circlesReturnPage_); };
+    setHelp(circlesButton_, "Edit circles", "The rings big, with each drum's steps, rate, Euclid and tools.");
+    setHelp(backFromCircles_, "Back", "Back to where you were.");
+    const char* edits[] = { "Velocity", "Chance", "Nudge", "Repeat" };
+    const char* editHelp[] = { "Drag a step up or down: how hard it plays.", "Drag a step: the chance it plays each time round.",
+                               "Drag a step: early (down) or late (up), up to half a step.", "Drag a step: 1 to 4 hits across the step (a ratchet)." };
+    for (int i = 0; i < 4; ++i)
+    {
+        auto& b = circleEdit_[i];
+        b.setButtonText(edits[i]);
+        b.setClickingTogglesState(true);
+        b.setRadioGroupId(5101);
+        b.setColour(juce::TextButton::buttonOnColourId, colours::accent);
+        b.setColour(juce::TextButton::textColourOnId, colours::background);
+        b.onClick = [this, i] {
+            if (circleEdit_[i].getToggleState())
+                circleView_.setEdit(static_cast<CircleView::Edit>(i));
+        };
+        setHelp(b, juce::String("Edit ") + edits[i], editHelp[i]);
+        addAndMakeVisible(b);
+    }
+    circleEdit_[0].setToggleState(true, juce::dontSendNotification);
+    auto& st = processor_.state;
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        ringLength_[v] = std::make_unique<NumberSelector>(*st.getParameter(p::voiceId(p::voiceLength, v)), "Steps ", 1, gristo::kPatternSteps);
+        ringDivide_[v] = std::make_unique<NumberSelector>(*st.getParameter(p::voiceId(p::voiceDivide, v)), "Rate /", 1, gristo::kMaxClockDivide);
+        addChildComponent(*ringLength_[v]);
+        addChildComponent(*ringDivide_[v]);
+        setHelp(*ringLength_[v], "Steps", "How many steps this drum's ring has (its Length): rings of different lengths drift against each other.");
+        setHelp(*ringDivide_[v], "Rate", "The ring's clock: /1 moves a step every 16th, /2 every 8th, /3 in threes...");
+    }
+    for (auto* s : { &euclidHits_, &euclidRotate_ })
+    {
+        s->setSliderStyle(juce::Slider::LinearBar);
+        s->setRange(0.0, gristo::kPatternSteps, 1.0);
+        addAndMakeVisible(*s);
+    }
+    euclidHits_.textFromValueFunction = [](double v) { return "Euclid  " + juce::String(juce::roundToInt(v)) + " hits"; };
+    euclidRotate_.textFromValueFunction = [](double v) { return "Rotate  " + juce::String(juce::roundToInt(v)); };
+    euclidHits_.updateText();
+    euclidRotate_.updateText();
+    auto applyEuclid = [this] {
+        const int hits = juce::roundToInt(euclidHits_.getValue()), rotate = juce::roundToInt(euclidRotate_.getValue());
+        editRing(selectedRing_, [hits, rotate](auto& steps, int length) {
+            for (int k = 0; k < length; ++k)
+            {
+                steps[static_cast<size_t>(k)].on = gristo::euclidHit(k, hits, length, rotate);
+                if (steps[static_cast<size_t>(k)].on && k == gristo::floorMod(rotate, length)) // the first hit a little stronger
+                    steps[static_cast<size_t>(k)].velocity = std::max(steps[static_cast<size_t>(k)].velocity, 112);
+            }
+        });
+    };
+    euclidHits_.onDragEnd = applyEuclid;
+    euclidRotate_.onDragEnd = applyEuclid;
+    euclidHits_.onValueChange = [this, applyEuclid] { if (!euclidHits_.isMouseButtonDown()) applyEuclid(); };
+    euclidRotate_.onValueChange = [this, applyEuclid] { if (!euclidRotate_.isMouseButtonDown()) applyEuclid(); };
+    setHelp(euclidHits_, "Euclid", "Spreads this many hits as evenly as they go around the ring (3 in 8: the tresillo; 5 in 16: a bossa). Replaces the ring's hits.");
+    setHelp(euclidRotate_, "Rotate", "Turns the Euclid pattern around the ring.");
+    const char* tools[] = { "Shift left", "Shift right", "Reverse", "Random", "Clear", "From map", "All from map" };
+    const char* toolHelp[] = { "Moves the ring's steps one step earlier.", "Moves the ring's steps one step later.", "Plays the ring backwards.",
+                               "A new random ring: about as busy as it is now, with varied velocities.", "Clears the ring.",
+                               "Copies what the map plays for this drum onto its ring (velocities from the map's levels).",
+                               "Every ring from the map: start from a groove, then make it your own." };
+    for (int i = 0; i < 7; ++i)
+    {
+        ringTools_[i].setButtonText(tools[i]);
+        setHelp(ringTools_[i], tools[i], toolHelp[i]);
+        addAndMakeVisible(ringTools_[i]);
+    }
+    ringTools_[0].onClick = [this] {
+        editRing(selectedRing_, [](auto& steps, int length) { std::rotate(steps.begin(), steps.begin() + 1, steps.begin() + length); });
+    };
+    ringTools_[1].onClick = [this] {
+        editRing(selectedRing_, [](auto& steps, int length) { std::rotate(steps.begin(), steps.begin() + length - 1, steps.begin() + length); });
+    };
+    ringTools_[2].onClick = [this] { editRing(selectedRing_, [](auto& steps, int length) { std::reverse(steps.begin(), steps.begin() + length); }); };
+    ringTools_[3].onClick = [this] {
+        editRing(selectedRing_, [](auto& steps, int length) {
+            int on = 0;
+            for (int k = 0; k < length; ++k)
+                on += steps[static_cast<size_t>(k)].on ? 1 : 0;
+            const float density = on > 0 ? static_cast<float>(on) / static_cast<float>(length) : 0.3f;
+            auto& r = juce::Random::getSystemRandom();
+            for (int k = 0; k < length; ++k)
+            {
+                auto& s = steps[static_cast<size_t>(k)];
+                s.on = r.nextFloat() < density;
+                s.velocity = juce::jlimit(1, 127, (k % 4 == 0 ? 105 : 80) + r.nextInt({ -25, 20 }));
+            }
+        });
+    };
+    ringTools_[4].onClick = [this] {
+        editRing(selectedRing_, [](auto& steps, int) {
+            for (auto& s : steps)
+                s = {};
+        });
+    };
+    ringTools_[5].onClick = [this] { ringFromMap(selectedRing_); };
+    ringTools_[6].onClick = [this] {
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+            ringFromMap(v);
+    };
+    circlesNote_.setFont(juce::FontOptions(11.5f));
+    circlesNote_.setColour(juce::Label::textColourId, colours::dim);
+    circlesNote_.setJustificationType(juce::Justification::topLeft);
+    circlesNote_.setText("Click a step to set or clear it; drag a set step up or down to change it in the edit mode. Pick a ring by clicking it "
+                         "(or its drum on the left). Probability, Mute, Swing and Humanize still apply to the rings; the map, Fill and Chaos don't.",
+                         juce::dontSendNotification);
+    addAndMakeVisible(circlesNote_);
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &circlesButton_, &backFromCircles_ })
+        addAndMakeVisible(c);
+}
+
+void GristoView::editRing(int voice, const std::function<void(std::array<gristo::CircleStep, gristo::kPatternSteps>&, int length)>& change)
+{
+    if (voice < 0 || voice >= gristo::kNumVoices)
+        return;
+    std::array<gristo::CircleStep, gristo::kPatternSteps> steps;
+    for (int k = 0; k < gristo::kPatternSteps; ++k)
+        steps[static_cast<size_t>(k)] = gristo::decodeCircleStep(processor_.circleStep(voice, k));
+    const int length = juce::jlimit(1, gristo::kPatternSteps, juce::roundToInt(processor_.state.getRawParameterValue(p::voiceId(p::voiceLength, voice))->load()));
+    change(steps, length);
+    for (int k = 0; k < gristo::kPatternSteps; ++k)
+        processor_.setCircleStep(voice, k, gristo::encodeCircleStep(steps[static_cast<size_t>(k)]));
+}
+
+void GristoView::ringFromMap(int voice)
+{
+    // What the map plays for the drum over its own loop, with the map's levels as velocities.
+    gristo::EngineParams params = p::readEngineParams(processor_.state, processor_.modPoints, &processor_.stepEdits, &processor_.circleSteps);
+    params.pattern.mode = gristo::PatternMode::Map;
+    params.pattern.probability.fill(1.0f);
+    const gristo::PatternGenerator generator(previewEngine_.map());
+    const int length = std::clamp(params.pattern.length[static_cast<size_t>(voice)], 1, gristo::kPatternSteps);
+    const int divide = std::clamp(params.pattern.divide[static_cast<size_t>(voice)], 1, gristo::kMaxClockDivide);
+    editRing(voice, [&](auto& steps, int) {
+        for (int k = 0; k < length; ++k)
+        {
+            const auto hit = generator.evaluate(params.pattern, static_cast<std::int64_t>(k) * divide)[static_cast<size_t>(voice)];
+            auto& s = steps[static_cast<size_t>(k)];
+            s = {};
+            s.on = hit.on;
+            s.velocity = juce::jlimit(1, 127, juce::roundToInt(40.0f + 87.0f * std::clamp((hit.level - hit.threshold) / std::max(0.05f, 1.0f - hit.threshold), 0.0f, 1.0f)));
+        }
+    });
+}
+
+std::vector<juce::Component*> GristoView::circlesPageComponents()
+{
+    std::vector<juce::Component*> list { &backFromCircles_, &euclidHits_, &euclidRotate_, &circlesNote_ };
+    for (auto& b : circleEdit_)
+        list.push_back(&b);
+    for (auto& b : ringTools_)
+        list.push_back(&b);
+    return list;
+}
+
+void GristoView::applyPatternMode()
+{
+    const bool circles = processor_.state.getRawParameterValue(p::patternMode)->load() > 0.5f;
+    if (circlesShown_ != circles)
+        repaint();
+    circlesShown_ = circles;
+    const bool drums = page_ == 0, play = page_ == kPlayPage, big = page_ == kCirclesPage;
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &mapPad_, &nodeLabel_, &linear_.button })
+        c->setVisible((drums || play) && !circles);
+    for (Knob* k : { &chaos_, &mapRandom_, &variation_ })
+    {
+        k->slider.setVisible(drums && !circles);
+        k->label.setVisible(drums && !circles);
+    }
+    circleView_.setVisible(((drums || play) && circles) || big);
+    circlesButton_.setVisible((drums || play) && circles);
+    patternMode_.box.setVisible(drums || play || big);
+    for (auto* c : circlesPageComponents())
+        c->setVisible(big);
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        ringLength_[v]->setVisible(big && v == selectedRing_);
+        ringDivide_[v]->setVisible(big && v == selectedRing_);
+    }
+}
+
+void GristoView::updateCircles(const gristo::EngineParams& params)
+{
+    const bool circles = params.pattern.mode == gristo::PatternMode::Circles;
+    if (circles != circlesShown_ || (page_ == kCirclesPage && !ringLength_[selectedRing_]->isVisible()))
+        applyPatternMode();
+    if (!circleView_.isVisible())
+        return;
+    if (page_ == kCirclesPage && selectedPart_ < gristo::kNumVoices && selectedPart_ != lastRingPart_)
+    {
+        lastRingPart_ = selectedPart_; // a drum picked on the left selects its ring
+        selectedRing_ = selectedPart_;
+        applyPatternMode();
+    }
+    CircleView::Rings rings;
+    std::array<int, gristo::kNumVoices> playing {};
+    const bool running = processor_.displayPlaying.load();
+    const auto step = static_cast<std::int64_t>(std::floor(processor_.displayPpq.load() * gristo::kStepsPerBeat));
+    for (int v = 0; v < gristo::kNumVoices; ++v)
+    {
+        auto& ring = rings[static_cast<size_t>(v)];
+        ring.length = params.pattern.length[static_cast<size_t>(v)];
+        ring.muted = params.partMute[static_cast<size_t>(v)];
+        for (int k = 0; k < gristo::kPatternSteps; ++k)
+            ring.steps[static_cast<size_t>(k)] = params.pattern.circles[static_cast<size_t>(v)][static_cast<size_t>(k)];
+        int loopStep = -1;
+        if (running) // the step the ring is on (held between its clock's ticks)
+        {
+            const int divide = std::clamp(params.pattern.divide[static_cast<size_t>(v)], 1, gristo::kMaxClockDivide);
+            loopStep = gristo::voiceLoopStep(step - gristo::floorMod(step, divide), ring.length, divide);
+        }
+        playing[static_cast<size_t>(v)] = loopStep;
+    }
+    circleView_.update(rings, playing, selectedRing_);
+    // The Euclid sliders follow the selected ring's length.
+    const int length = std::clamp(params.pattern.length[static_cast<size_t>(selectedRing_)], 1, gristo::kPatternSteps);
+    if (juce::roundToInt(euclidHits_.getMaximum()) != length)
+    {
+        euclidHits_.setRange(0.0, length, 1.0);
+        euclidRotate_.setRange(0.0, std::max(1, length - 1), 1.0);
+    }
+}
 
 void GristoView::setupChordPage()
 {
@@ -2061,6 +2325,13 @@ void GristoView::setupPartStrip()
         b.setColour(juce::TextButton::buttonOnColourId, master ? colours::accent : partColour(part));
         b.setColour(juce::TextButton::textColourOnId, colours::background);
         b.onClick = [this, part, master] {
+            if (page_ == kCirclesPage && part < gristo::kNumVoices) // on the Circles page a drum picks its ring
+            {
+                selectedPart_ = lastRingPart_ = selectedRing_ = part;
+                applyPatternMode();
+                repaint();
+                return;
+            }
             selectedPart_ = part;
             // Master / FX only exists as an Edit page; a part keeps the screen you are on.
             setEditMode(editMode_ || master);
@@ -2654,6 +2925,8 @@ void GristoView::showPage(int page)
             handles[i].setVisible(false);
     kitGain_.slider.setVisible(false);
     kitGain_.label.setVisible(false);
+    chordWander_.slider.setVisible(false); // the Play page's (the chords page has its bar)
+    chordWander_.label.setVisible(false);
     freeTempo_.slider.setVisible(false);
     freeTempo_.label.setVisible(false);
     // The Play screen: both pads, the big knobs and a few choices borrowed from the pages.
@@ -2668,6 +2941,7 @@ void GristoView::showPage(int page)
                                                                             &chordWander_.label, &catchButton_, &progression_, &useWalk_,
                                                                             &clearProgression_ })
             c->setVisible(true);
+    applyPatternMode();
     // Lanes, routing, MIDI drag and the macro knobs belong to Edit.
     for (auto* c : modulationPageComponents())
         c->setVisible(!play);
@@ -2898,7 +3172,7 @@ void GristoView::paint(juce::Graphics& g)
     }
     else if (page_ == 0)
     {
-        drawPanel(g, { px, py, 300, kPageH }, "Map");
+        drawPanel(g, { px, py, 300, kPageH }, circlesShown_ ? "Pattern" : "Map");
         drawPanel(g, { px + 308, py, 504, 392 }, "Voices");
         drawPanel(g, { px + 820, py, 252, 392 }, "Kit");
         drawPanel(g, { px + 308, py + 400, 764, 100 }, {});
@@ -2953,6 +3227,18 @@ void GristoView::paint(juce::Graphics& g)
         g.setFont(juce::FontOptions(11.0f));
         g.drawFittedText("Separate outputs: Kit, Arp 1-3, Chords, Reverb, Beads, Rings and Delay each get their own plugin output.",
                          { px + 790, py + 160, 270, 34 }, juce::Justification::topLeft, 3);
+    }
+    else if (page_ == kCirclesPage)
+    {
+        drawPanel(g, { px, py, kPageW, kPageH }, "Circles");
+        const int rx = px + 512;
+        g.setColour(colours::dim);
+        g.setFont(juce::FontOptions(10.5f, juce::Font::bold));
+        g.drawText("DRAG CHANGES", rx, py + 78, 200, 14, juce::Justification::centredLeft);
+        g.drawText("RING", rx, py + 142, 200, 14, juce::Justification::centredLeft);
+        g.setColour(voiceColours[selectedRing_]);
+        g.setFont(juce::FontOptions(17.0f, juce::Font::bold));
+        g.drawText(gristo::voiceName(selectedRing_), rx, py + 160, 140, 26, juce::Justification::centredLeft);
     }
     else if (page_ == kChartPage)
     {
@@ -3152,6 +3438,10 @@ void GristoView::resized()
     // Drums page: map
     mapPad_.setBounds(px + 12, py + 24, 276, 276);
     nodeLabel_.setBounds(px + 12, py + 304, 276, 18);
+    // Circles mode: the rings in the map's place.
+    patternMode_.box.setBounds(px + 196, py + 4, 92, 20);
+    circleView_.setBounds(px + 12, py + 34, 276, 276);
+    circlesButton_.setBounds(px + 12, py + 322, 276, 30);
     placeKnob(chaos_, { px + 12, py + 326, 92, 108 });
     placeKnob(mapRandom_, { px + 104, py + 338, 92, 92 });
     placeKnob(variation_, { px + 196, py + 326, 92, 108 });
@@ -3438,6 +3728,9 @@ void GristoView::resized()
         // Rhythm: the map with the choices that shape it most.
         mapPad_.setBounds(px + 12, py + 26, 392, kPadPanelH - 56);
         nodeLabel_.setBounds(px + 12, py + kPadPanelH - 26, 392, 18);
+        circleView_.setBounds(px + 12, py + 26, 392, kPadPanelH - 56);
+        circlesButton_.setBounds(px + 414, py + 266, 106, 26);
+        patternMode_.box.setBounds(px + 414, py + 230, 106, 26);
         soundKit_.box.setBounds(px + 414, py + 44, 106, 26);
         timing_.label.setBounds(px + 414, py + 80, 106, 14);
         timing_.box.setBounds(px + 414, py + 96, 106, 26);
@@ -3483,6 +3776,28 @@ void GristoView::resized()
         useWalk_.setBounds(rx, py + 250, half, 30);
         clearProgression_.setBounds(rx + half + 6, py + 250, half, 30);
         backFromChart_.setBounds(rx, py + 422, rw, 30);
+    }
+    if (page_ == kCirclesPage)
+    {
+        // The rings big on the left; the edit mode, the selected ring and its tools on the right.
+        circleView_.setBounds(px + 16, py + 30, 464, 464);
+        const int rx = px + 512, rw = 544;
+        patternMode_.box.setBounds(rx, py + 30, 130, 28);
+        backFromCircles_.setBounds(rx + rw - 110, py + 30, 110, 28);
+        for (int i = 0; i < 4; ++i)
+            circleEdit_[i].setBounds(rx + i * (rw / 4), py + 96, rw / 4 - 6, 30);
+        for (int v = 0; v < gristo::kNumVoices; ++v)
+        {
+            ringLength_[v]->setBounds(rx + 150, py + 160, 120, 26);
+            ringDivide_[v]->setBounds(rx + 276, py + 160, 100, 26);
+        }
+        euclidHits_.setBounds(rx, py + 200, rw / 2 - 4, 28);
+        euclidRotate_.setBounds(rx + rw / 2 + 4, py + 200, rw / 2 - 4, 28);
+        for (int i = 0; i < 4; ++i)
+            ringTools_[i].setBounds(rx + i * (rw / 4), py + 244, rw / 4 - 6, 28);
+        for (int i = 4; i < 7; ++i)
+            ringTools_[i].setBounds(rx + (i - 4) * (rw / 3), py + 278, rw / 3 - 6, 28);
+        circlesNote_.setBounds(rx, py + 330, rw, 90);
     }
 }
 

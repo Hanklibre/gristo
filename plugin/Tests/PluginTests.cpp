@@ -1047,3 +1047,48 @@ TEST("plugin: the synths' Tone knobs, filter and FM algorithm reach the engine a
     const Run run = play(*proc, 600);
     CHECK(run.nonFinite == 0 && run.unpaired == 0 && run.peak > 0.01f && run.peak <= 1.0f);
 }
+
+TEST("plugin: Circles mode plays the rings; they travel with snapshots and survive a project reload")
+{
+    auto proc = makeProcessor();
+    using namespace gristo;
+    // Only the kick on its own channel, four on the floor in a 16-step ring.
+    for (int v = 0; v < kNumVoices; ++v)
+    {
+        setParam(*proc, p::voiceId(p::voiceChannel, v), static_cast<float>(10 + v));
+        setParam(*proc, p::voiceId(p::voiceLength, v), 16.0f);
+    }
+    CircleStep step;
+    step.on = true;
+    step.velocity = 120;
+    for (int k : { 0, 4, 8, 12 })
+        proc->setCircleStep(Kick, k, encodeCircleStep(step));
+    step.chance = 0; // a snare that never plays
+    proc->setCircleStep(Snare, 4, encodeCircleStep(step));
+    setParam(*proc, p::patternMode, 1.0f);
+    const auto params = p::readEngineParams(proc->state, proc->modPoints, &proc->stepEdits, &proc->circleSteps);
+    CHECK(params.pattern.mode == PatternMode::Circles && decodeCircleStep(params.pattern.circles[Kick][4]).on);
+    proc->pump(2);
+    // About eight seconds: the kick on every beat.
+    const Run run = play(*proc, 1500);
+    const double beats = 1500.0 * 256.0 / 48000.0 * getParam(*proc, p::freeTempo) / 60.0;
+    CHECK(run.nonFinite == 0 && run.unpaired == 0);
+    CHECK_MSG(std::abs(run.noteOns[10] - beats) <= 1.5, run.noteOns[10] << " kicks in " << beats << " beats");
+    CHECK(run.noteOns[11] == 0);                         // the snare: chance 0
+    for (int ch = 12; ch <= 15; ++ch)
+        CHECK(run.noteOns[static_cast<size_t>(ch)] == 0); // nothing else is set
+
+    const Snapshot withRings = proc->presets.captureSnapshot();
+    for (int k = 0; k < kPatternSteps; ++k)
+        proc->setCircleStep(Kick, k, 0);
+    CHECK(!decodeCircleStep(proc->circleStep(Kick, 4)).on);
+    proc->presets.applySnapshot(withRings);
+    CHECK(decodeCircleStep(proc->circleStep(Kick, 4)).on && decodeCircleStep(proc->circleStep(Kick, 4)).velocity == 120);
+
+    juce::MemoryBlock state;
+    proc->getStateInformation(state);
+    GristoProcessor other;
+    other.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    CHECK(decodeCircleStep(other.circleStep(Kick, 8)).on && decodeCircleStep(other.circleStep(Snare, 4)).chance == 0);
+    CHECK(getParam(other, p::patternMode) > 0.5f);
+}

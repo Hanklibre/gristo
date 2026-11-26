@@ -271,6 +271,49 @@ private:
     static constexpr float kMinSlot = 30.0f, kPlusSlot = 36.0f;
 };
 
+// Circles (after Patterning): one ring of steps per drum, the kick outermost, each
+// as many steps as the drum's Length, the step playing lit. Click a step to set or
+// clear it; drag up / down on a set step to change what the edit mode shows (its
+// velocity, chance, nudge or repeats), drawn as how far the step is filled.
+class CircleView : public juce::Component
+{
+public:
+    enum class Edit { Velocity = 0, Chance, Nudge, Repeat };
+    struct Ring
+    {
+        int length = 16;
+        std::array<int, gristo::kPatternSteps> steps {}; // encodeCircleStep codes
+        bool muted = false;
+        bool operator==(const Ring& o) const { return length == o.length && steps == o.steps && muted == o.muted; }
+    };
+    using Rings = std::array<Ring, gristo::kNumVoices>;
+    void update(const Rings& rings, const std::array<int, gristo::kNumVoices>& playing, int selected);
+    void setEdit(Edit edit);
+    Edit edit() const { return edit_; }
+    std::function<void(int voice, int step, int code)> onStep;
+    std::function<void(int voice)> onSelect;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    static float editValue(const gristo::CircleStep& s, Edit edit); // 0..1, as drawn
+
+private:
+    struct Hit
+    {
+        int voice = -1, step = -1;
+    };
+    Hit hitAt(juce::Point<float> p) const;
+    void ringRadii(int voice, float& inner, float& outer) const;
+    Rings rings_ {};
+    std::array<int, gristo::kNumVoices> playing_ {};
+    int selected_ = 0;
+    Edit edit_ = Edit::Velocity;
+    Hit pressed_;
+    gristo::CircleStep pressedStep_;
+    bool dragged_ = false, wasOn_ = false;
+};
+
 // Two-handle MIDI velocity range (1..127) for one voice. Accepts lanes (Velocity target).
 class VelocityRange : public juce::Component, public ModDropTarget
 {

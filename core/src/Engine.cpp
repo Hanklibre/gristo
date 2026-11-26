@@ -601,11 +601,13 @@ HitInfo Engine::describe(std::int64_t step, int voice, double bpm, bool withHuma
     if (!h.on)
         return h;
 
-    float norm = normalizedVelocity(ep, vh, voice);
+    // Circles: the step's own velocity and nudge (the groove and the humanizer still apply).
+    float norm = vh.velocity >= 0.0f ? vh.velocity : normalizedVelocity(ep, vh, voice);
+    h.timeBeats += static_cast<double>(vh.nudgeSteps) / kStepsPerBeat;
     // The next step for this voice (its Swing amount scales the shuffle).
     const double nextStraight = static_cast<double>(step + 1) / kStepsPerBeat;
     const double nextGrid = nextStraight + (gridAt(step + 1) - nextStraight) * std::clamp(g.swing[static_cast<size_t>(voice)], 0.0f, 1.0f);
-    h.rollCount = Groove::rollCount(g, voice, step);
+    h.rollCount = vh.repeat > 1 ? vh.repeat : Groove::rollCount(g, voice, step);
     h.rollSpacingBeats = (nextGrid - h.gridBeats) / h.rollCount;
 
     if (withHumanize && ep.humanize.amount > 0.0f)

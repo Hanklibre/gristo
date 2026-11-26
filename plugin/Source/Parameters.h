@@ -223,6 +223,7 @@ inline const juce::String chordStabChance = "chStabChance";
 inline const juce::String chordPush = "chPush";
 inline const juce::String chordRestrike = "chRestrike";
 inline const juce::String chordProgression = "chProg"; // per slot (0..15): a cell code, -1 = empty
+inline const juce::String patternMode = "patMode"; // Map or Circles
 inline const juce::String chordProgBeats = "chProgBeats"; // per slot: its length in quarters, 0 = the chord length
 constexpr int kLegacyProgressionSlots = 8; // the first eight slots sit where they always did in the layout
 inline const int kChordPushSteps[] = { 0, 1, 2, 4, -1, -2, -4 }; // On the 1, early 1/16, 1/8, 1/4, late 1/16, 1/8, 1/4
@@ -250,6 +251,8 @@ juce::String slotId(const juce::String& base, int lane, int slot);
 using ModPointStore = std::array<std::atomic<float>, kNumModLanes * kMaxModPoints>;
 // Hand-edited drum steps (see PatternParams::edits), voice * kPatternSteps + step.
 using StepEditStore = std::array<std::atomic<int>, kNumVoices * kPatternSteps>;
+// Circles mode: each drum's ring of steps (encodeCircleStep), voice * kPatternSteps + step.
+using CircleStore = std::array<std::atomic<int>, kNumVoices * kPatternSteps>;
 inline std::atomic<float>& lanePoint(ModPointStore& store, int lane, int index) { return store[static_cast<size_t>(lane * kMaxModPoints + index)]; }
 inline const std::atomic<float>& lanePoint(const ModPointStore& store, int lane, int index) { return store[static_cast<size_t>(lane * kMaxModPoints + index)]; }
 inline int barsForChoice(int choice) { return choice <= 0 ? 1 : choice == 1 ? 2 : 4; }
@@ -287,7 +290,8 @@ void setActiveOffsets(const ParamOffsets* offsets);
 
 // Reads the current parameter values into engine parameters. Lock-free (atomic
 // loads only), so it is safe on both the audio and the message thread.
-EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state, const ModPointStore& lanes, const StepEditStore* edits = nullptr);
+EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& state, const ModPointStore& lanes, const StepEditStore* edits = nullptr,
+                              const CircleStore* circles = nullptr);
 
 // Built-in sound settings (also lock-free).
 sound::KitParams readKitParams(const juce::AudioProcessorValueTreeState& state);

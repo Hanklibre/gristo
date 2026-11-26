@@ -487,10 +487,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     for (int slot = 0; slot < kMaxProgression; ++slot)
         layout.add(std::make_unique<juce::AudioParameterInt>(juce::ParameterID { laneId(chordProgBeats, slot), kVersion },
                                                              "Progression Length " + juce::String(slot + 1), 0, kMaxSlotBeats, 0));
+    layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID { patternMode, kVersion }, "Pattern Mode",
+                                                            juce::StringArray { "Map", "Circles" }, 0));
     return layout;
 }
 
-EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const ModPointStore& lanes, const StepEditStore* edits)
+EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const ModPointStore& lanes, const StepEditStore* edits, const CircleStore* circles)
 {
     EngineParams p;
     p.pattern.mapX = load(s, mapX);
@@ -643,6 +645,11 @@ EngineParams readEngineParams(const juce::AudioProcessorValueTreeState& s, const
             for (int k = 0; k < kPatternSteps; ++k)
                 p.pattern.edits[static_cast<size_t>(v)][static_cast<size_t>(k)]
                     = static_cast<std::int8_t>(juce::jlimit(0, 2, (*edits)[static_cast<size_t>(v * kPatternSteps + k)].load(std::memory_order_relaxed)));
+    p.pattern.mode = load(s, patternMode) > 0.5f ? PatternMode::Circles : PatternMode::Map;
+    if (circles != nullptr)
+        for (int v = 0; v < kNumVoices; ++v)
+            for (int k = 0; k < kPatternSteps; ++k)
+                p.pattern.circles[static_cast<size_t>(v)][static_cast<size_t>(k)] = (*circles)[static_cast<size_t>(v * kPatternSteps + k)].load(std::memory_order_relaxed);
     MacroParams macros;
     macros.busy = load(s, busy);
     macros.loose = load(s, loose);

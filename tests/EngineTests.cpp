@@ -567,3 +567,69 @@ TEST("modulation: a lane can run as a tempo-synced LFO")
                 CHECK(v >= 0.0f && v <= 1.0f);
             }
 }
+
+TEST("circles: steps round-trip; Euclid spreads hits evenly")
+{
+    CircleStep s;
+    s.on = true;
+    s.velocity = 77;
+    s.chance = 35;
+    s.nudge = -9;
+    s.repeat = 3;
+    CHECK(decodeCircleStep(encodeCircleStep(s)) == s);
+    CHECK(encodeCircleStep(s) < (1 << 24)); // survives a float (scenes)
+    CHECK(!decodeCircleStep(0).on);
+    int count = 0;
+    std::string tresillo;
+    for (int k = 0; k < 8; ++k)
+    {
+        tresillo += euclidHit(k, 3, 8, 0) ? 'x' : '.';
+        count += euclidHit(k, 5, 13, 4) ? 1 : 0;
+    }
+    CHECK(tresillo == "x..x..x." || tresillo == "x..x.x.." || tresillo == "x.x..x..");
+    count = 0;
+    for (int k = 0; k < 13; ++k)
+        count += euclidHit(k, 5, 13, 4) ? 1 : 0;
+    CHECK(count == 5);
+}
+
+TEST("circles: the drums play their rings: velocity, chance, nudge, repeats, own lengths")
+{
+    EngineParams p;
+    p.pattern.mode = PatternMode::Circles;
+    p.groove.timing = Timing::Shake;
+    p.groove.shuffle = 0.0f;
+    auto set = [&p](int voice, int step, int velocity, int chance = 100, int nudge = 0, int repeat = 1) {
+        CircleStep s;
+        s.on = true;
+        s.velocity = velocity;
+        s.chance = chance;
+        s.nudge = nudge;
+        s.repeat = repeat;
+        p.pattern.circles[static_cast<size_t>(voice)][static_cast<size_t>(step)] = encodeCircleStep(s);
+    };
+    p.pattern.length = { 16, 16, 3, 16, 16, 16 };
+    set(Kick, 0, 127);
+    set(Kick, 8, 40);
+    set(Snare, 4, 100, 100, 12); // half a step late
+    set(HiHat1, 0, 90);          // a ring of three: every third 16th
+    set(Perc1, 0, 100, 100, 0, 3);
+    set(Perc2, 2, 100, 0);       // never
+    const double bpm = 120.0, sr = 48000.0;
+    const double samplesPerStep = sr * 60.0 / bpm / 4.0;
+    const auto events = noteOns(render(p, 256, static_cast<std::int64_t>(samplesPerStep * 32), bpm, sr));
+    std::map<int, std::vector<AbsEvent>> by;
+    for (const auto& e : events)
+        by[e.voice].push_back(e);
+    CHECK(by[Kick].size() == 4); // steps 0 and 8 of two 16-step loops
+    CHECK(by[Kick][0].velocity > by[Kick][1].velocity);
+    CHECK(by[Snare].size() == 2);
+    CHECK(std::abs(static_cast<double>(by[Snare][0].sample) - 4.5 * samplesPerStep) < 2.0);
+    CHECK(by[HiHat1].size() == 11); // 0, 3, ..., 30
+    CHECK(by[Perc1].size() == 6);   // three hits, twice
+    CHECK(by[Perc2].empty());
+    // The map mode is untouched by the rings.
+    p.pattern.mode = PatternMode::Map;
+    p.pattern.fill.fill(0.0f);
+    CHECK(noteOns(render(p, 256, static_cast<std::int64_t>(samplesPerStep * 32), bpm, sr)).empty());
+}

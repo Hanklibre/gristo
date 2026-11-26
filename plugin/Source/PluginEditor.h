@@ -214,6 +214,24 @@ private:
 
     // Chords page (the harmony pad is shared with the Play screen)
     void setupChordPage();
+    // Circles: the drums as rings of steps (Pattern mode Circles), a page to edit them.
+    void setupCirclesPage();
+    void applyPatternMode();        // the map or the rings, on the pages that show the pattern
+    void updateCircles(const gristo::EngineParams& params);
+    std::vector<juce::Component*> circlesPageComponents();
+    void editRing(int voice, const std::function<void(std::array<gristo::CircleStep, gristo::kPatternSteps>&, int length)>& change);
+    void ringFromMap(int voice);
+    CircleView circleView_;
+    Choice patternMode_;
+    juce::TextButton circlesButton_ { "Edit circles" }, backFromCircles_ { "Back" };
+    juce::TextButton circleEdit_[4];
+    juce::TextButton ringTools_[7];
+    juce::Slider euclidHits_, euclidRotate_;
+    std::unique_ptr<NumberSelector> ringLength_[gristo::kNumVoices], ringDivide_[gristo::kNumVoices];
+    juce::Label circlesNote_;
+    int selectedRing_ = 0, circlesReturnPage_ = 0;
+    bool circlesShown_ = false;
+    int lastRingPart_ = -1;
     std::vector<juce::Component*> chordPageComponents();
     void updateChordPage(const gristo::EngineParams& params);
     Toggle chordOn_;
@@ -247,6 +265,7 @@ private:
     static constexpr int kRingsPage = kPlayPage + 1;
     static constexpr int kMixerPage = kRingsPage + 1;
     static constexpr int kChartPage = kMixerPage + 1;
+    static constexpr int kCirclesPage = kChartPage + 1;
     // Mixer page: one strip per channel (Kit, Arp 1-3, Chords, Rings, Beads, Delay, Reverb).
     static constexpr int kMixStrips = 9;
     struct MixStrip

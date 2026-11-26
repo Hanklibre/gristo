@@ -30,6 +30,8 @@ GristoProcessor::GristoProcessor()
                          .withOutput("Delay", juce::AudioChannelSet::stereo(), false)),
       state(*this, nullptr, "GRISTO", p::createLayout())
 {
+    for (auto& e : circleSteps)
+        e.store(0);
     for (auto& e : stepEdits)
         e.store(0);
     p::registerParameterTargets(*this);
@@ -123,7 +125,7 @@ void GristoProcessor::refreshSettings()
 void GristoProcessor::readSettings()
 {
     auto& c = settings_;
-    c.engine = p::readEngineParams(state, modPoints, &stepEdits);
+    c.engine = p::readEngineParams(state, modPoints, &stepEdits, &circleSteps);
     // A muted arp or chord part keeps playing inside (its pre-fader Beads send and Rings
     // still hear it); the mixer silences its sound and the MIDI out leaves its notes out.
     for (int arp = 0; arp <= gristo::kNumArps; ++arp)
@@ -612,6 +614,22 @@ void GristoProcessor::setStepEdit(int voice, int step, int edit)
     paramGeneration_.fetch_add(1);
 }
 
+int GristoProcessor::circleStep(int voice, int step) const
+{
+    if (voice < 0 || voice >= gristo::kNumVoices)
+        return 0;
+    return circleSteps[static_cast<size_t>(voice * gristo::kPatternSteps + gristo::floorMod(step, gristo::kPatternSteps))].load();
+}
+
+void GristoProcessor::setCircleStep(int voice, int step, int code)
+{
+    if (voice < 0 || voice >= gristo::kNumVoices)
+        return;
+    circleSteps[static_cast<size_t>(voice * gristo::kPatternSteps + gristo::floorMod(step, gristo::kPatternSteps))].store(
+        gristo::encodeCircleStep(gristo::decodeCircleStep(code)));
+    paramGeneration_.fetch_add(1);
+}
+
 void GristoProcessor::clearStepEdits(int voice)
 {
     for (int v = 0; v < gristo::kNumVoices; ++v)
@@ -634,6 +652,10 @@ void GristoProcessor::writeLanes(juce::ValueTree& lanes) const
     for (const auto& e : stepEdits)
         steps << juce::String(e.load());
     lanes.setProperty("steps", steps, nullptr);
+    juce::StringArray circles; // Circles mode's rings
+    for (const auto& c : circleSteps)
+        circles.add(juce::String(c.load()));
+    lanes.setProperty("circles", circles.joinIntoString(","), nullptr);
 }
 
 void GristoProcessor::readLanes(const juce::ValueTree& lanes)
@@ -651,6 +673,10 @@ void GristoProcessor::readLanes(const juce::ValueTree& lanes)
     const auto steps = lanes.getProperty("steps").toString();
     for (int i = 0; i < static_cast<int>(stepEdits.size()); ++i)
         stepEdits[static_cast<size_t>(i)].store(i < steps.length() ? juce::jlimit(0, 2, static_cast<int>(steps[i]) - '0') : 0);
+    juce::StringArray circles;
+    circles.addTokens(lanes.getProperty("circles").toString(), ",", {});
+    for (int i = 0; i < static_cast<int>(circleSteps.size()); ++i)
+        circleSteps[static_cast<size_t>(i)].store(i < circles.size() ? gristo::encodeCircleStep(gristo::decodeCircleStep(circles[i].getIntValue())) : 0);
     paramGeneration_.fetch_add(1);
 }
 
@@ -716,7 +742,7 @@ std::vector<GristoProcessor::NoteSpan> GristoProcessor::renderSpans(double start
 {
     constexpr int kBlock = 512;
     constexpr double kRate = 48000.0;
-    gristo::EngineParams params = p::readEngineParams(state, modPoints, &stepEdits);
+    gristo::EngineParams params = p::readEngineParams(state, modPoints, &stepEdits, &circleSteps);
     params.partMute.fill(false);
     gristo::Engine engine;
     engine.setParams(params);
@@ -765,7 +791,7 @@ juce::MidiFile GristoProcessor::exportMidi(int bars, int part) const
     constexpr double kRate = 48000.0;
     auto value = [this](const juce::String& id) { return state.getRawParameterValue(id)->load(); };
 
-    gristo::EngineParams params = p::readEngineParams(state, modPoints, &stepEdits);
+    gristo::EngineParams params = p::readEngineParams(state, modPoints, &stepEdits, &circleSteps);
     const auto wasMuted = params.partMute;
     params.partMute.fill(false); // the engine plays everything; muted parts are left out below
     gristo::Engine engine;
@@ -1431,7 +1457,8 @@ void GristoProcessor::readScenes(const juce::ValueTree& parent)
         // Only scenes saved with this exact set of parameters fit.
         if (i >= 0 && i < kNumScenes && snapshot.values.size() == expected
             && (snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints)
-                || snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints) + stepEdits.size()))
+                || snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints) + stepEdits.size()
+                || snapshot.lanePoints.size() == static_cast<size_t>(gristo::kNumModLanes * gristo::kMaxModPoints) + stepEdits.size() + circleSteps.size()))
             scenes_[static_cast<size_t>(i)] = std::move(snapshot);
     }
 }
@@ -1612,7 +1639,7 @@ void GristoProcessor::catchHarmony()
         setValue(p::chordFrozen, 0.0f);
         return;
     }
-    const auto chords = p::readEngineParams(state, modPoints, &stepEdits).chords;
+    const auto chords = p::readEngineParams(state, modPoints, &stepEdits, &circleSteps).chords;
     const auto step = static_cast<std::int64_t>(std::floor(displayPpq.load() * gristo::kStepsPerBeat));
     auto phrase = gristo::Chords::phraseAt(chords, step);
     // Early in a phrase, what you just heard and liked is the one before.

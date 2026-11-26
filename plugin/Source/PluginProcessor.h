@@ -48,6 +48,9 @@ public:
     // Drawn modulation lane curves (see Parameters.h) and the editor's zoom.
     gristo::params::ModPointStore modPoints;
     gristo::params::StepEditStore stepEdits;
+    gristo::params::CircleStore circleSteps; // Circles mode: the drums' rings (see gristo::encodeCircleStep)
+    void setCircleStep(int voice, int step, int code);
+    int circleStep(int voice, int step) const;
     // Hand edits of the drum steps (message thread): 0 as generated, 1 hit, 2 rest.
     int stepEdit(int voice, int step) const;
     void setStepEdit(int voice, int step, int edit);

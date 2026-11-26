@@ -56,6 +56,8 @@ float PatternGenerator::probabilityAt(const PatternParams& p, int voice, std::in
 
 StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absoluteStep) const
 {
+    if (p.mode == PatternMode::Circles)
+        return evaluateCircles(p, absoluteStep);
     const auto [mapX, mapY] = mapPositionAt(p, absoluteStep);
 
     StepHits hits {};
@@ -126,6 +128,43 @@ StepHits PatternGenerator::evaluate(const PatternParams& p, std::int64_t absolut
             h.on = h.accent = false;
             h.dropped = false;
         }
+    }
+    return hits;
+}
+
+StepHits PatternGenerator::evaluateCircles(const PatternParams& p, std::int64_t absoluteStep)
+{
+    StepHits hits {};
+    for (int v = 0; v < kNumVoices; ++v)
+    {
+        const int loopStep = voiceLoopStep(absoluteStep, p.length[static_cast<size_t>(v)], p.divide[static_cast<size_t>(v)]);
+        if (loopStep < 0)
+            continue;
+        const CircleStep step = decodeCircleStep(p.circles[static_cast<size_t>(v)][static_cast<size_t>(loopStep)]);
+        if (!step.on || p.mute[static_cast<size_t>(v)])
+            continue;
+        VoiceHit& h = hits[static_cast<size_t>(v)];
+        h.level = static_cast<float>(step.velocity) / 127.0f;
+        h.threshold = 0.0f;
+        h.on = true;
+        if (const int condition = p.condition[static_cast<size_t>(v)]; condition > 0)
+        {
+            const std::int64_t bar = floorDiv(absoluteStep, kStepsPerBar);
+            h.on = condition == 1 ? floorMod(bar, 2) == 0 : condition == 2 ? floorMod(bar, 2) == 1
+                 : condition == 3 ? floorMod(bar, 4) == 0 : floorMod(bar, 4) == 3;
+        }
+        // The step's own chance and the drum's Probability: one roll (as a map hit's).
+        const float chance = probabilityAt(p, v, absoluteStep) * static_cast<float>(step.chance) / 100.0f;
+        if (h.on && chance < 1.0f
+            && rnd::unit(rnd::hash(p.seed, kProbabilityStream + static_cast<std::uint32_t>(v), absoluteStep)) >= chance)
+        {
+            h.on = false;
+            h.dropped = true;
+        }
+        h.velocity = h.level;
+        h.accent = h.on && step.velocity >= 110;
+        h.nudgeSteps = static_cast<float>(step.nudge) / 24.0f;
+        h.repeat = step.repeat;
     }
     return hits;
 }
